@@ -330,6 +330,9 @@ def _evaluate_bundles(
     # Stack errors into a matrix with shape (num_trials, num_samples).
     error_matrix = torch.stack(errors_all)
 
+    # Stack logits into a matrix with shape (num_trials, num_samples, num_classes)
+    logits_matrix = torch.stack(logits_all) if logits_all else None
+
     non_ensemble_mean = float(np.mean(accuracies)) if accuracies else float("nan")
     if not accuracies:
         non_ensemble_std = float("nan")
@@ -352,6 +355,8 @@ def _evaluate_bundles(
         "ensemble_results": ensemble_results,
         "non_ensemble_mean": non_ensemble_mean,
         "non_ensemble_std": non_ensemble_std,
+        "logits_matrix": logits_matrix,
+        "labels_ref": labels_ref,
     }
 
 
