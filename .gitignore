@@ -23,3 +23,14 @@ Thumbs.db
 # Repo-specific
 save/
 dataset/
+
+# VS-code
+.github
+*.code-workspace
+
+# Notes
+docs/
+*.md
+
+# Weights
+supcon_wstopo_256embdims_128projdims_0.0rho_500epochs_512bsz_nwork2_readep200_lr0.002_0.0dropout/
