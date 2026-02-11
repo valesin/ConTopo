@@ -26,6 +26,7 @@ def parse_arguments():
     # Topopgaphic Loss settings
     parser.add_argument('topography_type', type=str, choices=['global', 'ws'], help='type of topographic loss to use')
     parser.add_argument('--topographic_loss_rho', type=float, default=0.05, help='balancing factor of the two losses')
+    parser.add_argument('--topology', type=str, default='grid', choices=['grid', 'torus'], help='topology of the neuron grid (default: grid)')
 
     # Optimization settings
     parser.add_argument('--epochs', type=int, default=125, help='number of epochs to train')
@@ -47,8 +48,9 @@ def parse_arguments():
     arguments.save_freq = max(1, arguments.epochs // 10)  # Save every 10% of epochs, rounded up
     arguments.num_classes = 10
 
-    arguments.model_name = 'crossentropy_{}topo_{}embdims_{}rho_{}epochs_{}bsz_{}nwork_{}lr_{}dropout'.format(
+    arguments.model_name = 'crossentropy_{}topo_{}_{}embdims_{}rho_{}epochs_{}bsz_{}nwork_{}lr_{}dropout'.format(
         arguments.topography_type,
+        arguments.topology,
         arguments.embedding_dim,
         arguments.topographic_loss_rho, 
         arguments.epochs,
@@ -140,7 +142,7 @@ def setup_model(arguments):
     if arguments.topography_type == 'global':
         topographic_loss = Global_Topographic_Loss(weight=1.0, emb_dim=arguments.embedding_dim)
     elif arguments.topography_type == 'ws':
-        topographic_loss = Local_WS_Loss(weight=1.0)
+        topographic_loss = Local_WS_Loss(weight=1.0, topology=arguments.topology)
 
     if torch.cuda.is_available():
         if torch.cuda.device_count() > 1:
