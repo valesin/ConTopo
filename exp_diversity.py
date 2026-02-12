@@ -55,9 +55,8 @@ from utils.metrics import (
     pairwise_param_cosine,
 )
 
-from exp_errorcorr import _evaluate_bundles
-
 from utils.ensemble_combination import compute_all_ensemble_probs
+from utils.run_inference import evaluate_bundles_individually
 
 # Reuse existing helpers from the repository.
 # These are local modules in the repo; importing is fine when adding the file to the repo root.
@@ -119,32 +118,7 @@ def _print_pairwise_summary(
     print(fmt_mat(metrics["mcnemar_p"]))
 
 
-_EVAL_CACHE_FILENAME = "cache_eval.pt"
 
-
-def evaluate_with_cache(evaluate_fn, cache_dir, use_cache, *args, **kwargs):
-    """
-    Wrapper for evaluation with optional caching.
-
-    Args:
-        evaluate_fn: The evaluation function to call if cache is not used.
-        cache_dir: Directory to store/load the cache file (typically the model path).
-        use_cache: If True, use cache if available.
-        *args, **kwargs: Arguments to pass to evaluate_fn.
-
-    Returns:
-        The evaluation results (dict or other type).
-    """
-    cache_path = os.path.join(cache_dir, _EVAL_CACHE_FILENAME)
-    if use_cache and os.path.exists(cache_path):
-        print(f"Loading cached results from {cache_path}")
-        return torch.load(cache_path)
-    else:
-        results = evaluate_fn(*args, **kwargs)
-        if use_cache:
-            torch.save(results, cache_path)
-            print(f"Saved results to cache at {cache_path}")
-        return results
 
 
 def _print_ensemble_summary(
@@ -240,14 +214,7 @@ def main() -> None:
         pin_memory=pin_memory,
     )
 
-    cache_dir = args.path
-    result = evaluate_with_cache(
-        _evaluate_bundles,
-        cache_dir,
-        use_cache=args.use_cache,
-        bundles=bundles,
-        loader=loader,
-    )
+    result = evaluate_bundles_individually(bundles, loader, force=not args.use_cache)
     if result is None:
         print("No trials evaluated.")
         return
@@ -275,6 +242,7 @@ def main() -> None:
         ]
 
         # Compute ensemble probs first (needed by norm_pred_disagreement)
+        cache_dir = args.path
         ensemble_cache_dir = cache_dir if args.use_cache else None
         ensemble_probs = compute_all_ensemble_probs(
             logits_matrix=logits_matrix,
