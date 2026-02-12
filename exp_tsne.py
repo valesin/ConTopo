@@ -91,7 +91,8 @@ def main():
         plt.tight_layout()
         figurepath = resolve_figure_path(src, experiment="tsne")
         plt.savefig(figurepath, dpi=200, bbox_inches='tight')
-        plt.show()
+        plt.close()
+        print(f"Saved figure to {figurepath}")
 
 if __name__ == "__main__":
     main()
