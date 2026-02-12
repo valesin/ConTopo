@@ -57,6 +57,8 @@ from utils.metrics import (
 
 from exp_errorcorr import _evaluate_bundles
 
+from utils.ensemble_combination import compute_all_ensemble_probs
+
 # Reuse existing helpers from the repository.
 # These are local modules in the repo; importing is fine when adding the file to the repo root.
 try:
@@ -143,100 +145,6 @@ def evaluate_with_cache(evaluate_fn, cache_dir, use_cache, *args, **kwargs):
             torch.save(results, cache_path)
             print(f"Saved results to cache at {cache_path}")
         return results
-
-
-def _ensemble_probs_for_subset(logits_subset: torch.Tensor) -> Dict[str, torch.Tensor]:
-    """
-    Compute ensemble probability tensors for all 4 methods from a subset of model logits.
-
-    Args:
-        logits_subset: shape [M, N, C] — logits from M models over N samples and C classes.
-
-    Returns:
-        Dict mapping method name -> ensemble probability tensor of shape [N, C].
-        For 'hard' voting the tensor is a one-hot encoding of the majority-vote prediction.
-    """
-    M, N, C = logits_subset.shape
-    probs = torch.softmax(logits_subset, dim=2)  # [M, N, C]
-
-    results: Dict[str, torch.Tensor] = {}
-
-    # --- soft: average probabilities ---
-    results["soft"] = probs.mean(dim=0)  # [N, C]
-
-    # --- hard: majority vote (one-hot) ---
-    per_model_preds = logits_subset.argmax(dim=2)  # [M, N]
-    hard_preds = torch.zeros(N, dtype=torch.long)
-    for i in range(N):
-        votes = per_model_preds[:, i]
-        counts = torch.bincount(votes, minlength=C)
-        hard_preds[i] = counts.argmax()
-    hard_onehot = torch.zeros(N, C)
-    hard_onehot.scatter_(1, hard_preds.unsqueeze(1), 1.0)
-    results["hard"] = hard_onehot
-
-    # --- max_confidence: per sample, use the full prob vector from the most confident model ---
-    max_conf_per_model = probs.max(dim=2).values  # [M, N]
-    best_model_idx = max_conf_per_model.argmax(dim=0)  # [N]
-    # Gather the probability vectors from the best model for each sample
-    # best_model_idx: [N] -> expand to [1, N, C] for gather over dim 0
-    idx_expanded = best_model_idx.unsqueeze(0).unsqueeze(2).expand(1, N, C)  # [1, N, C]
-    results["max_confidence"] = probs.gather(0, idx_expanded).squeeze(0)  # [N, C]
-
-    # --- conf_weighted: weight each model's probs by its confidence ---
-    confs = max_conf_per_model  # [M, N]
-    weights = confs / confs.sum(dim=0, keepdim=True)  # [M, N], normalised
-    # einsum: (M,N) * (M,N,C) -> (N,C)
-    results["conf_weighted"] = torch.einsum("mn,mnc->nc", weights, probs)
-
-    return results
-
-
-_ENSEMBLE_CACHE_FILENAME = "cache_ensemble_probs.pt"
-
-
-def compute_all_ensemble_probs(
-    logits_matrix: torch.Tensor,
-    labels: torch.Tensor,
-    cache_dir: str | None = None,
-) -> Dict[Union[str, Tuple[int, int]], Dict[str, torch.Tensor]]:
-    """
-    Compute ensemble probability tensors for all 4 methods, both for the full
-    ensemble (all R models) and for every pairwise combination (i, j) where i < j.
-
-    Args:
-        logits_matrix: shape [R, N, C].
-        labels: shape [N] (ground-truth labels; not used in computation but
-                kept for potential downstream use).
-        cache_dir: directory to store/load the cache file (typically the model
-                   path). None disables caching.
-
-    Returns:
-        Dict keyed by "all" or (i, j) tuples.  Each value is a dict mapping
-        method name ("soft", "hard", "max_confidence", "conf_weighted") to a
-        torch.Tensor of shape [N, C].
-    """
-    if cache_dir is not None:
-        cache_path = os.path.join(cache_dir, _ENSEMBLE_CACHE_FILENAME)
-        if os.path.exists(cache_path):
-            print(f"Loading cached ensemble probs from {cache_path}")
-            return torch.load(cache_path)
-
-    R = logits_matrix.shape[0]
-    result: Dict[Union[str, Tuple[int, int]], Dict[str, torch.Tensor]] = {}
-
-    # Full ensemble (all R models)
-    result["all"] = _ensemble_probs_for_subset(logits_matrix)
-
-    # Pairwise ensembles
-    for i, j in combinations(range(R), 2):
-        result[(i, j)] = _ensemble_probs_for_subset(logits_matrix[[i, j]])
-
-    if cache_dir is not None:
-        torch.save(result, cache_path)
-        print(f"Saved ensemble probs to cache at {cache_path}")
-
-    return result
 
 
 def _print_ensemble_summary(
@@ -371,6 +279,7 @@ def main() -> None:
         ensemble_probs = compute_all_ensemble_probs(
             logits_matrix=logits_matrix,
             labels=labels,
+            run_names=run_names,  # New argument
             cache_dir=ensemble_cache_dir,
         )
 
