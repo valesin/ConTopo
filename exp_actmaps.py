@@ -8,6 +8,26 @@ from utils.load import load_model_bundles, parse_model_load_args
 from utils.experiments import get_cifar10_eval_loader, resolve_figure_path
 from utils.train import load_cifar10_metadata
 
+
+"""
+This script generates visualization of activation maps for the first fully connected layer (FC1)
+of a trained model. It selects one exemplar image per class from the CIFAR-10 validation set.
+
+Outputs:
+1. A figure (.png) showing the input image and its corresponding activation heatmap for each class.
+   Path: <model_dir>/figures/actmaps/<experiment_name>.png
+
+2. A data file (.pt) containing the raw activation matrices.
+   Path: <model_dir>/figures/actmaps/<experiment_name>.pt
+   Format: A dictionary where keys are class names (str) and values are torch tensors of shape (h, w)
+           representing the activation map for that class.
+           {
+               'airplane': tensor([[...], ...]),
+               'automobile': tensor([[...], ...]),
+               ...
+           }
+"""
+
 def main():
     args = parse_model_load_args()
 
