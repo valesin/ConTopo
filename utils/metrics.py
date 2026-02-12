@@ -456,3 +456,142 @@ def pairwise_param_cosine(param_vecs: List[np.ndarray]) -> np.ndarray:
                 continue
             result[i, j] = float(np.dot(a, b) / denom)
     return result
+
+
+def pairwise_iou_top_n(
+    logits_list: List[torch.Tensor], n: int = 5
+) -> np.ndarray:
+    """
+    Compute pairwise average Top-N Intersection over Union (IoU).
+
+    For each sample, get the set of top-N predicted class indices for both models.
+    Compute sizes of intersection and union, then IoU. Average over samples.
+
+    Args:
+        logits_list: list of R logits tensors (shape [N, C]).
+        n: number of top predictions to consider.
+
+    Returns:
+        np.ndarray of shape (R, R) with average IoU values.
+    """
+    R = len(logits_list)
+    N = logits_list[0].shape[0]
+    
+    # Pre-compute top-n indices for all models
+    # top_indices_list[i] has shape [N, n]
+    top_indices_list = [
+        logits.topk(n, dim=1).indices for logits in logits_list
+    ]
+
+    result = np.full((R, R), np.nan, dtype=float)
+
+    for i in range(R):
+        for j in range(R):
+            if i == j:
+                result[i, j] = 1.0
+                continue
+            
+            # shape [N, n]
+            inds_i = top_indices_list[i]
+            inds_j = top_indices_list[j]
+
+            # We need intersection size per sample.
+            # One way: expand and broadcast comparison
+            # inds_i: [N, n, 1], inds_j: [N, 1, n]
+            # matches: [N, n, n]
+            matches = (inds_i.unsqueeze(2) == inds_j.unsqueeze(1))
+            # intersection size per sample: sum over n,n dims
+            inter = matches.sum(dim=(1, 2)).float()  # [N]
+            
+            # Union size = |A| + |B| - |A n B| = n + n - inter
+            union = 2 * n - inter
+            
+            iou = inter / union
+            result[i, j] = iou.mean().item()
+
+    return result
+
+
+def group_confusion_counts(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Placeholder for group confusion counts."""
+    return float('nan')
+
+
+def group_asym_ratio(counts_stack: np.ndarray) -> float:
+    """Placeholder for group asymmetry ratio."""
+    return float('nan')
+
+
+def group_correctness_disagreement(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Placeholder for group correctness disagreement."""
+    return float('nan')
+
+
+def group_error_conditional_disagreement(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Placeholder for group error conditional disagreement."""
+    return float('nan')
+
+
+def group_overall_agreement(preds_list: List[torch.Tensor]) -> float:
+    """Placeholder for group overall agreement."""
+    return float('nan')
+
+
+def group_cohens_kappa(counts_stack: np.ndarray) -> float:
+    """Placeholder for group Cohen's Kappa."""
+    return float('nan')
+
+
+def group_jaccard(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Placeholder for group Jaccard index."""
+    return float('nan')
+
+
+def group_mcnemar_p(counts_stack: np.ndarray) -> float:
+    """Placeholder for group McNemar's test p-value."""
+    return float('nan')
+
+
+def group_pred_disagreement(preds_list: List[torch.Tensor]) -> float:
+    """Placeholder for group prediction disagreement."""
+    return float('nan')
+
+
+def group_norm_pred_disagreement(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Placeholder for group normalized prediction disagreement."""
+    return float('nan')
+
+
+def group_double_fault(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Placeholder for group double fault."""
+    return float('nan')
+
+
+def group_output_correlation(probs_list: List[np.ndarray]) -> float:
+    """Placeholder for group output correlation."""
+    return float('nan')
+
+
+def group_q_statistic(counts_stack: np.ndarray) -> float:
+    """Placeholder for group Q statistic."""
+    return float('nan')
+
+
+def group_param_cosine(param_vecs: List[np.ndarray]) -> float:
+    """Placeholder for group parameter cosine similarity."""
+    return float('nan')
+
+
+def group_iou_top_n(logits_list: List[torch.Tensor], n: int = 5) -> float:
+    """Placeholder for group Top-N IoU."""
+    return float('nan')
+
+
+def group_generalized_diversity(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """
+    Generalized Diversity (GD) for an ensemble.
+    GD = 1 - (p(2 failures) / p(1 failure))
+    Placeholder implementation.
+    """
+    return float('nan')
+
