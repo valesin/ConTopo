@@ -1,3 +1,6 @@
+import yaml
+import os
+from typing import Any, Dict
 import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
@@ -6,6 +9,22 @@ import re
 
 CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)
 CIFAR10_STD  = (0.2023, 0.1994, 0.2010)
+
+def load_config(config_path: str) -> Dict[str, Any]:
+    """
+    Load a YAML configuration file.
+    
+    Args:
+        config_path: Path to the YAML file.
+        
+    Returns:
+        Dictionary containing the configuration.
+    """
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+        
+    # Validation / defaults could go here
+    return config
 
 def get_cifar10_eval_loader(
     root: str = "./dataset",
@@ -29,6 +48,7 @@ def get_cifar10_eval_loader(
         transforms.ToTensor(),
         transforms.Normalize(CIFAR10_MEAN, CIFAR10_STD),
     ])
+             # default or inferred from absence? usually if wstopo is present but
 
     ds = datasets.CIFAR10(root=root, train=False, download=True, transform=transform)
 
@@ -108,3 +128,73 @@ def resolve_figure_path(src_path: str, experiment: str | None = None) -> str:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     return str(out_dir / f"{ckpt_stem}.png")
+
+
+def parse_model_name(path: str) -> dict:
+    """
+    Extract hyperparameters from a model folder path.
+
+    Handles standard naming patterns like:
+      - crossentropy_wstopo_256embdims_0.05rho_125epochs_512bsz_2nwork_0.002lr_0.5dropout
+      - simclr_wstopo_grid_256embdims_128projdims_0.05rho_250epochs_512bsz_nwork8_readep200_lr0.002_0.5dropout
+
+    Returns a dict with extracted values (e.g., {'loss': 'crossentropy', 'rho': 0.05, ...}).
+    """
+    import os
+    import re
+    
+    name = os.path.basename(os.path.normpath(path))
+    info = {'model_name': name}
+
+    # Extract Loss Type (first part)
+    if name.startswith('crossentropy_'):
+        info['loss'] = 'crossentropy'
+    elif name.startswith('supcon_'):
+        info['loss'] = 'supcon'
+    elif name.startswith('simclr_'):
+        info['loss'] = 'simclr'
+    else:
+        info['loss'] = 'unknown'
+
+    # Extract Topology Type
+    if 'wstopo' in name:
+        info['topo_type'] = 'ws'
+        if '_grid_' in name:
+            info['topology'] = 'grid'
+        elif '_torus_' in name:
+            info['topology'] = 'torus'
+        else:
+             # default or inferred from absence? usually if wstopo is present but no grid/torus, checks args
+             # But let's look for specific patterns
+             pass  
+    elif 'globaltopo' in name:
+        info['topo_type'] = 'global'
+    else:
+        info['topo_type'] = 'none'
+
+    # Regex patterns for common params
+    patterns = {
+        'rho': r'([\d\.]+)rho',
+        'epochs': r'(\d+)epochs',
+        'batch_size': r'(\d+)bsz',
+        'lr': r'([\d\.]+)lr',
+        'dropout': r'([\d\.]+)dropout',
+        'emb_dim': r'(\d+)embdims',
+        'proj_dim': r'(\d+)projdims',
+        'readout_epochs': r'readep(\d+)',
+    }
+
+    for key, pat in patterns.items():
+        match = re.search(pat, name)
+        if match:
+             try:
+                # Try converting to int first, then float
+                val_str = match.group(1)
+                if '.' in val_str:
+                    info[key] = float(val_str)
+                else:
+                    info[key] = int(val_str)
+             except ValueError:
+                 info[key] = match.group(1)
+    
+    return info
