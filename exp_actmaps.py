@@ -100,13 +100,18 @@ def main():
         fig, axes = plt.subplots(rows, 2, figsize=(6, 3 * rows))
 
         v = act.abs().max().item()
+        
+        class_act_matrices = {}
 
         for i in range(rows):
             axes[i, 0].imshow(imgs_show[i].permute(1, 2, 0))
-            axes[i, 0].set_title(f"{class_names[exemplar_labels[i]]}", fontsize=10)
+            class_name = class_names[exemplar_labels[i]]
+            axes[i, 0].set_title(f"{class_name}", fontsize=10)
             axes[i, 0].axis('off')
 
             heat = act[i].reshape(h, w)
+            class_act_matrices[class_name] = heat.cpu()
+
             im = axes[i, 1].imshow(
                 heat,
                 cmap='bwr',
@@ -123,6 +128,10 @@ def main():
         plt.savefig(figurepath, dpi=200, bbox_inches='tight')
         plt.close(fig)
         print(f"Saved figure to {figurepath}")
+
+        datapath = figurepath.replace('.png', '.pt').replace('.pdf', '.pt')
+        torch.save(class_act_matrices, datapath)
+        print(f"Saved activation matrices to {datapath}")
 
 
 if __name__ == "__main__":
