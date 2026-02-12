@@ -1,0 +1,31 @@
+{
+    "defaults": {
+        "python": "python",
+        "base_logdir": "logs",
+        "retries": 0
+    },
+    "experiments": [
+        {
+            "id": "cross-entropy-torus",
+            "script": "main_ce.py",
+            "fixed_args": [
+                "ws",
+                "resnet18"
+            ],
+            "flags": {
+                "epochs": 50,
+                "topology": "torus"
+            },
+            "grid": {
+                "trial": [
+                    0,
+                    1,
+                    2
+                ],
+                "topographic_loss_rho": [
+                    0.0, 0.008, 0.2, 1.0, 5.0
+                ]
+            }
+        }
+    ]
+}
