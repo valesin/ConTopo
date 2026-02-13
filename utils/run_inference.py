@@ -1,3 +1,18 @@
+"""
+Utility for running inference on model bundles and caching the results.
+
+This module provides functions to run inference on loaded model bundles, calculate
+accuracy, and save the resulting predictions, labels, and logits to a file for
+efficient caching and subsequent analysis.
+
+Saved File Structure:
+The inference results are saved as a PyTorch file named `inference_cifar.pt` inside
+the model's run directory. This file contains a dictionary with the following keys:
+  - "preds": torch.Tensor of shape (N,), containing the predicted class indices for each sample.
+  - "labels": torch.Tensor of shape (N,), containing the ground truth labels.
+  - "logits": torch.Tensor of shape (N, C), containing the raw logits, where C is the number of classes.
+  - "accuracy": float, representing the accuracy of the model on the evaluation dataset.
+"""
 import os
 import torch
 import numpy as np
