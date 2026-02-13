@@ -1,13 +1,12 @@
 model_dir: "save/ResNet18/models"
 runs:
-  - "crossentropy_wstopo_torus_256embdims_0.008rho_50epochs_512bsz_2nwork_0.002lr_0.5dropout"
-  - "crossentropy_wstopo_torus_256embdims_0.04rho_50epochs_512bsz_2nwork_0.002lr_0.5dropout"
-  - "crossentropy_wstopo_torus_256embdims_0.0rho_50epochs_512bsz_2nwork_0.002lr_0.5dropout"
+  - "crossentropy_wstopo_grid_256embdims_0.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout"
+  - "crossentropy_wstopo_grid_256embdims_0.2rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout"
+  - "crossentropy_wstopo_grid_256embdims_0.04rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout"
+  - "crossentropy_wstopo_grid_256embdims_0.008rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout"
+  - "crossentropy_wstopo_grid_256embdims_1.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout"
 data_root: "dataset"
-batch_size: 100
 save_dir: "save/ensembles_test"
-min_k: 2
-max_k: 3
 
 # Which diversity metrics to compute (omit to use all available)
 metrics:

@@ -4,6 +4,10 @@ Ensemble combination utilities.
 Provides functions to compute ensemble probabilities from a set of models,
 supporting multiple combination strategies (soft, hard, max_confidence, conf_weighted).
 Also handles caching of ensemble results with traceability back to specific trials.
+
+Hashing helpers (``get_ensemble_hash``, ``update_index``) provide deterministic
+mapping between a sorted list of run names and a 16-hex-char SHA-256 hash used
+as the filesystem key for cached ensemble results.
 """
 
 from __future__ import annotations
@@ -15,6 +19,43 @@ from itertools import combinations
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+
+
+# ---------------------------------------------------------------------------
+# Hashing helpers
+# ---------------------------------------------------------------------------
+
+def get_ensemble_hash(run_names: List[str]) -> str:
+    """
+    Generate a deterministic 16-hex-char hash for a set of run names.
+
+    The hash is the first 16 characters of the SHA-256 digest of the
+    JSON-encoded *sorted* list of run names.  Sorting guarantees that
+    the same set of models always maps to the same hash regardless of
+    insertion order.
+    """
+    return hashlib.sha256(json.dumps(sorted(run_names)).encode()).hexdigest()[:16]
+
+
+def update_index(save_dir: str, run_hash: str, run_names: List[str]) -> None:
+    """
+    Append / update an entry in the global ``index.json`` inside *save_dir*.
+
+    ``index.json`` maps every previously computed ensemble hash to the
+    sorted list of its component run names, enabling fast reverse lookups.
+    """
+    index_path = os.path.join(save_dir, "index.json")
+    index: Dict[str, List[str]] = {}
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r") as f:
+                index = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    index[run_hash] = sorted(run_names)
+    with open(index_path, "w") as f:
+        json.dump(index, f, indent=2)
+
 
 # ---------------------------------------------------------------------------
 # Ensemble Strategies

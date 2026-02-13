@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import comb
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any, Callable
 
 import numpy as np
 import torch
@@ -69,17 +69,72 @@ def _counts_from_stack(counts_stack: np.ndarray, i: int, j: int) -> AgreementCou
     )
 
 
+
 def _apply_over_pairs(
     counts_stack: np.ndarray,
     fn,
+    **kwargs
 ) -> np.ndarray:
     """Apply a single-pair metric function over all pairs in a counts stack."""
     R = counts_stack.shape[1]
     result = np.full((R, R), np.nan, dtype=float)
     for i in range(R):
         for j in range(R):
-            result[i, j] = fn(_counts_from_stack(counts_stack, i, j))
+            result[i, j] = fn(_counts_from_stack(counts_stack, i, j), **kwargs)
     return result
+
+
+def compute_pairwise_metric(
+    items: List[Any],
+    metric_fn: Callable[[Any, Any], float],
+    **kwargs
+) -> np.ndarray:
+    """
+    Generic helper to compute a metric over all pairs of items.
+    
+    Args:
+        items: List of R items (tensors, arrays, etc.)
+        metric_fn: Function taking (item_a, item_b, **kwargs) -> float
+    
+    Returns:
+        (R, R) numpy array.
+    """
+    R = len(items)
+    result = np.full((R, R), np.nan, dtype=float)
+    for i in range(R):
+        for j in range(R):
+            val = metric_fn(items[i], items[j], **kwargs)
+            if val is not None:
+                result[i, j] = val
+    return result
+
+
+def pairwise(
+    data: Union[List[Any], np.ndarray],
+    metric_fn: Callable,
+    **kwargs
+) -> np.ndarray:
+    """
+    Compute a pairwise metric over the given data.
+
+    Args:
+        data: Either a list of items (for metrics like pred_disagreement)
+              or a (4, R, R) numpy array of confusion counts (for metrics like kohen's kappa).
+        metric_fn: The single-pair metric function to apply.
+        **kwargs: Additional arguments passed to metric_fn.
+
+    Returns:
+        (R, R) numpy array.
+    """
+    if isinstance(data, np.ndarray) and data.ndim == 3 and data.shape[0] == 4:
+        # Assume it's a counts stack
+        return _apply_over_pairs(data, metric_fn, **kwargs)
+    elif isinstance(data, (list, tuple)):
+        return compute_pairwise_metric(data, metric_fn, **kwargs)
+    else:
+        raise ValueError(
+            "Data must be either a list of items or a (4, R, R) counts stack."
+        )
 
 
 def _pearsonr_from_flat(x: np.ndarray, y: np.ndarray) -> float:
@@ -96,6 +151,18 @@ def _pearsonr_from_flat(x: np.ndarray, y: np.ndarray) -> float:
     if denom == 0:
         return float("nan")
     return float((xm_d * ym_d).sum() / denom)
+
+
+def _average_off_diagonal(mat: np.ndarray) -> float:
+    """Compute mean of off-diagonal elements in a square matrix."""
+    if mat.ndim != 2 or mat.shape[0] != mat.shape[1]:
+        return float("nan")
+    R = mat.shape[0]
+    if R < 2:
+        return float("nan")
+    # Mask diagonal
+    off_diag = mat[~np.eye(R, dtype=bool)]
+    return float(np.nanmean(off_diag))
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +312,107 @@ def mcnemar_pvalue(counts: AgreementCounts) -> float:
     )
 
 
+def pred_disagreement(pred_a: torch.Tensor, pred_b: torch.Tensor) -> float:
+    """
+    Fraction of samples where predicted labels differ.
+
+    Captures both "one correct / one wrong" AND "both wrong, different class".
+    Does not require ground-truth labels.
+    """
+    if pred_a.shape != pred_b.shape:
+        raise ValueError("Predictions must have the same shape.")
+    
+    N = pred_a.numel()
+    if N == 0:
+        return float("nan")
+        
+    diff = (pred_a != pred_b).to(torch.float32).sum().item()
+    return diff / float(N)
+
+
+def norm_pred_disagreement(
+    disagreement: float, ensemble_acc: float
+) -> float:
+    """
+    Prediction disagreement normalised by ensemble error rate.
+    
+    val = disagreement / (1 - ensemble_accuracy)
+    """
+    denom = 1.0 - ensemble_acc
+    if denom == 0.0:
+        return float("nan")
+    return disagreement / denom
+
+
+def double_fault(counts: AgreementCounts, N: int) -> float:
+    """Fraction of samples where both classifiers are wrong."""
+    if N == 0:
+        return float("nan")
+    return counts.both_incorrect / float(N)
+
+
+def output_correlation(probs_a: np.ndarray, probs_b: np.ndarray) -> float:
+    """Pearson correlation over flattened probability vectors."""
+    return _pearsonr_from_flat(probs_a.ravel(), probs_b.ravel())
+
+
+def q_statistic(counts: AgreementCounts) -> float:
+    """Yule's Q statistic: (N11*N00 - N01*N10) / (N11*N00 + N01*N10)."""
+    N11 = counts.both_correct
+    N00 = counts.both_incorrect
+    N01 = counts.a_correct_b_incorrect
+    N10 = counts.a_incorrect_b_correct
+    denom = N11 * N00 + N01 * N10
+    if denom == 0:
+        return float("nan")
+    return float((N11 * N00 - N01 * N10) / denom)
+
+
+def param_cosine(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
+    """Cosine similarity between flattened parameter vectors."""
+    if vec_a is None or vec_b is None:
+        return float("nan")
+        
+    # Standardize input to numpy
+    if hasattr(vec_a, "detach"):
+        vec_a = vec_a.detach().cpu().numpy()
+    if hasattr(vec_b, "detach"):
+        vec_b = vec_b.detach().cpu().numpy()
+        
+    denom = float(norm(vec_a) * norm(vec_b))
+    if denom == 0.0:
+        return float("nan")
+        
+    return float(np.dot(vec_a, vec_b) / denom)
+
+
+def iou_top_n_single(
+    logits_a: torch.Tensor, logits_b: torch.Tensor, n: int = 5
+) -> float:
+    """
+    Compute average Top-N Intersection over Union (IoU) for a pair of models.
+    """
+    if logits_a is logits_b:
+        return 1.0
+        
+    # top_indices: [N, n]
+    inds_a = logits_a.topk(n, dim=1).indices
+    inds_b = logits_b.topk(n, dim=1).indices
+    
+    # Expand for broadcasting: [N, n, 1] vs [N, 1, n]
+    matches = (inds_a.unsqueeze(2) == inds_b.unsqueeze(1))
+    
+    # intersection size per sample: sum over n,n dims -> [N]
+    inter = matches.sum(dim=(1, 2)).float()
+    
+    # Union size = |A| + |B| - |A n B| = n + n - inter
+    union = 2 * n - inter
+    
+    # Avoid division by zero (though union should be >= n >= 1 usually)
+    iou = inter / union
+    return iou.mean().item()
+
+
 # ---------------------------------------------------------------------------
 # Pairwise metric functions  (each returns an R×R matrix)
 # ---------------------------------------------------------------------------
@@ -333,18 +501,11 @@ def pairwise_pred_disagreement(preds_list: List[torch.Tensor]) -> np.ndarray:
     Captures both "one correct / one wrong" AND "both wrong, different class".
     Does not require ground-truth labels.
     """
-    R = len(preds_list)
-    N = preds_list[0].numel()
-    result = np.full((R, R), np.nan, dtype=float)
-    for i in range(R):
-        for j in range(R):
-            diff = (preds_list[i] != preds_list[j]).to(torch.float32).sum().item()
-            result[i, j] = diff / float(N)
-    return result
+    return compute_pairwise_metric(preds_list, pred_disagreement)
 
 
 def pairwise_norm_pred_disagreement(
-    pred_disagreement: np.ndarray,
+    pred_disagreement_mat: np.ndarray,
     ensemble_probs: Dict[Union[str, Tuple[int, int]], Dict[str, torch.Tensor]],
     labels: torch.Tensor,
 ) -> Dict[str, np.ndarray]:
@@ -357,7 +518,7 @@ def pairwise_norm_pred_disagreement(
         norm_dis[i, j] = pred_disagreement[i, j] / (1 - ensemble_accuracy)
 
     Args:
-        pred_disagreement: (R, R) matrix from ``pairwise_pred_disagreement``.
+        pred_disagreement_mat: (R, R) matrix from ``pairwise_pred_disagreement``.
         ensemble_probs: dict from ``compute_all_ensemble_probs``, keyed by
             ``(i, j)`` tuples (i < j).  Each value maps method name to a
             probability tensor of shape [N, C].
@@ -366,7 +527,7 @@ def pairwise_norm_pred_disagreement(
     Returns:
         Dict mapping method name → (R, R) matrix.
     """
-    R = pred_disagreement.shape[0]
+    R = pred_disagreement_mat.shape[0]
     # Discover ensemble methods from the first pairwise entry
     pair_keys = [k for k in ensemble_probs if k != "all"]
     if not pair_keys:
@@ -385,77 +546,35 @@ def pairwise_norm_pred_disagreement(
                 key = (min(i, j), max(i, j))
                 if key not in ensemble_probs:
                     continue
+                
                 probs_t = ensemble_probs[key][method]
                 ens_pred = probs_t.argmax(dim=1)
                 ens_acc = float((ens_pred == labels).to(torch.float32).mean().item())
-                denom = 1.0 - ens_acc
-                if denom == 0.0:
-                    mat[i, j] = float("nan")
-                else:
-                    mat[i, j] = pred_disagreement[i, j] / denom
+                
+                # Use the single-pair function
+                mat[i, j] = norm_pred_disagreement(pred_disagreement_mat[i, j], ens_acc)
         result[method] = mat
     return result
 
 
 def pairwise_double_fault(counts_stack: np.ndarray, N: int) -> np.ndarray:
     """Fraction of samples where both classifiers are wrong."""
-    R = counts_stack.shape[1]
-    result = np.full((R, R), np.nan, dtype=float)
-    for i in range(R):
-        for j in range(R):
-            result[i, j] = counts_stack[1, i, j] / float(N)
-    return result
+    return _apply_over_pairs(counts_stack, lambda c: double_fault(c, N))
 
 
 def pairwise_output_correlation(probs_list: List[np.ndarray]) -> np.ndarray:
     """Pearson correlation over flattened probability vectors."""
-    R = len(probs_list)
-    result = np.full((R, R), np.nan, dtype=float)
-    for i in range(R):
-        for j in range(R):
-            result[i, j] = _pearsonr_from_flat(
-                probs_list[i].ravel(), probs_list[j].ravel()
-            )
-    return result
+    return compute_pairwise_metric(probs_list, output_correlation)
 
 
 def pairwise_q_statistic(counts_stack: np.ndarray) -> np.ndarray:
     """Yule's Q statistic: (N11*N00 - N01*N10) / (N11*N00 + N01*N10)."""
-    R = counts_stack.shape[1]
-    result = np.full((R, R), np.nan, dtype=float)
-    for i in range(R):
-        for j in range(R):
-            N11 = counts_stack[0, i, j]
-            N00 = counts_stack[1, i, j]
-            N01 = counts_stack[2, i, j]
-            N10 = counts_stack[3, i, j]
-            denom = N11 * N00 + N01 * N10
-            if denom == 0:
-                result[i, j] = float("nan")
-            else:
-                result[i, j] = float((N11 * N00 - N01 * N10) / denom)
-    return result
+    return _apply_over_pairs(counts_stack, q_statistic)
 
 
 def pairwise_param_cosine(param_vecs: List[np.ndarray]) -> np.ndarray:
     """Cosine similarity between flattened parameter vectors."""
-    R = len(param_vecs)
-    result = np.full((R, R), np.nan, dtype=float)
-    for i in range(R):
-        for j in range(R):
-            a = param_vecs[i]
-            b = param_vecs[j]
-            if a is None or b is None:
-                continue
-            if hasattr(a, "detach"):
-                a = a.detach().cpu().numpy()
-            if hasattr(b, "detach"):
-                b = b.detach().cpu().numpy()
-            denom = float(norm(a) * norm(b))
-            if denom == 0.0:
-                continue
-            result[i, j] = float(np.dot(a, b) / denom)
-    return result
+    return compute_pairwise_metric(param_vecs, param_cosine)
 
 
 def pairwise_iou_top_n(
@@ -474,124 +593,204 @@ def pairwise_iou_top_n(
     Returns:
         np.ndarray of shape (R, R) with average IoU values.
     """
-    R = len(logits_list)
-    N = logits_list[0].shape[0]
-    
-    # Pre-compute top-n indices for all models
-    # top_indices_list[i] has shape [N, n]
-    top_indices_list = [
-        logits.topk(n, dim=1).indices for logits in logits_list
-    ]
-
-    result = np.full((R, R), np.nan, dtype=float)
-
-    for i in range(R):
-        for j in range(R):
-            if i == j:
-                result[i, j] = 1.0
-                continue
-            
-            # shape [N, n]
-            inds_i = top_indices_list[i]
-            inds_j = top_indices_list[j]
-
-            # We need intersection size per sample.
-            # One way: expand and broadcast comparison
-            # inds_i: [N, n, 1], inds_j: [N, 1, n]
-            # matches: [N, n, n]
-            matches = (inds_i.unsqueeze(2) == inds_j.unsqueeze(1))
-            # intersection size per sample: sum over n,n dims
-            inter = matches.sum(dim=(1, 2)).float()  # [N]
-            
-            # Union size = |A| + |B| - |A n B| = n + n - inter
-            union = 2 * n - inter
-            
-            iou = inter / union
-            result[i, j] = iou.mean().item()
-
-    return result
+    return compute_pairwise_metric(logits_list, iou_top_n_single, n=n)
 
 
 def group_confusion_counts(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
-    """Placeholder for group confusion counts."""
-    return float('nan')
+    """
+    Placeholder for group confusion counts.
+    Returns average 'both_correct' count over all pairs (not really a standard metric).
+    """
+    counts_stack = pairwise_confusion_counts(preds_list, labels)
+    # Return average N11 (both correct) as a placeholder scalar?
+    # Or just NaN as it's ambiguous.
+    return float("nan")
 
 
 def group_asym_ratio(counts_stack: np.ndarray) -> float:
-    """Placeholder for group asymmetry ratio."""
-    return float('nan')
+    """Average pairwise asymmetric ratio."""
+    return _average_off_diagonal(pairwise_asym_ratio(counts_stack))
 
 
-def group_correctness_disagreement(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
-    """Placeholder for group correctness disagreement."""
-    return float('nan')
+def group_correctness_disagreement(counts_stack: np.ndarray) -> float:
+    """Average pairwise correctness disagreement."""
+    return _average_off_diagonal(pairwise_correctness_disagreement(counts_stack))
 
 
-def group_error_conditional_disagreement(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
-    """Placeholder for group error conditional disagreement."""
-    return float('nan')
+def group_error_conditional_disagreement(counts_stack: np.ndarray) -> float:
+    """Average pairwise error-conditional disagreement."""
+    return _average_off_diagonal(pairwise_error_conditional_disagreement(counts_stack))
 
 
-def group_overall_agreement(preds_list: List[torch.Tensor]) -> float:
-    """Placeholder for group overall agreement."""
-    return float('nan')
+def group_overall_agreement(counts_stack: np.ndarray) -> float:
+    """Average pairwise overall agreement."""
+    return _average_off_diagonal(pairwise_overall_agreement(counts_stack))
 
 
 def group_cohens_kappa(counts_stack: np.ndarray) -> float:
-    """Placeholder for group Cohen's Kappa."""
-    return float('nan')
+    """Average pairwise Cohen's Kappa."""
+    return _average_off_diagonal(pairwise_cohens_kappa(counts_stack))
 
 
-def group_jaccard(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
-    """Placeholder for group Jaccard index."""
-    return float('nan')
+def group_jaccard(counts_stack: np.ndarray) -> float:
+    """Average pairwise Jaccard index."""
+    return _average_off_diagonal(pairwise_jaccard(counts_stack))
 
 
 def group_mcnemar_p(counts_stack: np.ndarray) -> float:
-    """Placeholder for group McNemar's test p-value."""
-    return float('nan')
+    """Average pairwise McNemar's test p-value."""
+    return _average_off_diagonal(pairwise_mcnemar_p(counts_stack))
 
 
 def group_pred_disagreement(preds_list: List[torch.Tensor]) -> float:
-    """Placeholder for group prediction disagreement."""
-    return float('nan')
+    """Average pairwise prediction disagreement."""
+    return _average_off_diagonal(pairwise_pred_disagreement(preds_list))
 
 
-def group_norm_pred_disagreement(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
-    """Placeholder for group normalized prediction disagreement."""
-    return float('nan')
+def group_norm_pred_disagreement(
+    pred_disagreement: np.ndarray,
+    ensemble_probs: Dict[Union[str, Tuple[int, int]], Dict[str, torch.Tensor]],
+    labels: torch.Tensor,
+) -> Dict[str, float]:
+    """
+    Average pairwise normalized prediction disagreement.
+    Returns a dict mapping ensemble method -> average metric value.
+    """
+    pairwise_dict = pairwise_norm_pred_disagreement(
+        pred_disagreement, ensemble_probs, labels
+    )
+    result = {}
+    for method, mat in pairwise_dict.items():
+        result[method] = _average_off_diagonal(mat)
+    return result
 
 
-def group_double_fault(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
-    """Placeholder for group double fault."""
-    return float('nan')
+def group_double_fault(counts_stack: np.ndarray, N: int) -> float:
+    """Average pairwise double fault."""
+    return _average_off_diagonal(pairwise_double_fault(counts_stack, N))
 
 
 def group_output_correlation(probs_list: List[np.ndarray]) -> float:
-    """Placeholder for group output correlation."""
-    return float('nan')
+    """Average pairwise output correlation."""
+    return _average_off_diagonal(pairwise_output_correlation(probs_list))
 
 
 def group_q_statistic(counts_stack: np.ndarray) -> float:
-    """Placeholder for group Q statistic."""
-    return float('nan')
+    """
+    Average pairwise Yule's Q statistic.
+    
+    Formula: 2/(L(L-1)) * sum_{i<j} Q_{i,j}
+    """
+    return _average_off_diagonal(pairwise_q_statistic(counts_stack))
 
 
 def group_param_cosine(param_vecs: List[np.ndarray]) -> float:
-    """Placeholder for group parameter cosine similarity."""
-    return float('nan')
+    """Average pairwise parameter cosine similarity."""
+    return _average_off_diagonal(pairwise_param_cosine(param_vecs))
 
 
 def group_iou_top_n(logits_list: List[torch.Tensor], n: int = 5) -> float:
-    """Placeholder for group Top-N IoU."""
-    return float('nan')
+    """Average pairwise Top-N IoU."""
+    return _average_off_diagonal(pairwise_iou_top_n(logits_list, n=n))
 
 
-def group_generalized_diversity(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+def group_generalized_diversity(
+    preds_list: List[torch.Tensor], labels: torch.Tensor
+) -> float:
     """
     Generalized Diversity (GD) for an ensemble.
     GD = 1 - (p(2 failures) / p(1 failure))
-    Placeholder implementation.
-    """
-    return float('nan')
+    
+    This implementation follows the Kuncheva definition where:
+    p(1) = probability that at least one classifier fails.
+    p(2) = probability that two randomly chosen classifiers fail.
+    
+    However, strictly speaking, GD is often defined via failure probabilities.
+    Here we implement a placeholder based on the pairwise double fault average?
+    
 
+    If we interpret p(2 failures) as the average pairwise double fault (N00/N),
+    and p(1 failure) ... this is getting specific.
+    
+    For now, return NaN as it's not a simple pairwise average.
+    """
+    return float("nan")
+
+
+
+# ---------------------------------------------------------------------------
+# Ensemble wrappers (Smart usage of single vs group metrics)
+# ---------------------------------------------------------------------------
+
+
+def ensemble_metric(
+    data: Union[List[Any], np.ndarray],
+    metric_fn: Callable,
+    **kwargs
+) -> float:
+    """
+    Compute an ensemble/group metric over the given data.
+
+    If R=2, computes the single-pair metric directly (optimization).
+    If R>2, computes the average of the pairwise metrics (off-diagonal).
+
+    Args:
+        data: Either a list of items or a (4, R, R) counts stack.
+        metric_fn: The single-pair metric function.
+        **kwargs: Additional arguments passed to metric_fn.
+    """
+    # Detect R and Input Type
+    is_stack = False
+    if isinstance(data, np.ndarray) and data.ndim == 3 and data.shape[0] == 4:
+        is_stack = True
+        R = data.shape[1]
+    elif isinstance(data, (list, tuple)):
+        R = len(data)
+    else:
+        # Fallback to pairwise's validation or just assume it's a list if iterable
+        try:
+             R = len(data)
+        except:
+             raise ValueError("Data must be a list or counts stack.")
+
+    if R < 2:
+        return float("nan")
+
+    if R == 2:
+        # Single pair optimization
+        if is_stack:
+            return metric_fn(_counts_from_stack(data, 0, 1), **kwargs)
+        else:
+            return metric_fn(data[0], data[1], **kwargs)
+    
+    # Group case (Average pairwise)
+    mat = pairwise(data, metric_fn, **kwargs)
+    return _average_off_diagonal(mat)
+
+
+def ensemble_pred_disagreement(preds_list: List[torch.Tensor]) -> float:
+    """Wrapper for prediction disagreement using ensemble_metric."""
+    return ensemble_metric(preds_list, pred_disagreement)
+
+
+def ensemble_double_fault(preds_list: List[torch.Tensor], labels: torch.Tensor) -> float:
+    """Wrapper for double fault using ensemble_metric."""
+    # We need to construct counts if R=2 to use generic flow efficiently, 
+    # OR we can just pass the preds_list to ensemble_metric with double_fault logic?
+    # Actually double_fault takes (counts, N).
+    # If we pass preds_list, we can't use double_fault directly because it expects counts.
+    # So we should pass the stack to ensemble_metric.
+    
+    # For R=2 optimization, ensemble_metric handles stack->counts automatically.
+    # But we need to build the stack first?
+    # Building stack is expensive if we only need one pair.
+    
+    # Exception: if we want to optimize R=2 here specifically to avoid stack build:
+    if len(preds_list) == 2:
+        c_a = (preds_list[0] == labels).to(torch.float32)
+        c_b = (preds_list[1] == labels).to(torch.float32)
+        counts = compute_confusion_counts(c_a, c_b)
+        return double_fault(counts, labels.numel())
+        
+    counts_stack = pairwise_confusion_counts(preds_list, labels)
+    return ensemble_metric(counts_stack, double_fault, N=labels.numel())
