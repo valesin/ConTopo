@@ -1,0 +1,14 @@
+ensembles:
+  - name: "diversity"
+    models:
+      - name: "crossentropy_wstopo_grid_256embdims_0.008rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout"
+        trials: ["trial_00", "trial_01"]
+    inference_file: "inference_cifar.pt"
+    metrics:
+      - pred_disagreement
+      - q_statistic
+      - asym_ratio
+      - mcnemar_p
+    methods:
+      - soft
+    save_dir: "save/diversity"

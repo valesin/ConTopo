@@ -1,0 +1,15 @@
+ensembles:
+  - models:
+      - name: crossentropy_wstopo_grid_256embdims_0.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+        trials: ["trial_00", "trial_01"]
+      - name: crossentropy_wstopo_grid_256embdims_0.2rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+        trials: "all"
+    method: soft
+    inference_file: inference_cifar.pt
+    save_dir: save/ensembles
+  - models:
+      - name: crossentropy_wstopo_grid_256embdims_0.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+        trials: "all"
+    method: hard
+    inference_file: inference_cifar.pt
+    save_dir: save/ensembles_hard
