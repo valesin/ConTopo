@@ -170,7 +170,7 @@ def compute_all_ensemble_probs(
                 with open(meta_path, "r") as f:
                     meta = json.load(f)
                 if set(meta.get("run_names", [])) == set(run_names):
-                     return torch.load(cache_path)
+                     return torch.load(cache_path, weights_only=False)
                 else:
                     print("Warning: Hash collision or metadata mismatch. Recomputing.")
             except Exception as e:

@@ -38,7 +38,7 @@ def infer_and_save(
     
     if not force and os.path.exists(cache_path):
         print(f"Loading cached inference from {cache_path}")
-        return torch.load(cache_path)
+        return torch.load(cache_path, weights_only=False)
         
     # Ensure deterministic ordering:
     # If the loader shuffles, we cannot guarantee the output order matches the
@@ -103,7 +103,13 @@ def evaluate_bundles_individually(
         
         res = infer_and_save(bundle, loader, device, force=force)
         results_list.append(res)
-        run_names.append(_run_name(bundle.meta))
+        if hasattr(bundle, "run_name"):
+            run_names.append(bundle.run_name)
+        else:
+            # Fallback: construct parent___trial to ensure uniqueness
+            # This matches the _build_run_name logic in exp_diversity.py
+            rf = Path(bundle.meta["run_folder"])
+            run_names.append(f"{rf.parent.name}___{rf.name}")
         
     if not results_list:
         return None

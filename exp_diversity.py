@@ -211,7 +211,7 @@ def evaluate_subset(
     meta_path = os.path.join(save_dir, f"ensemble_{run_hash}.json")
 
     if os.path.exists(cache_path) and os.path.exists(meta_path):
-        return torch.load(cache_path)
+        return torch.load(cache_path, weights_only=False)
 
     # ------------------------------------------------------------------
     # 2. Slice logits
@@ -533,9 +533,6 @@ def mode_config(args) -> None:
         )
         all_results.append(result)
         _print_subset_result(result, print_all=args.print_all)
-
-    if len(all_results) > 1:
-        _run_correlation_analysis(all_results)
 
     print(f"\nResults saved to: {save_dir}/")
 

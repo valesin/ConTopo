@@ -129,7 +129,7 @@ def _load_e2e_bundle(
     if ckpt_path is None:
         return None
 
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     args = ckpt.get("args", {})
     model = _build_head_from_args(args, "e2e", device, dp_if_multi_gpu)
 
@@ -174,7 +174,7 @@ def _load_contrastive_bundle(
     if ckpt_path is None:
         return None
 
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     args = ckpt.get("args", {})
     model = _build_head_from_args(args, "contrastive", device, dp_if_multi_gpu)
 
@@ -200,7 +200,7 @@ def _load_contrastive_bundle(
             "Expected one of: readout_best.pth, readout_last.pth"
         )
 
-    readout_ckpt = torch.load(readout_path, map_location=device)
+    readout_ckpt = torch.load(readout_path, map_location=device, weights_only=False)
     linear_state = readout_ckpt.get("linear_state_dict")
     if linear_state is None:
         raise KeyError(f"Checkpoint missing 'linear_state_dict': {readout_path}")
@@ -304,7 +304,7 @@ def load_encoder_from_ckpt(
     if not os.path.isfile(ckpt_path):
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     stage = _infer_stage(ckpt, ckpt_path)
 
     # Reject linear-readout-only checkpoints (no encoder weights inside)
