@@ -1,15 +1,49 @@
 ensembles:
   - models:
-      - name: crossentropy_wstopo_grid_256embdims_0.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
-        trials: ["trial_00", "trial_01"]
-      - name: crossentropy_wstopo_grid_256embdims_0.2rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
-        trials: "all"
-    method: soft
-    inference_file: inference_cifar.pt
-    save_dir: save/ensembles
+      - name: CE_rho0
+        trials: ["trial_00", "trial_01", "trial_02", "trial_03", "trial_04"]
+    metadata:
+      rho: 0
+      name: CE_rho0
+  - models:
+      - name: CE_rho0.2
+        trials: ["trial_00", "trial_01", "trial_02", "trial_03", "trial_04"]
+    metadata:
+      rho: 0.2
+      name: CE_rho0.2
+  - models:
+      - name: CE_rho0.04
+        trials: ["trial_00", "trial_01", "trial_02", "trial_03", "trial_04"]
+    metadata:
+      rho: 0.04
+      name: CE_rho0.04
+  - models:
+      - name: CE_rho0.008
+        trials: ["trial_00", "trial_01", "trial_02", "trial_03", "trial_04"]
+    metadata:
+      rho: 0.008
+      name: CE_rho0.008
   - models:
       - name: crossentropy_wstopo_grid_256embdims_0.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
-        trials: "all"
-    method: hard
-    inference_file: inference_cifar.pt
-    save_dir: save/ensembles_hard
+        trials: all
+    metadata:
+      rho: 0
+      name: crossentropy_wstopo_grid_256embdims_0.0rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+  - models:
+      - name: crossentropy_wstopo_grid_256embdims_0.2rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+        trials: all
+    metadata:
+      rho: 0.2
+      name: crossentropy_wstopo_grid_256embdims_0.2rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+  - models:
+      - name: crossentropy_wstopo_grid_256embdims_0.04rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+        trials: all
+    metadata:
+      rho: 0.04
+      name: crossentropy_wstopo_grid_256embdims_0.04rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+  - models:
+      - name: crossentropy_wstopo_grid_256embdims_0.008rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout
+        trials: all
+    metadata:
+      rho: 0.008
+      name: crossentropy_wstopo_grid_256embdims_0.008rho_200epochs_512bsz_2nwork_0.002lr_0.5dropout

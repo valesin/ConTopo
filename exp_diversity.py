@@ -1,318 +1,307 @@
 """
 Analyze Diversity: Compute and store ensemble diversity metrics.
-Replaces the old analysis script with a proper experiment runner.
+Supports incremental calculation and pairwise metric saving.
 
 Usage:
-    python analyze_diversity.py --config configs/diversity_exp.yaml
+    python exp_diversity.py --config configs/diversity.yaml
 
 Config Format (YAML):
-    ensembles:
-      - name: "my_ensemble"     # optional, hash is used if omitted
-        models:
-          - name: "models/model_A" # relative to MODELS_ROOT or absolute
-            trials: "all"          # or [1, 2, 3] or specific folder names
-        metrics:
-          - pred_disagreement
-          - q_statistic
-        methods:                # Ensemble combination methods
-          - soft
-          - hard
-        save_dir: "save/ensembles"
+    metrics:
+      - pred_disagreement
+      - q_statistic
+      # ...
+    save_dir: "save/ensembles"       # Optional, default "save/ensembles"
+    ensembles:                       # Optional, if missing/empty, runs on ALL ensembles in save_dir
+      - "hash1"
+      - "hash2"
 """
 
 import argparse
 import yaml
 import os
+import csv
 import json
+import inspect
 import torch
 import numpy as np
-import sys
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 
 # Project imports
 import utils.metrics as metrics_lib
 from utils.ensemble_utils import (
-    get_ensemble_hash,
-    save_ensemble,
-    combine_logits,
-    get_trials,
-    MODELS_ROOT
+    load_index,
+    parse_run_name,
+    list_ensembles
 )
+from utils.env import MODELS_ROOT
+from utils.run_inference import get_or_run_inference
 
-def load_inference_data(model_dir: str, trial: str, filename: str = 'logits.pt') -> Tuple[torch.Tensor, torch.Tensor]:
+def load_diversity_csv(csv_path: str) -> Dict[str, float]:
+    """Load existing scalar diversity metrics from CSV."""
+    if not os.path.exists(csv_path):
+        return {}
+    
+    metrics = {}
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) == 2:
+                    try:
+                        metrics[row[0]] = float(row[1])
+                    except ValueError:
+                        pass # Skip header or invalid
+    except Exception as e:
+        print(f"  Warning: Could not read {csv_path}: {e}")
+    return metrics
+
+def save_diversity_csv(csv_path: str, new_metrics: Dict[str, float]):
+    """Append new metrics to diversity.csv."""
+    # We append to avoid overwriting if other processes are checking (though not concurrency safe)
+    # Better to read, merge, write for consistency, but append is redundant-safe if we check first.
+    # Given the requirement "check diversity.csv... if exists but contains few metrics",
+    # we should probably append only missing ones.
+    
+    # Actually, simpler to just append the new variable lines. 
+    # Duplicate keys in CSV are messy but readable. Ideally we invoke this only for missing ones.
+    
+    file_exists = os.path.exists(csv_path)
+    with open(csv_path, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["metric", "value"])
+        for k, v in new_metrics.items():
+            writer.writerow([k, v])
+
+def load_pairwise_pt(pt_path: str) -> Dict[str, torch.Tensor]:
+    """Load existing pairwise metrics."""
+    if not os.path.exists(pt_path):
+        return {}
+    try:
+        return torch.load(pt_path, map_location='cpu')
+    except Exception as e:
+        print(f"  Warning: Could not load {pt_path}: {e}")
+        return {}
+
+def get_diversity_results(run_hash: str, save_dir: str = "save/ensembles") -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
     """
-    Load logits and labels from an inference file.
+    Retrieve diversity and pairwise metrics for a given ensemble hash.
     
     Args:
-        model_dir: Model directory name (under MODELS_ROOT)
-        trial: Trial directory name
-        filename: Inference filename
+        run_hash: The hash of the ensemble.
+        save_dir: The directory where ensembles are saved.
         
     Returns:
-        (logits, labels) tuple.
+        tuple: (scalar_diversity_dict, pairwise_diversity_dict)
     """
-    # Construct path
-    # Try relative to MODELS_ROOT first
-    path = os.path.join(MODELS_ROOT, model_dir, trial, filename)
-    if not os.path.exists(path):
-        # Try as absolute path if model_dir is absolute? 
-        # But get_trials uses MODELS_ROOT, so we assume strict structure.
-        raise FileNotFoundError(f"Inference file not found: {path}")
+    hash_dir = os.path.join(save_dir, run_hash)
+    div_csv_path = os.path.join(hash_dir, "diversity.csv")
+    pair_pt_path = os.path.join(hash_dir, "pairwise_diversity.pt")
+    
+    scalars = load_diversity_csv(div_csv_path)
+    pairwise = load_pairwise_pt(pair_pt_path)
+    
+    return scalars, pairwise
 
-    try:
-        data = torch.load(path, map_location='cpu', weights_only=False)
-    except Exception as e:
-        raise RuntimeError(f"Failed to load {path}: {e}")
-
-    if isinstance(data, dict):
-        if 'logits' in data and 'labels' in data:
-            return data['logits'], data['labels']
-        else:
-            raise ValueError(f"Dictionary in {path} missing 'logits' or 'labels' keys. Keys found: {list(data.keys())}")
-    elif isinstance(data, torch.Tensor):
-        # If it's just a tensor, we assume it's logits. But we HAVE TO HAVE labels.
-        # Maybe we can load labels from dataset if missing? 
-        # But that requires knowing which dataset and split.
-        # For now, enforce labels presence in file.
-        raise ValueError(f"File {path} contains only a Tensor (logits?). Labels are required for diversity analysis.")
-    else:
-        raise ValueError(f"Unknown data format in {path}: {type(data)}")
-
-
-def compute_ensemble_metrics(
+def compute_metrics(
     logits_list: List[torch.Tensor],
     labels: torch.Tensor,
-    metric_names: List[str],
-    ensemble_methods: List[str]
-) -> Dict[str, Any]:
+    metric_names: List[str]
+) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
     """
-    Compute ensemble accuracy and diversity metrics.
+    Compute specified diversity metrics (scalar and pairwise).
     """
     N = labels.numel()
     
-    # Check consistency
-    for l in logits_list:
-        if l.shape[0] != N:
-            raise ValueError(f"Logits dimension mismatch: {l.shape[0]} vs labels {N}")
-
-    # 1. Compute Individual Accuracies
-    indiv_accs = []
+    # Pre-compute useful structures
     preds_list = []
     probs_list = []
-    
     for logits in logits_list:
-        preds = logits.argmax(dim=1)
-        acc = (preds == labels).float().mean().item()
-        indiv_accs.append(acc)
-        preds_list.append(preds)
+        preds_list.append(logits.argmax(dim=1))
+        # probs_list might be heavy if many models/samples, but needed for some metrics
         probs_list.append(torch.softmax(logits, dim=1).cpu().numpy())
-
-    # 2. Compute Ensemble Accuracies
-    acc_results = {}
     
-    for method in ensemble_methods:
-        # combine_logits returns combined probabilities (or one-hot)
-        try:
-            ens_output = combine_logits(logits_list, method=method)
-            ens_preds = ens_output.argmax(dim=1)
-            ens_acc = (ens_preds == labels).float().mean().item()
-            acc_results[f"acc_{method}"] = ens_acc
-        except Exception as e:
-            print(f"  Warning: Failed to compute ensemble method '{method}': {e}")
-
-    # 3. Compute Diversity Metrics
-    # Pre-compute stack for efficiency
+    # Pre-compute confusion counts stack (used by many metrics)
     try:
         counts_stack = metrics_lib.matrix_confusion_counts(preds_list, labels)
     except Exception as e:
         print(f"  Error computing confusion counts: {e}")
-        return {}
+        return {}, {}
 
-    # Context for metric functions
     ctx = {
         "preds_list": preds_list,
         "probs_list": probs_list,
         "logits_list": logits_list,
         "counts_stack": counts_stack,
         "labels": labels,
-        "N": N,
-        # Add param_vecs if available? Not loaded currently.
+        "N": N
     }
 
-    div_results = {}
+    scalar_results = {}
     pairwise_results = {}
 
     for m_name in metric_names:
-        # Resolve function name
-        # We look for matrix_<name> (pairwise) and group_<name> (scalar)
+        # We try to compute both group (scalar) and matrix (pairwise) versions for each requested metric
+        # Check for function existence in utils.metrics
         
-        # Clean name if user passed 'div_pred_disagreement' -> 'pred_disagreement'
-        clean_name = m_name.replace("div_", "").replace("pw_", "")
+        # Clean name: remove prefixes if user provided them, though standard config should just be 'jaccard' etc.
+        base_name = m_name.replace("div_", "").replace("pw_", "").replace("group_", "").replace("matrix_", "")
         
-        matrix_fn = getattr(metrics_lib, f"matrix_{clean_name}", None)
-        group_fn = getattr(metrics_lib, f"group_{clean_name}", None)
+        matrix_fn = getattr(metrics_lib, f"matrix_{base_name}", None)
+        group_fn = getattr(metrics_lib, f"group_{base_name}", None)
         
-        # Fallback to pairwise_ prefix if matrix_ is missing (metrics.py naming conventions might vary)
-        if matrix_fn is None:
-             matrix_fn = getattr(metrics_lib, f"pairwise_{clean_name}", None)
-
-        # Compute Pairwise Matrix
-        if matrix_fn is not None:
+        # Calculate Pairwise
+        if matrix_fn:
             try:
-                # Call with ctx. We need to be careful about arguments.
-                # Inspecting metrics.py: most take specific args.
-                # We can't just pass **ctx if they don't accept **kwargs.
-                # Wrapper: we'll try to pass relevant args by name if possible, 
-                # or rely on the function accepting **kwargs.
-                # Checking utils/metrics.py: most functions DO accept **kwargs.
-                mat = matrix_fn(**ctx) 
-                pairwise_results[f"pw_{clean_name}"] = mat
+                sig = inspect.signature(matrix_fn)
+                kwargs = {k: ctx[k] for k in sig.parameters if k in ctx}
+                # Check for top_n or specific args if needed, currently generic handler
+                mat_np = matrix_fn(**kwargs)
+                pairwise_results[base_name] = torch.from_numpy(mat_np)
             except Exception as e:
-                # print(f"    (debug) pairwise {clean_name} failed: {e}")
-                pass
+                print(f"    Error computing pairwise {base_name}: {e}")
 
-        # Compute Group Scalar
-        if group_fn is not None:
+        # Calculate Scalar
+        if group_fn:
             try:
-                 val = group_fn(**ctx)
-                 div_results[f"div_{clean_name}"] = val
+                sig = inspect.signature(group_fn)
+                kwargs = {k: ctx[k] for k in sig.parameters if k in ctx}
+                val = group_fn(**kwargs)
+                scalar_results[base_name] = float(val)
             except Exception as e:
-                # print(f"    (debug) group {clean_name} failed: {e}")
-                pass
-        elif matrix_fn is not None and f"pw_{clean_name}" in pairwise_results:
-            # Fallback: average off-diagonal
-            try:
-                mat = pairwise_results[f"pw_{clean_name}"]
-                val = metrics_lib._average_off_diagonal(mat)
-                div_results[f"div_{clean_name}"] = val
-            except Exception:
-                pass
+                print(f"    Error computing scalar {base_name}: {e}")
+        
+        # Fallback: if scalar not computed but pairwise exists, avg off-diagonal
+        if base_name not in scalar_results and base_name in pairwise_results:
+             mat = pairwise_results[base_name].numpy()
+             val = metrics_lib._average_off_diagonal(mat)
+             if not np.isnan(val):
+                 scalar_results[base_name] = float(val)
 
-    return {
-        "acc": acc_results,
-        "diversity": div_results,
-        "pairwise": pairwise_results,
-        "individual_accuracies": indiv_accs
-    }
+    return scalar_results, pairwise_results
 
-
-def process_config(config_path: str):
-    print(f"Loading config from {config_path}...")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-
-    ensembles = config.get('ensembles', [])
-    if not ensembles:
-        print("No ensembles defined in config.")
+def process_ensemble(
+    run_hash: str,
+    run_names: List[str],
+    save_dir: str,
+    required_metrics: List[str]
+):
+    """
+    Process a single ensemble: check existing results, compute missing, save.
+    """
+    hash_dir = os.path.join(save_dir, run_hash)
+    os.makedirs(hash_dir, exist_ok=True)
+    
+    div_csv_path = os.path.join(hash_dir, "diversity.csv")
+    pair_pt_path = os.path.join(hash_dir, "pairwise_diversity.pt")
+    
+    # 1. Check existing work
+    existing_scalars = load_diversity_csv(div_csv_path)
+    existing_pairwise = load_pairwise_pt(pair_pt_path)
+    
+    missing_metrics = list(set(required_metrics) - 
+        (set(existing_scalars.keys()) & set(existing_pairwise.keys()))
+    )
+    
+    if not missing_metrics:
+        print(f"  [{run_hash}] All metrics up to date.")
         return
 
-    for i, ens_cfg in enumerate(ensembles):
-        name_tag = ens_cfg.get('name', f"ensemble_{i}")
-        print(f"\n[{i+1}/{len(ensembles)}] Processing '{name_tag}'...")
-        
-        # Parse config
-        models_cfg = ens_cfg.get('models', [])
-        metric_names = ens_cfg.get('metrics', [])
-        ensemble_methods = ens_cfg.get('methods', ['soft'])
-        save_dir = ens_cfg.get('save_dir', 'save/ensembles')
-        metadata = ens_cfg.get('metadata', {})
-        
-        os.makedirs(save_dir, exist_ok=True)
-        
-        # Load Models
-        run_names = []
-        logits_list = []
-        labels = None 
-        
-        valid_ensemble = True
-        
-        for m_cfg in models_cfg:
-            m_name = m_cfg['name']
-            trials = m_cfg.get('trials', 'all')
-            
-            # Resolve trial directories
-            try:
-                # If m_name is a relative path 'ResNet18/models/model_A', we might need to adjust?
-                # The util assumes MODELS_ROOT is 'save/ResNet18/models'.
-                # If user puts 'save/ResNet18/models/model_A' in config, get_trials might fail 
-                # if it appends it to MODELS_ROOT.
-                # HACK: If m_name starts with 'save/', assume it's relative to CWD and not MODELS_ROOT?
-                # But get_trials enforces MODELS_ROOT.
-                # Let's try to interpret m_name relative to MODELS_ROOT first.
-                # If m_name is "crossentropy_...", it's likely just the folder name.
-                
-                # Check if m_name exists relative to CWD, if so, maybe we can bypass get_trials?
-                # But get_trials does logic.
-                
-                # Let's assume user provides name relative to MODELS_ROOT if they know it, 
-                # or we try to find it.
-                
-                # We will stick to the logic: m_name is the model directory name inside MODELS_ROOT.
-                # If user provides path, we might need to strip.
-                if m_name.startswith(MODELS_ROOT):
-                    m_name = os.path.relpath(m_name, MODELS_ROOT)
-                
-                trial_names = get_trials(m_name, trials)
-            except FileNotFoundError:
-                print(f"  Error: Model directory not found or invalid: {m_name}")
-                valid_ensemble = False
-                break
+    print(f"  [{run_hash}] Computing missing: {missing_metrics}")
 
-            for t in trial_names:
-                full_run_name = f"{m_name}___{t}"
-                inf_file = ens_cfg.get('inference_file', 'logits.pt')
-                
-                try:
-                    l, lbl = load_inference_data(m_name, t, inf_file)
-                    
-                    logits_list.append(l)
-                    run_names.append(full_run_name)
-                    
-                    if labels is None:
-                        labels = lbl
-                    elif not torch.equal(labels, lbl):
-                        # Simple check. If labels are different, we have a problem.
-                        # But maybe order is same? We assume standard dataset order.
-                        pass
-                        
-                except Exception as e:
-                    print(f"  Error loading {full_run_name}: {e}")
-                    valid_ensemble = False
-                    break
+    # 2. Load Data (Logits/Labels)
+    # We only load data if we have work to do
+    logits_list = []
+    labels = None
+    
+    valid_ensemble = True
+    for run_name in run_names:
+        try:
+            model_dir, trial = parse_run_name(run_name)
+            inf_data = get_or_run_inference(model_dir, trial)
+            l = inf_data['logits']
+            lbl = inf_data['labels']
+            logits_list.append(l)
             
-            if not valid_ensemble: break
-        
-        if not valid_ensemble or not logits_list:
-            print("  Skipping invalid ensemble.")
-            continue
+            if labels is None:
+                labels = lbl
+            elif not torch.equal(labels, lbl):
+                pass # Warning could be logged
+                
+        except Exception as e:
+            print(f"    Error loading {run_name}: {e}")
+            valid_ensemble = False
+            break
+            
+    if not valid_ensemble or not logits_list:
+        print(f"    Skipping {run_hash}: Data loading failed.")
+        return
 
-        # Compute
-        print(f"  Computing metrics for {len(logits_list)} models...")
-        results = compute_ensemble_metrics(
-            logits_list, labels, metric_names, ensemble_methods
-        )
+    # 3. Compute
+    new_scalars, new_pairwise = compute_metrics(logits_list, labels, missing_metrics)
+    
+    # 4. Save
+    if new_scalars:
+        save_diversity_csv(div_csv_path, new_scalars)
+    
+    if new_pairwise:
+        # Merge with existing
+        existing_pairwise.update(new_pairwise)
+        torch.save(existing_pairwise, pair_pt_path)
         
-        # Add metadata
-        results["run_names"] = sorted(run_names)
-        results["metadata"] = metadata
-        results["subset_size"] = len(run_names)
-        
-        # Save
-        # save_ensemble writes the file. We pass our full dict as 'ensemble_outputs'.
-        run_hash = save_ensemble(save_dir, run_names, results, metadata)
-        print(f"  Saved ensemble {run_hash} to {save_dir}")
+    print(f"    Saved: {list(new_scalars.keys())}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ensemble Diversity Experiment Runner")
-    parser.add_argument('--config', type=str, help='Path to YAML config file')
-    
+    parser = argparse.ArgumentParser(description="Diversity Analysis (Incremental)")
+    parser.add_argument('--config', type=str, required=True, help='Path to YAML config')
     args = parser.parse_args()
+    
+    if not os.path.exists(args.config):
+        print(f"Config file not found: {args.config}")
+        return
 
-    if args.config:
-        process_config(args.config)
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+
+    metrics = config.get('metrics', [])
+    if not metrics:
+        print("No 'metrics' found in config.")
+        return
+        
+    save_dir = config.get('save_dir', 'save/ensembles')
+    target_hashes = config.get('ensembles', [])
+
+    print(f"Output Directory: {save_dir}")
+    
+    # Load Main Index
+    index = load_index(save_dir)
+    if not index:
+        print(f"No index found or empty in {save_dir}. Ensure ensembles are created first.")
+        return
+
+    # Determine which hashes to process
+    if not target_hashes:
+        print("No specific ensembles listed in config. Processing ALL known ensembles.")
+        target_hashes = list(index.keys())
     else:
-        parser.print_help()
+        # Validate requested hashes exist
+        valid_hashes = []
+        for h in target_hashes:
+            if h in index:
+                valid_hashes.append(h)
+            else:
+                print(f"Warning: Requested hash {h} not found in index.")
+        target_hashes = valid_hashes
+
+    print(f"Processing {len(target_hashes)} ensembles...")
+
+    for i, run_hash in enumerate(target_hashes):
+        run_names = index[run_hash]
+        print(f"[{i+1}/{len(target_hashes)}] Ensemble {run_hash} ({len(run_names)} models)")
+        process_ensemble(run_hash, run_names, save_dir, metrics)
+        
+    print("Done.")
 
 if __name__ == "__main__":
     main()
