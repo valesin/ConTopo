@@ -1,3 +1,7 @@
 metrics:
-  - pred_disagreement
   - q_statistic
+  - double_fault
+  - disagreement
+  - interrater_agreement
+  - correlation
+  - iou_top_n
