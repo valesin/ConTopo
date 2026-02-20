@@ -3,7 +3,7 @@ import itertools
 import subprocess
 import sys
 
-CONFIG_PATH = "configs/experiments_cross_entropy_fast_torus_comp.json"
+CONFIG_PATH = "configs/experiments_cross_entropy_torus.json"
 
 def main():
     with open(CONFIG_PATH, "r") as f:
