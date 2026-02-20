@@ -1,3 +1,6 @@
+""" Run with
+python run_all_experiments.py exp_generateRDM.py save/ResNet18/models/
+"""
 import os
 
 import matplotlib.pyplot as plt
@@ -103,9 +106,10 @@ def main():
         strict=True,
     )
 
-    if len(bundles) > 5:
-        print(f"Found {len(bundles)} runs; keeping the first 5 (trials 0-4).")
-        bundles = bundles[:5]
+    # Do not cap the number of trials here
+    # if len(bundles) > 5:
+    #     print(f"Found {len(bundles)} runs; keeping the first 5 (trials 0-4).")
+    #     bundles = bundles[:5]
 
     if len(bundles) == 0:
         raise RuntimeError("No checkpoints found in the provided model folder.")
