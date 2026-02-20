@@ -25,9 +25,15 @@ save/
 dataset/
 
 # VS-code
-.github
+.github/
 *.code-workspace
+.vscode/
 
 # Notes
 docs/
 *.md
+
+# Figures
+*.png
+*.jpg
+*.jpeg
