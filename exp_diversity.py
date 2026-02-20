@@ -1,6 +1,9 @@
 """
 Analyze Diversity: Compute and store ensemble diversity metrics.
-Supports incremental calculation and pairwise metric saving.
+
+Always computes all requested metrics and overwrites output files,
+so that diversity.csv and pairwise_diversity.pt always reflect the
+current run config exactly.
 
 Usage:
     python exp_diversity.py --config configs/diversity.yaml
@@ -10,7 +13,7 @@ Config Format (YAML):
       - pred_disagreement
       - q_statistic
       # ...
-    save_dir: "save/ensembles"       # Optional, default "save/ensembles"
+    save_dir: env.ENSEMBLES_ROOT       # Optional, default env.ENSEMBLES_ROOT
     ensembles:                       # Optional, if missing/empty, runs on ALL ensembles in save_dir
       - "hash1"
       - "hash2"
@@ -20,24 +23,24 @@ import argparse
 import yaml
 import os
 import csv
-import json
-import inspect
+
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Tuple
 
 # Project imports
 import utils.metrics as metrics_lib
 from utils.ensemble_utils import (
-    load_index,
-    parse_run_name,
-    list_ensembles
+    load_registry,
+    resolve_identifier,
+    get_ensemble_path_by_name
 )
-from utils.env import MODELS_ROOT
+from utils.names import parse_run_name
 from utils.run_inference import get_or_run_inference
+from configs import env
 
-def load_diversity_csv(csv_path: str) -> Dict[str, float]:
-    """Load existing scalar diversity metrics from CSV."""
+def _load_diversity_csv(csv_path: str) -> Dict[str, float]:
+    """Load scalar diversity metrics from CSV."""
     if not os.path.exists(csv_path):
         return {}
     
@@ -55,26 +58,16 @@ def load_diversity_csv(csv_path: str) -> Dict[str, float]:
         print(f"  Warning: Could not read {csv_path}: {e}")
     return metrics
 
-def save_diversity_csv(csv_path: str, new_metrics: Dict[str, float]):
-    """Append new metrics to diversity.csv."""
-    # We append to avoid overwriting if other processes are checking (though not concurrency safe)
-    # Better to read, merge, write for consistency, but append is redundant-safe if we check first.
-    # Given the requirement "check diversity.csv... if exists but contains few metrics",
-    # we should probably append only missing ones.
-    
-    # Actually, simpler to just append the new variable lines. 
-    # Duplicate keys in CSV are messy but readable. Ideally we invoke this only for missing ones.
-    
-    file_exists = os.path.exists(csv_path)
-    with open(csv_path, 'a', newline='') as f:
+def _save_diversity_csv(csv_path: str, metrics: Dict[str, float]):
+    """Write scalar diversity metrics to CSV, replacing any existing file."""
+    with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["metric", "value"])
-        for k, v in new_metrics.items():
+        writer.writerow(["metric", "value"])
+        for k, v in metrics.items():
             writer.writerow([k, v])
 
-def load_pairwise_pt(pt_path: str) -> Dict[str, torch.Tensor]:
-    """Load existing pairwise metrics."""
+def _load_pairwise_pt(pt_path: str) -> Dict[str, torch.Tensor]:
+    """Load pairwise metrics from .pt file."""
     if not os.path.exists(pt_path):
         return {}
     try:
@@ -83,7 +76,7 @@ def load_pairwise_pt(pt_path: str) -> Dict[str, torch.Tensor]:
         print(f"  Warning: Could not load {pt_path}: {e}")
         return {}
 
-def get_diversity_results(run_hash: str, save_dir: str = "save/ensembles") -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+def get_diversity_results(run_hash: str, save_dir: str = env.ENSEMBLES_ROOT) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
     """
     Retrieve diversity and pairwise metrics for a given ensemble hash.
     
@@ -98,9 +91,26 @@ def get_diversity_results(run_hash: str, save_dir: str = "save/ensembles") -> Tu
     div_csv_path = os.path.join(hash_dir, "diversity.csv")
     pair_pt_path = os.path.join(hash_dir, "pairwise_diversity.pt")
     
-    scalars = load_diversity_csv(div_csv_path)
-    pairwise = load_pairwise_pt(pair_pt_path)
+    scalars = _load_diversity_csv(div_csv_path)
+    pairwise = _load_pairwise_pt(pair_pt_path)
     
+    return scalars, pairwise
+
+def get_diversity_results_by_ensemble_name(ensemble_name: str, save_dir: str = env.ENSEMBLES_ROOT) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+    """
+    Retrieve diversity and pairwise metrics for a given ensemble name (not hash).
+    Uses get_ensemble_path_by_name to resolve the directory.
+    Args:
+        ensemble_name: The name of the ensemble (not the hash).
+        save_dir: The directory where ensembles are saved.
+    Returns:
+        tuple: (scalar_diversity_dict, pairwise_diversity_dict)
+    """
+    hash_dir = get_ensemble_path_by_name(ensemble_name, save_dir)
+    div_csv_path = os.path.join(hash_dir, "diversity.csv")
+    pair_pt_path = os.path.join(hash_dir, "pairwise_diversity.pt")
+    scalars = _load_diversity_csv(div_csv_path)
+    pairwise = _load_pairwise_pt(pair_pt_path)
     return scalars, pairwise
 
 def compute_metrics(
@@ -110,73 +120,25 @@ def compute_metrics(
 ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
     """
     Compute specified diversity metrics (scalar and pairwise).
+    Uses the registry-based metrics API via EvalContext.
     """
-    N = labels.numel()
-    
-    # Pre-compute useful structures
-    preds_list = []
-    probs_list = []
-    for logits in logits_list:
-        preds_list.append(logits.argmax(dim=1))
-        # probs_list might be heavy if many models/samples, but needed for some metrics
-        probs_list.append(torch.softmax(logits, dim=1).cpu().numpy())
-    
-    # Pre-compute confusion counts stack (used by many metrics)
-    try:
-        counts_stack = metrics_lib.matrix_confusion_counts(preds_list, labels)
-    except Exception as e:
-        print(f"  Error computing confusion counts: {e}")
-        return {}, {}
+    preds_list = [logits.argmax(dim=1) for logits in logits_list]
 
-    ctx = {
-        "preds_list": preds_list,
-        "probs_list": probs_list,
-        "logits_list": logits_list,
-        "counts_stack": counts_stack,
-        "labels": labels,
-        "N": N
+    ctx = metrics_lib.EvalContext(
+        preds=preds_list,
+        labels=labels,
+        logits=logits_list,
+    )
+
+    # Scalar results (off-diagonal average)
+    scalar_results = metrics_lib.compute_metrics(ctx, metric_names, reduce_group=True)
+
+    # Pairwise results (full R×R matrices)
+    pairwise_raw = metrics_lib.compute_metrics(ctx, metric_names, reduce_group=False)
+    pairwise_results = {
+        k: torch.from_numpy(v) if isinstance(v, np.ndarray) else v
+        for k, v in pairwise_raw.items()
     }
-
-    scalar_results = {}
-    pairwise_results = {}
-
-    for m_name in metric_names:
-        # We try to compute both group (scalar) and matrix (pairwise) versions for each requested metric
-        # Check for function existence in utils.metrics
-        
-        # Clean name: remove prefixes if user provided them, though standard config should just be 'jaccard' etc.
-        base_name = m_name.replace("div_", "").replace("pw_", "").replace("group_", "").replace("matrix_", "")
-        
-        matrix_fn = getattr(metrics_lib, f"matrix_{base_name}", None)
-        group_fn = getattr(metrics_lib, f"group_{base_name}", None)
-        
-        # Calculate Pairwise
-        if matrix_fn:
-            try:
-                sig = inspect.signature(matrix_fn)
-                kwargs = {k: ctx[k] for k in sig.parameters if k in ctx}
-                # Check for top_n or specific args if needed, currently generic handler
-                mat_np = matrix_fn(**kwargs)
-                pairwise_results[base_name] = torch.from_numpy(mat_np)
-            except Exception as e:
-                print(f"    Error computing pairwise {base_name}: {e}")
-
-        # Calculate Scalar
-        if group_fn:
-            try:
-                sig = inspect.signature(group_fn)
-                kwargs = {k: ctx[k] for k in sig.parameters if k in ctx}
-                val = group_fn(**kwargs)
-                scalar_results[base_name] = float(val)
-            except Exception as e:
-                print(f"    Error computing scalar {base_name}: {e}")
-        
-        # Fallback: if scalar not computed but pairwise exists, avg off-diagonal
-        if base_name not in scalar_results and base_name in pairwise_results:
-             mat = pairwise_results[base_name].numpy()
-             val = metrics_lib._average_off_diagonal(mat)
-             if not np.isnan(val):
-                 scalar_results[base_name] = float(val)
 
     return scalar_results, pairwise_results
 
@@ -187,73 +149,51 @@ def process_ensemble(
     required_metrics: List[str]
 ):
     """
-    Process a single ensemble: check existing results, compute missing, save.
+    Process a single ensemble: compute all requested metrics and save.
+    Always overwrites existing output files.
     """
     hash_dir = os.path.join(save_dir, run_hash)
     os.makedirs(hash_dir, exist_ok=True)
     
     div_csv_path = os.path.join(hash_dir, "diversity.csv")
     pair_pt_path = os.path.join(hash_dir, "pairwise_diversity.pt")
-    
-    # 1. Check existing work
-    existing_scalars = load_diversity_csv(div_csv_path)
-    existing_pairwise = load_pairwise_pt(pair_pt_path)
-    
-    missing_metrics = list(set(required_metrics) - 
-        (set(existing_scalars.keys()) & set(existing_pairwise.keys()))
-    )
-    
-    if not missing_metrics:
-        print(f"  [{run_hash}] All metrics up to date.")
-        return
 
-    print(f"  [{run_hash}] Computing missing: {missing_metrics}")
-
-    # 2. Load Data (Logits/Labels)
-    # We only load data if we have work to do
+    # 1. Load data (logits/labels) for each member
     logits_list = []
     labels = None
     
-    valid_ensemble = True
     for run_name in run_names:
         try:
             model_dir, trial = parse_run_name(run_name)
             inf_data = get_or_run_inference(model_dir, trial)
-            l = inf_data['logits']
-            lbl = inf_data['labels']
-            logits_list.append(l)
+            logits_list.append(inf_data['logits'])
             
             if labels is None:
-                labels = lbl
-            elif not torch.equal(labels, lbl):
-                pass # Warning could be logged
+                labels = inf_data['labels']
+            elif not torch.equal(labels, inf_data['labels']):
+                print(f"    Warning: Label mismatch for {run_name}")
                 
         except Exception as e:
             print(f"    Error loading {run_name}: {e}")
-            valid_ensemble = False
-            break
+            print(f"    Skipping {run_hash}: Data loading failed.")
+            return
             
-    if not valid_ensemble or not logits_list:
-        print(f"    Skipping {run_hash}: Data loading failed.")
+    if not logits_list:
+        print(f"    Skipping {run_hash}: No data loaded.")
         return
 
-    # 3. Compute
-    new_scalars, new_pairwise = compute_metrics(logits_list, labels, missing_metrics)
+    # 2. Compute all requested metrics
+    scalars, pairwise = compute_metrics(logits_list, labels, required_metrics)
     
-    # 4. Save
-    if new_scalars:
-        save_diversity_csv(div_csv_path, new_scalars)
-    
-    if new_pairwise:
-        # Merge with existing
-        existing_pairwise.update(new_pairwise)
-        torch.save(existing_pairwise, pair_pt_path)
+    # 3. Save (overwrite)
+    _save_diversity_csv(div_csv_path, scalars)
+    torch.save(pairwise, pair_pt_path)
         
-    print(f"    Saved: {list(new_scalars.keys())}")
+    print(f"    Saved: {list(scalars.keys())}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Diversity Analysis (Incremental)")
+    parser = argparse.ArgumentParser(description="Diversity Analysis")
     parser.add_argument('--config', type=str, required=True, help='Path to YAML config')
     args = parser.parse_args()
     
@@ -274,31 +214,34 @@ def main():
 
     print(f"Output Directory: {save_dir}")
     
-    # Load Main Index
-    index = load_index(save_dir)
-    if not index:
-        print(f"No index found or empty in {save_dir}. Ensure ensembles are created first.")
+    # Load Registry
+    registry = load_registry(save_dir)
+    if not registry:
+        print(f"No registry found or empty in {save_dir}. Ensure ensembles are created first.")
         return
 
-    # Determine which hashes to process
+    # Determine which hashes to process (supports names and hashes)
     if not target_hashes:
         print("No specific ensembles listed in config. Processing ALL known ensembles.")
-        target_hashes = list(index.keys())
+        target_hashes = list(registry.keys())
     else:
-        # Validate requested hashes exist
+        # Resolve names/hashes to validated hashes
         valid_hashes = []
-        for h in target_hashes:
-            if h in index:
+        for identifier in target_hashes:
+            try:
+                h = resolve_identifier(identifier, save_dir)
                 valid_hashes.append(h)
-            else:
-                print(f"Warning: Requested hash {h} not found in index.")
+            except KeyError:
+                print(f"Warning: '{identifier}' not found in registry.")
         target_hashes = valid_hashes
 
     print(f"Processing {len(target_hashes)} ensembles...")
 
     for i, run_hash in enumerate(target_hashes):
-        run_names = index[run_hash]
-        print(f"[{i+1}/{len(target_hashes)}] Ensemble {run_hash} ({len(run_names)} models)")
+        entry = registry[run_hash]
+        run_names = entry["run_names"]
+        display = entry.get("name") or run_hash
+        print(f"[{i+1}/{len(target_hashes)}] Ensemble {display} ({len(run_names)} models)")
         process_ensemble(run_hash, run_names, save_dir, metrics)
         
     print("Done.")
