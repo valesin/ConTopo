@@ -77,7 +77,8 @@ def main():
     all_folders = _find_model_folders(models_root)
 
     # Only take models that contain '0.5dropout' (exclude 0.0 ones)
-    cand = [p for p in all_folders if "0.5dropout" in os.path.basename(p)]
+    # cand = [p for p in all_folders if "0.5dropout" in os.path.basename(p)]
+    cand = all_folders
 
     # Sort by loss tag (prefix before first '_'), then numeric rho ascending, then name
     def _sort_key(path: str) -> Tuple[str, float, str]:
