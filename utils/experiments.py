@@ -234,3 +234,43 @@ def select_deterministic_cifar10_subset(val_loader, per_class: int = 100):
 
     stacked = torch.stack(ordered_imgs, dim=0)
     return stacked, ordered_labels
+
+def compute_embeddings(encoder: torch.nn.Module, images: torch.Tensor, device: torch.device, batch_size: int) -> torch.Tensor:
+    """
+    Run images through encoder in batches and return a [N, D] tensor of embeddings (CPU float32).
+    """
+    encoder.eval()
+    feats = []
+    N = images.size(0)
+    with torch.no_grad():
+        for i in range(0, N, batch_size):
+            batch = images[i:i+batch_size].to(device, non_blocking=True)
+            out = encoder(batch)
+            if out.ndim > 2:
+                out = out.flatten(1)
+            feats.append(out.detach().cpu().to(dtype=torch.float32))
+    return torch.cat(feats, dim=0)
+
+
+def pearson_rdm(X: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """
+    Compute 1 - Pearson correlation matrix for row-vectors in X (shape [N, D]).
+    Returns a [N, N] tensor on CPU.
+    """
+    X = X.to(dtype=torch.float32, device="cpu")
+    Xc = X - X.mean(dim=1, keepdim=True)
+    norms = Xc.norm(dim=1, keepdim=True).clamp_min(eps)
+    Y = Xc / norms
+    corr = Y @ Y.t()
+    rdm = 1.0 - corr
+    # Ensure perfect self-similarity maps to 0 exactly
+    rdm.fill_diagonal_(0.0)
+    return rdm
+
+
+def upper_triangle_vector(M: torch.Tensor, include_diagonal: bool = True) -> torch.Tensor:
+    """Return the upper-triangular values of square matrix M as a 1D tensor."""
+    N = M.size(0)
+    offset = 0 if include_diagonal else 1
+    idx = torch.triu_indices(N, N, offset=offset)
+    return M[idx[0], idx[1]].to(dtype=torch.float32, device="cpu")
