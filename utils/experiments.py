@@ -198,3 +198,39 @@ def parse_model_name(path: str) -> dict:
                  info[key] = match.group(1)
     
     return info
+
+def select_deterministic_cifar10_subset(val_loader, per_class: int = 100):
+    """
+    Deterministically collect exactly `per_class` samples for each of the 10 CIFAR-10 classes
+    from the evaluation loader (which is ordered and not shuffled).
+
+    Returns images stacked in CLASS-GROUPED order ([1000, C, H, W]) and labels where the
+    first 100 belong to class 0, next 100 to class 1, ..., last 100 to class 9.
+    """
+    imgs_by_class = {i: [] for i in range(10)}
+
+    with torch.no_grad():
+        for imgs, labs in val_loader:
+            for img, lab in zip(imgs, labs):
+                c = int(lab)
+                lst = imgs_by_class[c]
+                if len(lst) < per_class:
+                    lst.append(img)
+            # Early exit if all classes are filled
+            if all(len(lst) >= per_class for lst in imgs_by_class.values()):
+                break
+
+    # Verify and stack in class order 0..9
+    for c in range(10):
+        if len(imgs_by_class[c]) < per_class:
+            raise RuntimeError(f"Could not collect required samples for class {c}: "
+                               f"got {len(imgs_by_class[c])}, need {per_class}")
+
+    ordered_imgs = []
+    ordered_labels = []
+    for c in range(10):
+        ordered_imgs.extend(imgs_by_class[c][:per_class])
+        ordered_labels.extend([c] * per_class)
+
+    stacked = torch.stack(ordered_imgs, dim=0)
+    return stacked, ordered_labels
