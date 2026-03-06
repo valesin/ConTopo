@@ -235,6 +235,64 @@ def select_deterministic_cifar10_subset(val_loader, per_class: int = 100):
     stacked = torch.stack(ordered_imgs, dim=0)
     return stacked, ordered_labels
 
+
+def select_deterministic_cifar10_train_anchors(per_class: int = 100, root: str = "./dataset"):
+    """
+    Deterministically select `per_class` images per class from the CIFAR-10 **TRAIN** set.
+
+    Uses eval-only transforms (ToTensor + Normalize, no augmentation) to produce
+    images suitable for direct encoder forward passes.
+
+    Selection is deterministic: for each class, the first `per_class` images
+    encountered in the canonical dataset ordering are chosen.  Images are returned
+    in class-grouped order (all class-0 images first, then class-1, etc.).
+
+    Returns:
+        images:  torch.Tensor  [10 * per_class, 3, 32, 32]  (float32, normalised)
+        labels:  torch.Tensor  [10 * per_class]              (long)
+        indices: torch.Tensor  [10 * per_class]              (long, original dataset indices)
+    """
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR10_MEAN, CIFAR10_STD),
+    ])
+    ds = datasets.CIFAR10(root=root, train=True, download=True, transform=transform)
+    targets = ds.targets  # list[int], length 50 000
+
+    # Collect first per_class indices for each class (deterministic, order-preserving)
+    class_indices = {c: [] for c in range(10)}
+    for idx, label in enumerate(targets):
+        c = int(label)
+        if len(class_indices[c]) < per_class:
+            class_indices[c].append(idx)
+        if all(len(v) >= per_class for v in class_indices.values()):
+            break
+
+    for c in range(10):
+        got = len(class_indices[c])
+        if got < per_class:
+            raise RuntimeError(
+                f"Not enough train samples for class {c}: got {got}, need {per_class}"
+            )
+
+    # Build ordered tensors in class-grouped order
+    ordered_imgs = []
+    ordered_labels = []
+    ordered_indices = []
+    for c in range(10):
+        for idx in class_indices[c][:per_class]:
+            img, _ = ds[idx]
+            ordered_imgs.append(img)
+            ordered_labels.append(c)
+            ordered_indices.append(idx)
+
+    return (
+        torch.stack(ordered_imgs),
+        torch.tensor(ordered_labels, dtype=torch.long),
+        torch.tensor(ordered_indices, dtype=torch.long),
+    )
+
+
 def compute_embeddings(encoder: torch.nn.Module, images: torch.Tensor, device: torch.device, batch_size: int) -> torch.Tensor:
     """
     Run images through encoder in batches and return a [N, D] tensor of embeddings (CPU float32).

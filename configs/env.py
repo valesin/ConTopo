@@ -19,3 +19,5 @@ DATA_ROOT = os.getenv("CONTOPO_DATA_ROOT", os.path.join(_PROJECT_ROOT, "dataset"
 # Root directory for saving ensembles
 # Default: save/ensembles
 ENSEMBLES_ROOT = os.getenv("CONTOPO_ENSEMBLES_ROOT", os.path.join(_PROJECT_ROOT, "save/ensembles"))
+
+CONFIGS_ROOT = os.getenv("CONTOPO_CONFIGS_ROOT", os.path.join(_PROJECT_ROOT, "configs"))

@@ -13,7 +13,7 @@ ensembles:
     methods: ["soft", "hard"]  # Optional, defaults to all supported
     metadata:                  # Optional arbitrary user data
       description: "Example ensemble"
-
+s
 Usage:
 ------
 python utils/ensemble_utils.py --config configs/ensembles.yaml
@@ -30,10 +30,113 @@ import torch
 from datetime import datetime, timezone
 from utils.names import generate_run_name, get_trials, parse_run_name
 from utils.run_inference import get_or_run_inference
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Iterator
 from utils import env
 import numpy as np
 from configs import env
+
+# ---------------------------------------------------------------
+# Similarity Profiles Iterator
+# ---------------------------------------------------------------
+
+def iter_similarity_profiles(save_dir: str = env.ENSEMBLES_ROOT):
+    """
+    Yields for each registered ensemble:
+        {
+            "ensemble_name": name or hash,
+            "hash": hash,
+            "similarity_profiles": dict from load_similarity_profiles(...)
+        }
+    Skips ensembles without similarity_profiles.pt.
+    """
+    # Use config file to determine ensemble order and selection
+    config_path = os.path.join(env.CONFIGS_ROOT, "ensembles.yaml")
+    import yaml
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Ensemble config file not found: {config_path}")
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    for ens in config.get("ensembles", []):
+        name = ens.get("ensemble_name")
+        # Fallback to None if not present
+        if name is None:
+            continue
+        try:
+            profiles = load_similarity_profiles(name, save_dir=save_dir)
+        except FileNotFoundError:
+            continue
+        # Optionally, get hash from registry for completeness
+        try:
+            hash_ = resolve_identifier(name, save_dir)
+        except Exception:
+            hash_ = None
+        yield {
+            "ensemble_name": name,
+            "hash": hash_,
+            "similarity_profiles": profiles
+        }
+
+def iter_ensemble_inference_data_from_config(config_path: str = os.path.join(env.CONFIGS_ROOT, "ensembles.yaml")) -> Iterator[Dict[str, Any]]:
+    """
+    Yields for each ensemble in the config file:
+        {
+            "ensemble_name": ...,
+            "run_names": [...],
+            "methods": [...],
+            "metadata": {...},
+            "inference_data": dict mapping run_name -> inference data
+        }
+    """
+    import yaml
+    from utils.names import get_trials, generate_run_name, parse_run_name
+    from utils.run_inference import get_or_run_inference
+    import os
+
+    # Default config path: save/ensembles/../ensembles.yaml
+    config_path = os.path.abspath(config_path)
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Ensemble config file not found: {config_path}")
+
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    for ens in config.get("ensembles", []):
+        model_entries = ens.get("models", [])
+        run_names = []
+        for m in model_entries:
+            model_dir = m["name"]
+            trials = m.get("trials", "all")
+            trial_names = get_trials(model_dir, trials)
+            for trial in trial_names:
+                run_names.append(generate_run_name(model_dir, trial))
+
+        def get_inference_data():
+            inf_data_dict = {}
+            for run_name in run_names:
+                model_dir, trial = parse_run_name(run_name)
+                inf_data = get_or_run_inference(model_dir, trial)
+                inf_data_dict[run_name] = inf_data
+            return inf_data_dict
+
+        yield {
+            "ensemble_name": ens.get("ensemble_name"),
+            "run_names": run_names,
+            "methods": ens.get("methods", []),
+            "metadata": ens.get("metadata", {}),
+            "inference_data": get_inference_data(),
+        }
+
+
+def get_ensemble_config_path_from_cli(default_path: str = 'configs/ensembles.yaml') -> str:
+    """
+    Parse CLI arguments for ensemble config path, defaulting to 'configs/ensembles.yaml'.
+    Returns the config path as a string.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description="Ensemble experiment utility.")
+    parser.add_argument('--config', type=str, default=default_path, help='Path to ensemble config YAML file')
+    args, _ = parser.parse_known_args()
+    return args.config
 
 METHODS = ["soft", "hard", "max_confidence", "conf_weighted"]
 
@@ -329,15 +432,16 @@ def load_metadata(identifier: str, save_dir: str = env.ENSEMBLES_ROOT) -> Dict[s
 
 def list_ensembles(save_dir: str = env.ENSEMBLES_ROOT) -> List[Dict[str, Any]]:
     """
-    List all registered ensembles.
-
+    List all registered ensembles, sorted deterministically by name (or hash).
     Returns a list of dicts, each with 'hash' and 'name' keys.
     """
     registry = load_registry(save_dir)
-    return [
+    ensembles = [
         {"hash": h, "name": entry.get("name")}
         for h, entry in registry.items()
     ]
+    # Sort by name, fallback to hash if name is None
+    return sorted(ensembles, key=lambda x: (x["name"] or x["hash"]))
 
 
 def select_ensembles(
@@ -436,6 +540,18 @@ def get_component_accuracies(run_names: List[str]) -> Dict[str, Any]:
 # ---------------------------------------------------------------
 # High-level Utility Functions
 # ---------------------------------------------------------------
+
+def load_similarity_profiles(identifier: str, save_dir: str = env.ENSEMBLES_ROOT) -> dict:
+    """
+    Retrieve similarity profiles (cosine_results, rdm_mats) for an ensemble by name or hash.
+    Returns a dict with keys 'cosine_results' and 'rdm_mats'.
+    """
+    run_hash = resolve_identifier(identifier, save_dir)
+    ensemble_dir = os.path.join(save_dir, run_hash)
+    similarity_file = os.path.join(ensemble_dir, "similarity_profiles.pt")
+    if not os.path.isfile(similarity_file):
+        raise FileNotFoundError(f"No similarity_profiles.pt found for ensemble '{identifier}' at {similarity_file}")
+    return torch.load(similarity_file, weights_only=False)
 
 def get_ensemble_info(identifier: str, save_dir: str = env.ENSEMBLES_ROOT) -> Dict[str, Any]:
     """

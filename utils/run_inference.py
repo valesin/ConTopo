@@ -59,17 +59,30 @@ def run_model_inference(
         loader, 
         device
     )
-    
+
+    # Compute embeddings for each test image using encoder only, in batches
+    encoder = bundle.encoder
+    encoder.eval()
+    embeddings_list = []
+    with torch.no_grad():
+        for batch in loader:
+            images = batch[0] if isinstance(batch, (list, tuple)) else batch
+            images = images.to(device)
+            feats = encoder(images)
+            if isinstance(feats, (tuple, list)):
+                feats = feats[0]
+            embeddings_list.append(feats.detach().cpu())
+    embeddings = torch.cat(embeddings_list, dim=0)
+
     accuracy = float((preds == labels).float().mean().item())
-    
+
     return {
         "preds": preds,
         "labels": labels, 
         "logits": logits,
-        "accuracy": accuracy
+        "accuracy": accuracy,
+        "embeddings": embeddings
     }
-
-    return results
 
 # Module-level cache for the CIFAR-10 test loader
 _CIFAR_LOADER = None
@@ -104,18 +117,19 @@ def _get_cifar_test_loader():
 def get_or_run_inference(model_dir: str, trial: str, force: bool = False):
     """
     Get inference results for a specific model trial, running it if necessary.
-    
+
     Args:
         model_dir: Directory relative to env.MODELS_ROOT (e.g. 'my_experiment')
         trial: Trial name (e.g. 'trial_00')
         force: If True, re-run inference even if cached.
-        
+
     Returns:
         Dictionary containing standardized results:
         - "preds": torch.Tensor (N,)
         - "labels": torch.Tensor (N,)
         - "logits": torch.Tensor (N, C)
         - "accuracy": float
+        - "embeddings": torch.Tensor (N, D)
     """
     # Construct full path to trial directory
     # env.MODELS_ROOT is defined in utils.ensemble_utils as e.g. "save/ResNet18/models"
@@ -124,9 +138,24 @@ def get_or_run_inference(model_dir: str, trial: str, force: bool = False):
     # Check cache
     cache_path = os.path.join(trial_dir, "inference_cifar.pt")
     
+    required_keys = ["preds", "labels", "logits", "accuracy", "embeddings"]
     if os.path.exists(cache_path) and not force:
-        # print(f"Loading cached inference from {cache_path}")
-        return torch.load(cache_path, weights_only=False)
+        data = torch.load(cache_path, weights_only=False)
+        missing = False
+        for k in required_keys:
+            if k not in data or data[k] is None:
+                missing = True
+                break
+        if not missing:
+            return {
+                "preds": data["preds"],
+                "labels": data["labels"],
+                "logits": data["logits"],
+                "accuracy": data["accuracy"],
+                "embeddings": data["embeddings"]
+            }
+        else:
+            print(f"Cached inference for {model_dir}/{trial} is incomplete, re-running inference.")
         
     # Run Inference
     print(f"Running inference for {model_dir}/{trial}...")
@@ -155,12 +184,19 @@ def get_or_run_inference(model_dir: str, trial: str, force: bool = False):
     
     # Run inference
     results = run_model_inference(bundle, loader, device)
-    
+
     # Save results
     torch.save(results, cache_path)
     print(f"Saved inference results to {cache_path}")
-    
-    return results
+
+    # Unified return for downstream use
+    return {
+        "preds": results["preds"],
+        "labels": results["labels"],
+        "logits": results["logits"],
+        "accuracy": results["accuracy"],
+        "embeddings": results["embeddings"]
+    }
 
 # ----- FROM exp_errorcorr.py -----
 def _collect_errors_and_preds(
@@ -237,3 +273,47 @@ def get_cifar10_test_labels():
     dataset = datasets.CIFAR10(root=env.DATA_ROOT, train=False, download=True, transform=transform)
     labels = torch.tensor(dataset.targets)
     return labels
+
+# Function to retrieve all inference results for a model directory
+def get_inference_bundles(model_dir):
+    """
+    Returns a list of inference results for all trials in a model directory.
+    Each result is a dict with keys: preds, labels, logits, accuracy, embeddings.
+    """
+    import os
+    import torch
+    from utils import env
+
+    model_root = os.path.join(env.MODELS_ROOT, model_dir)
+    if not os.path.isdir(model_root):
+        raise FileNotFoundError(f"Model directory not found: {model_root}")
+    trial_dirs = [d for d in os.listdir(model_root) if d.startswith("trial_")]
+    trial_dirs.sort()  # Ensure consistent order
+    bundles = []
+    for trial in trial_dirs:
+        cache_path = os.path.join(model_root, trial, "inference_cifar.pt")
+        if os.path.exists(cache_path):
+            data = torch.load(cache_path, weights_only=False)
+            bundles.append(data)
+    return bundles
+
+# Function to retrieve all titles of inference files for a model directory
+def get_inference_title_bundles(model_dir):
+    """
+    Returns a list of inference file paths for all trials in a model directory.
+    Each result is a string path to an inference file.
+    """
+    import os
+    from utils import env
+
+    model_root = os.path.join(env.MODELS_ROOT, model_dir)
+    if not os.path.isdir(model_root):
+        raise FileNotFoundError(f"Model directory not found: {model_root}")
+    trial_dirs = [d for d in os.listdir(model_root) if d.startswith("trial_")]
+    trial_dirs.sort()  # Ensure consistent order
+    bundles = []
+    for trial in trial_dirs:
+        cache_path = os.path.join(model_root, trial, "inference_cifar.pt")
+        if os.path.exists(cache_path):
+            bundles.append(cache_path)
+    return bundles
