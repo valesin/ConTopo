@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from utils.ensemble_utils import load_similarity_profiles, get_ensemble_info, iter_ensemble_inference_data_from_config
+from utils.experiments import pearson_rdm
 
 # %%
 # Select an ensemble by name or hash
@@ -54,7 +55,7 @@ plt.show()
 # %%
 # # Manually calculate RDM for the selected image across models
 def calc_triu_rdm(sim_across_models):
-    return 1 - torch.corrcoef(sim_across_models).triu(diagonal=1)
+    return pearson_rdm(sim_across_models).triu(diagonal=1)
 manual_rdm = calc_triu_rdm(similarity_profile)
 # Note: The saved key is 'rdm_mats_all' (full 10-class) or 'rdm_mats_remove' (correct-label removed)
 print("RDM shape:", manual_rdm.shape)

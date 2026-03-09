@@ -9,6 +9,7 @@ from utils.names import parse_run_name
 from utils.experiments import (
     compute_embeddings,
     select_deterministic_cifar10_train_anchors,
+    pearson_rdm,
 )
 import utils.ensemble_utils as ensemble_utils
 
@@ -81,7 +82,7 @@ def main():
                 # Reshape to [C, A, D] (images are in class-grouped order)
                 anchors_3d = anchor_emb.view(NUM_CLASSES, NUM_ANCHORS_PER_CLASS, D)
 
-                # ℓ2-normalise along the embedding dimension
+                # l2-normalise along the embedding dimension
                 #   anchors: dim=2 (last) because shape is [C, A, D]
                 #   test:    dim=1 (last) because shape is [N, D]
                 anchors_norm = F.normalize(anchors_3d, p=2, dim=2)  # [C, A, D]
@@ -119,13 +120,12 @@ def main():
                      sim_across_models[:, correct_label + 1:]],
                     dim=1,
                 )
-                corr = torch.corrcoef(sim_no_target)
+                rdm = pearson_rdm(sim_no_target)
             else:
-                corr = torch.corrcoef(sim_across_models)
+                rdm = pearson_rdm(sim_across_models)
 
-            rdm = 1 - corr  # [M, M]
-
-            # NaN guard: constant profiles → undefined Pearson → NaN
+            # pearson_rdm gracefully handles NaN/constant profiles internally (clamp_min)
+            # but we can optionally leave this check here just in case.
             if torch.isnan(rdm).any():
                 nan_count = int(torch.isnan(rdm).sum().item())
                 print(

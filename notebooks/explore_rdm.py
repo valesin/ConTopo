@@ -1,5 +1,8 @@
 # %%
 import torch
+import sys
+sys.path.append('..')
+from utils.experiments import pearson_corrcoef
 
 rdm = torch.load("../save/ResNet18/models/CE_rho0.04/RDM_CE_rho0.04.pt")
 rdm.keys()
@@ -40,7 +43,7 @@ for c in comb:
     t2 = upper[c[1]]
     a = t1.flatten()
     b = t2.flatten()
-    corr2 = torch.corrcoef(torch.stack([a, b]))[0, 1]
+    corr2 = pearson_corrcoef(torch.stack([a, b]))[0, 1]
     print("Correlation:", corr2.item())
 
     # display(f)

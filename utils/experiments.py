@@ -310,9 +310,9 @@ def compute_embeddings(encoder: torch.nn.Module, images: torch.Tensor, device: t
     return torch.cat(feats, dim=0)
 
 
-def pearson_rdm(X: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def pearson_corrcoef(X: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
-    Compute 1 - Pearson correlation matrix for row-vectors in X (shape [N, D]).
+    Compute Pearson correlation matrix for row-vectors in X (shape [N, D]).
     Returns a [N, N] tensor on CPU.
     """
     X = X.to(dtype=torch.float32, device="cpu")
@@ -320,6 +320,15 @@ def pearson_rdm(X: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     norms = Xc.norm(dim=1, keepdim=True).clamp_min(eps)
     Y = Xc / norms
     corr = Y @ Y.t()
+    return corr
+
+
+def pearson_rdm(X: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """
+    Compute 1 - Pearson correlation matrix for row-vectors in X (shape [N, D]).
+    Returns a [N, N] tensor on CPU.
+    """
+    corr = pearson_corrcoef(X, eps=eps)
     rdm = 1.0 - corr
     # Ensure perfect self-similarity maps to 0 exactly
     rdm.fill_diagonal_(0.0)

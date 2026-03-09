@@ -15,7 +15,7 @@ import torch
 from torchvision import datasets, transforms
 
 from utils.load import parse_model_load_args, load_model_bundles
-from utils.experiments import CIFAR10_MEAN, CIFAR10_STD
+from utils.experiments import CIFAR10_MEAN, CIFAR10_STD, pearson_corrcoef
 
 
 def _collect_errors_and_preds(
@@ -68,22 +68,6 @@ def _collect_errors_and_preds(
 
     return errors, preds, targets, logits_store
 
-
-def _pearson_corrcoef(error_matrix: torch.Tensor) -> torch.Tensor:
-    # Rows correspond to trials; compute their pairwise Pearson correlations over samples.
-    if error_matrix.size(0) == 0:
-        return torch.empty(0, 0)
-    centered = error_matrix - error_matrix.mean(dim=1, keepdim=True)
-    cov = centered @ centered.T
-    var = centered.pow(2).sum(dim=1)
-    denom = torch.sqrt(var).unsqueeze(0) * torch.sqrt(var).unsqueeze(1)
-    corr = cov.clone()
-    mask = denom == 0
-    corr[~mask] = corr[~mask] / denom[~mask]
-    corr.masked_fill_(mask, float("nan"))
-    idx = torch.arange(corr.size(0))
-    corr[idx, idx] = 1.0
-    return corr
 
 
 def ensemble_accuracy(
@@ -377,7 +361,7 @@ def _print_diagnostics(result: dict, label: str) -> None:
     if np.isfinite(mean):
         print(f"Non-ensemble mean +/- std: {mean:.4f} +/- {std:.4f}")
 
-    corr = _pearson_corrcoef(result["error_matrix"])
+    corr = pearson_corrcoef(result["error_matrix"])
     print("Correlation matrix:")
     print(corr.tolist())
 
