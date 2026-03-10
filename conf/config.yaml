@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────
+# ConTopo — Master Hydra Configuration
+# ─────────────────────────────────────────────────────────────
+defaults:
+  - model: resnet18
+  - loss: cross_entropy
+  - dataset: cifar10
+  - training: default
+  - runtime: default
+  - pipeline: default
+  - mlflow: default
+  - ensemble: ce_ensembles
+  - adapter: default
+  - _self_
+
+# ── Schema ──
+schema_version: 1
+
+# ── Sweep / override surface (experiment-semantic) ──
+trial: 0
+seed: null          # null → auto: 100 + trial
+
+# ── Migration (one-time) ──
+migration:
+  dry_run: false

@@ -1,0 +1,265 @@
+"""
+Structured (dataclass) configs for Hydra.
+
+Each dataclass mirrors one YAML config group under ``conf/``.
+They are registered in the ConfigStore so Hydra validates config files
+against the schema at composition time.
+
+Usage::
+
+    from src.config.structured import register_configs
+    register_configs()  # call once, before @hydra.main
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
+
+from omegaconf import MISSING
+
+
+# ─────────── model ───────────
+
+
+@dataclass
+class HeadConfig:
+    bias: bool = True
+
+
+@dataclass
+class ModelConfig:
+    name: str = "resnet18"
+    arch: str = "LinearResNet18"
+    embedding_dim: int = 256
+    num_classes: int = 10
+    use_dropout: bool = True
+    p_dropout: float = 0.5
+    head: HeadConfig = field(default_factory=HeadConfig)
+
+
+# ─────────── loss ───────────
+
+
+@dataclass
+class NeighborhoodConfig:
+    type: str = "moore"
+    radius: int = 1
+
+
+@dataclass
+class LossConfig:
+    name: str = "cross_entropy"
+    rho: float = 0.0
+    topography_type: str = "ws"
+    topology: str = "torus"
+    task_loss: str = "cross_entropy"
+    neighborhood: NeighborhoodConfig = field(default_factory=NeighborhoodConfig)
+
+
+# ─────────── dataset ───────────
+
+
+@dataclass
+class SplitConfig:
+    strategy: str = "seeded_per_class"
+    seed: int = 0
+    val_per_class: int = 500
+
+
+@dataclass
+class TransformsConfig:
+    preset: str = "cifar10_resizedcrop_v1"
+
+
+@dataclass
+class DatasetConfig:
+    name: str = "cifar10"
+    num_classes: int = 10
+    image_size: int = 32
+    in_channels: int = 3
+    mean: List[float] = field(default_factory=lambda: [0.4914, 0.4822, 0.4465])
+    std: List[float] = field(default_factory=lambda: [0.2023, 0.1994, 0.2010])
+    split: SplitConfig = field(default_factory=SplitConfig)
+    transforms: TransformsConfig = field(default_factory=TransformsConfig)
+
+
+# ─────────── training ───────────
+
+
+@dataclass
+class BalancerConfig:
+    beta: float = 0.1
+    eps: float = 1e-8
+    lambda_max: float = 10000.0
+
+
+@dataclass
+class TrainingConfig:
+    epochs: int = 200
+    batch_size: int = 512
+    learning_rate: float = 0.002
+    optimizer: str = "adam"
+    weight_decay: float = 0.0
+    momentum: float = 0.9
+    scheduler: str = "none"
+    amp: bool = False
+    save_freq_epochs: int = 20
+    early_stopping_patience: int = 25
+    balancer: BalancerConfig = field(default_factory=BalancerConfig)
+
+
+# ─────────── runtime ───────────
+
+
+@dataclass
+class InferenceRuntimeConfig:
+    batch_size: int = 256
+    num_workers: int = 2
+
+
+@dataclass
+class StorageConfig:
+    backend: str = "pt"
+
+
+@dataclass
+class RuntimeConfig:
+    device: str = "auto"
+    data_parallel: bool = False
+    num_workers: int = 2
+    pin_memory: bool = True
+    persistent_workers: bool = False
+    print_freq: int = 10
+    data_root: str = "./dataset"
+    artifacts_root: str = "artifacts"
+    models_root: str = "save/ResNet18/models"
+    inference: InferenceRuntimeConfig = field(default_factory=InferenceRuntimeConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
+
+
+# ─────────── pipeline ───────────
+
+
+@dataclass
+class AnchorsConfig:
+    per_class: int = 100
+    strategy: str = "per_class_first_n"
+    order_by: str = "example_id"
+    source_split: str = "test"
+
+
+@dataclass
+class PipelineConfig:
+    anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
+    split: str = "test"
+    force: bool = False
+
+
+# ─────────── mlflow ───────────
+
+
+@dataclass
+class MLflowConfig:
+    tracking_uri: str = "mlruns"
+    experiment_name: str = "contopo"
+
+
+# ─────────── adapter ───────────
+
+
+@dataclass
+class AdapterConfig:
+    epochs: int = 50
+    learning_rate: float = 0.001
+    batch_size: int = 256
+    bias: bool = True
+    dropout: float = 0.3
+
+
+# ─────────── ensemble (schema for meta_split only; ensembles list is dynamic) ───────────
+
+
+@dataclass
+class MetaSplitFractionsConfig:
+    train: float = 0.6
+    val: float = 0.2
+    holdout: float = 0.2
+
+
+@dataclass
+class MetaSplitConfig:
+    seed: int = 42
+    strategy: str = "random"
+    fractions: MetaSplitFractionsConfig = field(default_factory=MetaSplitFractionsConfig)
+
+
+@dataclass
+class DefaultAnchorSelectionConfig:
+    """Default anchor selection used by meta-learners when not overridden per entry."""
+    per_class: int = 100
+    strategy: str = "per_class_first_n"
+    order_by: str = "example_id"
+
+
+@dataclass
+class EnsembleConfig:
+    """Top-level ensemble config.  ``ensembles`` is a list of dicts (dynamic)."""
+    meta_split: MetaSplitConfig = field(default_factory=MetaSplitConfig)
+    default_anchor_selection: DefaultAnchorSelectionConfig = field(
+        default_factory=DefaultAnchorSelectionConfig
+    )
+    ensembles: List[Any] = field(default_factory=list)
+
+
+# ─────────── migration ───────────
+
+
+@dataclass
+class MigrationConfig:
+    dry_run: bool = False
+
+
+# ─────────── top-level ───────────
+
+
+@dataclass
+class ConTopoConfig:
+    schema_version: int = 1
+    trial: int = 0
+    seed: Optional[int] = None
+
+    model: ModelConfig = field(default_factory=ModelConfig)
+    loss: LossConfig = field(default_factory=LossConfig)
+    dataset: DatasetConfig = field(default_factory=DatasetConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
+    mlflow: MLflowConfig = field(default_factory=MLflowConfig)
+    ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
+    adapter: AdapterConfig = field(default_factory=AdapterConfig)
+    migration: MigrationConfig = field(default_factory=MigrationConfig)
+
+
+# ─────────── ConfigStore registration ───────────
+
+
+def register_configs() -> None:
+    """Register all structured configs in Hydra's ConfigStore."""
+    from hydra.core.config_store import ConfigStore
+
+    cs = ConfigStore.instance()
+
+    # Top-level schema
+    cs.store(name="base_config", node=ConTopoConfig)
+
+    # Group schemas
+    cs.store(group="model", name="base_resnet18", node=ModelConfig)
+    cs.store(group="loss", name="base_cross_entropy", node=LossConfig)
+    cs.store(group="dataset", name="base_cifar10", node=DatasetConfig)
+    cs.store(group="training", name="base_default", node=TrainingConfig)
+    cs.store(group="runtime", name="base_default", node=RuntimeConfig)
+    cs.store(group="pipeline", name="base_default", node=PipelineConfig)
+    cs.store(group="mlflow", name="base_default", node=MLflowConfig)
+    cs.store(group="ensemble", name="base_ce_ensembles", node=EnsembleConfig)
+    cs.store(group="adapter", name="base_default", node=AdapterConfig)

@@ -1,0 +1,3 @@
+# ── MLflow tracking (excluded from cfg_hash) ──
+tracking_uri: sqlite:///mlflow.db
+experiment_name: contopo

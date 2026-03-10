@@ -1,0 +1,286 @@
+model:
+  name: resnet18
+  arch: LinearResNet18
+  embedding_dim: 256
+  num_classes: 10
+  use_dropout: true
+  p_dropout: 0.5
+  head:
+    bias: true
+loss:
+  name: cross_entropy
+  rho: 0.0
+  topography_type: ws
+  topology: grid
+  task_loss: cross_entropy
+  neighborhood:
+    type: moore
+    radius: 1
+dataset:
+  name: cifar10
+  num_classes: 10
+  image_size: 32
+  in_channels: 3
+  mean:
+  - 0.4914
+  - 0.4822
+  - 0.4465
+  std:
+  - 0.2023
+  - 0.1994
+  - 0.201
+  split:
+    strategy: seeded_per_class
+    seed: 0
+    val_per_class: 500
+  transforms:
+    preset: cifar10_resizedcrop_v1
+training:
+  epochs: 200
+  batch_size: 512
+  learning_rate: 0.002
+  optimizer: adam
+  weight_decay: 0.0
+  momentum: 0.9
+  scheduler: none
+  amp: false
+  save_freq_epochs: 20
+  early_stopping_patience: 25
+  balancer:
+    beta: 0.1
+    eps: 1.0e-08
+    lambda_max: 10000.0
+runtime:
+  device: cuda
+  data_parallel: false
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: false
+  print_freq: 10
+  data_root: ./dataset
+  artifacts_root: artifacts
+  models_root: save/ResNet18/models
+  inference:
+    batch_size: 256
+    num_workers: 2
+  storage:
+    backend: pt
+pipeline:
+  anchors:
+    per_class: 100
+    strategy: per_class_first_n
+    order_by: example_id
+    source_split: test
+  split: test
+  force: false
+mlflow:
+  tracking_uri: sqlite:///mlflow.db
+  experiment_name: contopo
+ensemble:
+  meta_split:
+    seed: 42
+    strategy: random
+    fractions:
+      train: 0.6
+      val: 0.2
+      holdout: 0.2
+  default_anchor_selection:
+    per_class: 100
+    strategy: per_class_first_n
+    order_by: example_id
+  ensembles:
+  - name: CE_torus_rho0
+    selector:
+      loss_type: cross_entropy
+      topology: torus
+      rho:
+        eq: '0.0'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_torus_rho0.008
+    selector:
+      loss_type: cross_entropy
+      topology: torus
+      rho:
+        eq: '0.008'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_torus_rho0.04
+    selector:
+      loss_type: cross_entropy
+      topology: torus
+      rho:
+        eq: '0.04'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_torus_rho0.2
+    selector:
+      loss_type: cross_entropy
+      topology: torus
+      rho:
+        eq: '0.2'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_torus_rho1
+    selector:
+      loss_type: cross_entropy
+      topology: torus
+      rho:
+        eq: '1.0'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_torus_rho5
+    selector:
+      loss_type: cross_entropy
+      topology: torus
+      rho:
+        eq: '5.0'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_grid_rho0
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho:
+        eq: '0.0'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_grid_rho0.008
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho:
+        eq: '0.008'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_grid_rho0.04
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho:
+        eq: '0.04'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_grid_rho0.2
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho:
+        eq: '0.2'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_grid_rho1
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho:
+        eq: '1.0'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+  - name: CE_grid_rho5
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho:
+        eq: '5.0'
+      trial:
+        range:
+        - 0
+        - 4
+    votes:
+    - soft
+    - hard
+    - max_confidence
+    - conf_weighted
+adapter:
+  epochs: 50
+  learning_rate: 0.001
+  batch_size: 256
+  bias: true
+  dropout: 0.3
+  meta_type: meta_lr
+  feature_type: logits
+  similarity_metric: cosine
+  hidden_dim: 128
+schema_version: 1
+trial: 0
+seed: null
+migration:
+  dry_run: false

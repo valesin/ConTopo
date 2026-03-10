@@ -1,0 +1,14 @@
+# ── Adapter / meta-learner training parameters ──
+# These affect adapter results but NOT model training.
+# Excluded from model cfg_hash; included in behavior_input_hash.
+epochs: 50
+learning_rate: 0.001
+batch_size: 256
+bias: true
+dropout: 0.3
+
+# ── Meta-learner identity (sweepable via --multirun) ──
+meta_type: meta_lr            # meta_lr | meta_mlp
+feature_type: logits          # logits | embeddings | embeddings+profiles
+similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
+hidden_dim: 128               # MLP hidden dim (only used when meta_type=meta_mlp)

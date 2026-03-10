@@ -1,0 +1,21 @@
+# ── Runtime parameters (do NOT affect results → excluded from cfg_hash) ──
+device: cuda              # auto | cuda | cpu
+data_parallel: false
+num_workers: 2
+pin_memory: true
+persistent_workers: false
+print_freq: 10
+
+# Paths (platform-specific)
+data_root: ./dataset
+artifacts_root: artifacts
+models_root: save/ResNet18/models
+
+# Inference caching
+inference:
+  batch_size: 256
+  num_workers: 2
+
+# Storage backend
+storage:
+  backend: pt             # pt | zarr

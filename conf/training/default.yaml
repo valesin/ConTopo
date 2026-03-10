@@ -1,0 +1,17 @@
+# ── Training / optimizer hyperparams (experiment-affecting → in cfg_hash) ──
+epochs: 200
+batch_size: 512
+learning_rate: 0.002
+optimizer: adam            # adam | adamw | sgd
+weight_decay: 0.0
+momentum: 0.9             # only used for SGD
+scheduler: none           # none (extend later: cosine, step, ...)
+amp: false                # automatic mixed precision — changes numerics
+save_freq_epochs: 20      # save checkpoint every N epochs
+early_stopping_patience: 25
+
+# Grad-norm balancer for topographic loss
+balancer:
+  beta: 0.1
+  eps: 1.0e-8
+  lambda_max: 10000.0

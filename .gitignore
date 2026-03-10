@@ -37,3 +37,12 @@ docs/
 *.png
 *.jpg
 *.jpeg
+
+# MLflow
+mlruns/
+artifacts/
+*.db
+*.sqlite
+
+# Marimo
+__marimo__/
