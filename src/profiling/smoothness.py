@@ -24,6 +24,10 @@ def morans_i(activations: torch.Tensor, emb_dim: int) -> float:
     z = grid - x_bar
 
     # Build adjacency (4-connected) weights
+    # NOTE: These nested Python loops are intentionally kept for clarity.
+    # For a 256-unit grid (16×16) the iteration count is ~1024 — negligible.
+    # If emb_dim scales significantly (e.g. ≥1024), consider vectorizing with
+    # torch adjacency sparse-matrix operations.
     W_sum = 0.0
     numerator = 0.0
     for i in range(h):

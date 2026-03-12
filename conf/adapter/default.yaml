@@ -12,3 +12,21 @@ meta_type: meta_lr            # meta_lr | meta_mlp
 feature_type: logits          # logits | embeddings | embeddings+profiles
 similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
 hidden_dim: 128               # MLP hidden dim (only used when meta_type=meta_mlp)
+
+# ── Reproducibility seed for adapter weight init + training ──
+init_seed: 42                 # seeds torch.manual_seed() before adapter training
+
+# ── Three-way data split for meta-learner training ──
+meta_split:
+  seed: 42
+  strategy: random               # random | stratified (future)
+  fractions:
+    train: 0.6
+    val: 0.2
+    holdout: 0.2
+
+# ── Anchor selection for meta-learners ──
+anchor_selection:
+  per_class: 100
+  strategy: per_class_first_n
+  order_by: example_id

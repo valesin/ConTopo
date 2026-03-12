@@ -119,11 +119,16 @@ def get_or_create_manifest(
     data_root: str = "./dataset",
     artifacts_root: str = "artifacts",
     log_to_mlflow: bool = False,
+    val_per_class: int = 500,
 ) -> DatasetManifest:
     """
     Return the manifest for the given dataset/split, creating it if absent.
 
     Path convention: ``<artifacts_root>/dataset_manifests/<dataset>/<split>/manifest.pt``
+
+    For `split="val"`, only the val subset (first ``val_per_class`` per class
+    by original order) is included — matching the split logic in
+    ``src.data.loaders._split_train_val_indices``.
 
     If ``log_to_mlflow=True``, also logs the manifest as an MLflow run with
     ``kind=dataset_manifest``.
@@ -137,8 +142,45 @@ def get_or_create_manifest(
     if dataset_name != "cifar10":
         raise NotImplementedError(f"Manifest generation for '{dataset_name}' is not implemented.")
 
-    train_flag = split in ("train", "val")
-    manifest = _build_cifar10_manifest(data_root, train=train_flag, split_name=split)
+    if split == "val":
+        # Build from the train set, then filter to only the val indices
+        full_train = _build_cifar10_manifest(data_root, train=True, split_name="train")
+        targets = full_train.labels.tolist()
+        class_counts: dict[int, int] = {c: 0 for c in range(10)}
+        val_mask: list[int] = []
+        for idx, y in enumerate(targets):
+            if class_counts[y] < val_per_class:
+                val_mask.append(idx)
+                class_counts[y] += 1
+        manifest = DatasetManifest(
+            example_ids=[full_train.example_ids[i] for i in val_mask],
+            original_indices=full_train.original_indices[val_mask],
+            labels=full_train.labels[val_mask],
+            dataset_name="cifar10",
+            split="val",
+        )
+    elif split == "train":
+        # Build full train and exclude val indices
+        full_train = _build_cifar10_manifest(data_root, train=True, split_name="train")
+        targets = full_train.labels.tolist()
+        class_counts = {c: 0 for c in range(10)}
+        val_set: set[int] = set()
+        for idx, y in enumerate(targets):
+            if class_counts[y] < val_per_class:
+                val_set.add(idx)
+                class_counts[y] += 1
+        train_mask = [i for i in range(len(targets)) if i not in val_set]
+        manifest = DatasetManifest(
+            example_ids=[full_train.example_ids[i] for i in train_mask],
+            original_indices=full_train.original_indices[train_mask],
+            labels=full_train.labels[train_mask],
+            dataset_name="cifar10",
+            split="train",
+        )
+    else:
+        # test split
+        manifest = _build_cifar10_manifest(data_root, train=False, split_name=split)
+
     manifest.save(manifest_path)
 
     if log_to_mlflow:

@@ -32,6 +32,9 @@ def combine_logits(logits_list: List[torch.Tensor], method: str = "soft") -> tor
     elif method == "hard":
         per_model_preds = logits_stack.argmax(dim=2)  # [M, N]
         hard_preds = torch.zeros(N, dtype=torch.long)
+        # NOTE: This Python loop is intentionally kept for clarity.
+        # Could be vectorized with torch.mode or scatter ops if N is very large,
+        # but for typical eval sets (N ≤ 10k) the overhead is negligible.
         for i in range(N):
             votes = per_model_preds[:, i]
             counts = torch.bincount(votes, minlength=C)

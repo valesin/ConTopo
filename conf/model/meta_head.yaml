@@ -1,8 +1,0 @@
-# Meta-learner regression head configuration
-# Controls architecture and bias for meta-learner head
-
-arch: meta_lr   # meta_lr | meta_mlp | custom
-hidden_dim: 128 # Only for MLP
-bias: false     # Set to false to remove bias from head
-
-# Add more parameters as needed for custom heads

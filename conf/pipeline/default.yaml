@@ -13,6 +13,13 @@ split: test
 # Force recomputation of cached artifacts
 force: false
 
+# ── Similarity profiles (step 03) ──
+# Profiles are always computed for all FINISHED model runs by default.
+# This ensures downstream steps (e.g. adapter training with feature_type=
+# embeddings+profiles) have pre-computed profiles available.
+profiles:
+  skip: false                      # set true to explicitly skip profile computation
+
 # ── Per-model diagnostics (step 03b, optional) ──
 diagnostics:
   morans_i: true

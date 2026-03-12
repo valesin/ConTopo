@@ -8,12 +8,24 @@ against deterministic anchors.  Reads cached embeddings from step 02.
 Each profiling job is tracked as its own MLflow run
 (kind=category_similarity_profile), linked to the parent model run.
 
-Uses manifest-driven anchor selection (canonical).
+Anchor selection and similarity metric are read from ``cfg.adapter``:
+  - ``adapter.anchor_selection``  (per_class, strategy, order_by)
+  - ``adapter.similarity_metric`` (cosine | l2)
+
+Profiles are **always computed** for all FINISHED model runs, regardless of
+the current ``adapter.feature_type`` setting.  This is intentional:
+downstream steps (e.g. Step 5 adapter training) may run with a different
+``feature_type`` that requires pre-computed profiles.  Pipeline steps that
+generate cross-config reusable artifacts must not gate on the current config.
+
+To explicitly skip profile computation, set ``pipeline.profiles.skip=true``.
 
 Usage:
     python scripts/03_compute_profiles.py
     python scripts/03_compute_profiles.py pipeline.force=true
-    python scripts/03_compute_profiles.py pipeline.anchors.per_class=200
+    python scripts/03_compute_profiles.py adapter.anchor_selection.per_class=200
+    python scripts/03_compute_profiles.py adapter.similarity_metric=l2
+    python scripts/03_compute_profiles.py pipeline.profiles.skip=true
 """
 
 from __future__ import annotations
@@ -28,7 +40,6 @@ from omegaconf import DictConfig, OmegaConf
 from src.data.anchors import get_or_create_anchors
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
-from src.ensemble.selector import resolve_components
 from src.profiling.category_similarity import (
     compute_similarity_profile,
     similarity_profile_hash,
@@ -43,40 +54,24 @@ from src.mlflow_utils import (
 
 
 def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
-    """Extract unique (anchor_selection, similarity_metric) combos from all meta defs.
+    """Build the (anchor_selection, similarity_metric) spec from ``cfg.adapter``.
 
-    Returns a list of dicts with keys:
-      - anchor_selection: dict
-      - similarity_metric: str
+    Always returns exactly one spec dict so that profiles are pre-computed
+    for all model runs regardless of the current ``adapter.feature_type``.
+    Downstream steps (e.g. Step 5 adapter training) may later run with
+    ``feature_type=embeddings+profiles`` even when the current config uses
+    ``logits`` or ``embeddings``.
+
+    Pipeline best practice: cross-config reusable artifacts must not be
+    gated on the current run configuration.
     """
-    default_sel = OmegaConf.to_container(cfg.ensemble.default_anchor_selection, resolve=True)
-    ensembles = OmegaConf.to_container(cfg.ensemble.ensembles, resolve=True)
+    anchor_sel = OmegaConf.to_container(cfg.adapter.anchor_selection, resolve=True)
+    similarity_metric = cfg.adapter.similarity_metric
 
-    seen = set()
-    specs = []
-
-    for ens_def in ensembles:
-        for meta_def in ens_def.get("meta", []):
-            ft = meta_def.get("feature_type", "logits")
-            if ft not in ("embeddings", "embeddings+profiles"):
-                continue  # logits-only → no profiles needed
-
-            sim = meta_def.get("similarity_metric", "cosine")
-            anchor_sel = meta_def.get("anchor_selection") or default_sel
-
-            # Deduplicate by (anchor_sel canonical, metric)
-            key = (
-                tuple(sorted(anchor_sel.items())),
-                sim,
-            )
-            if key not in seen:
-                seen.add(key)
-                specs.append({
-                    "anchor_selection": anchor_sel,
-                    "similarity_metric": sim,
-                })
-
-    return specs
+    return [{
+        "anchor_selection": anchor_sel,
+        "similarity_metric": similarity_metric,
+    }]
 
 
 def _compute_for_spec(
@@ -208,11 +203,15 @@ def main(cfg: DictConfig) -> None:
         artifacts_root=artifacts_root,
     )
 
-    # Collect all unique (anchor_selection, similarity_metric) specs
-    specs = _collect_profile_specs(cfg)
-    if not specs:
-        print("No meta-learner definitions require similarity profiles. Nothing to do.")
+    # Explicit user-intent skip flag (default: false)
+    skip_profiles = OmegaConf.select(cfg, "pipeline.profiles.skip", default=False)
+    if skip_profiles:
+        print("Profile computation skipped (pipeline.profiles.skip=true).")
         return
+
+    # Collect all unique (anchor_selection, similarity_metric) specs
+    # Always generates profiles — not gated on adapter.feature_type
+    specs = _collect_profile_specs(cfg)
 
     print(f"Found {len(specs)} unique (anchor_selection, metric) combinations to compute.")
     for i, s in enumerate(specs):

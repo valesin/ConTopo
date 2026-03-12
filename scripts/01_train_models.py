@@ -85,7 +85,7 @@ def main(cfg: DictConfig) -> None:
 
     existing = find_finished_run(cfg.mlflow.experiment_name, hash_val, kind="model")
     if existing is not None:
-        print(f"Run with cfg_hashIt should absolutely ={hash_val} already FINISHED (run_id={existing.info.run_id}). Skipping.")
+        print(f"Run with cfg_hash={hash_val} already FINISHED (run_id={existing.info.run_id}). Skipping.")
         return
 
     # ── Data ──

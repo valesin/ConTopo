@@ -1,0 +1,12 @@
+# ── Pipeline A: Small Grid-Only Sweep ──
+# 2 rho values (0.04, 0.2), 2 trials (0, 1), grid topology only.
+# One ensemble containing all 4 models.
+
+ensembles:
+  - name: CE_grid_all
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {in: ["0.04", "0.2"]}
+      trial: {range: [0, 1]}
+    votes: [soft, hard, max_confidence, conf_weighted]

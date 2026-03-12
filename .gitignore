@@ -38,11 +38,13 @@ docs/
 *.jpg
 *.jpeg
 
-# MLflow
+# MLflow and Hydra
 mlruns/
 artifacts/
 *.db
 *.sqlite
+outputs/
+multirun/
 
 # Marimo
 __marimo__/

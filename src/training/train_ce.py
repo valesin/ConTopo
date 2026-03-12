@@ -94,6 +94,13 @@ def train_one_epoch(
             task_loss = task_loss_fn(logits, labels)
 
         # Topographic loss + measurement params for grad-norm
+        #
+        # Design note on topographic loss target:
+        #   - "ws" (weight smoothing): applied to ``encoder.fc`` — the backbone's
+        #     projection layer (512 → emb_dim).  This encourages spatial smoothness
+        #     in the *embedding space*.  The classifier head (``model.fc``,
+        #     emb_dim → num_classes) is left unconstrained.
+        #   - "global": applied to activation patterns across all encoder parameters.
         # NOTE: GradNormBalancer uses torch.autograd.grad which requires
         # float32 loss. We compute topo_loss outside autocast when AMP is on.
         if topography_type == "ws":

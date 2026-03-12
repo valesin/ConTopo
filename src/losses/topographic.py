@@ -64,6 +64,13 @@ def torus_diffs(W: torch.Tensor) -> list[torch.Tensor]:
     if h > 1 and w > 1:
         diffs.append(G[:-1, :-1, :] - G[1:, 1:, :])
         diffs.append(G[:-1, 1:, :] - G[1:, :-1, :])
+        # NOTE: Torus diagonal wrapping — these connect corners that wrap
+        # around both axes simultaneously. The current indexing pairs
+        # (row -1, col j) ↔ (row 0, col j+1), i.e. the column offset
+        # shifts by one during wrapping. An alternative interpretation
+        # would keep the same column offset: G[-1, :-1, :] - G[0, :-1, :].
+        # The current form is consistent with the non-wrapping diagonals
+        # above (which also shift both row and col by ±1).
         diffs.append(G[-1, :-1, :] - G[0, 1:, :])
         diffs.append(G[-1, 1:, :] - G[0, :-1, :])
     return diffs

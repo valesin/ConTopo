@@ -150,10 +150,37 @@ class AnchorsConfig:
 
 
 @dataclass
+class DiagnosticsConfig:
+    """Per-model diagnostic metrics (step 03b)."""
+    morans_i: bool = True
+    weight_norms: bool = True
+    unit_distance_correlation: bool = True
+
+
+@dataclass
+class DiversityConfig:
+    """Post-ensemble diversity metrics (step 04b)."""
+    enabled: bool = True
+    metrics: List[str] = field(default_factory=lambda: [
+        "q_statistic", "disagreement", "double_fault",
+        "correlation", "interrater_agreement",
+    ])
+
+
+@dataclass
+class ConsistencyConfig:
+    """Post-ensemble RDM/RSA consistency (step 04c)."""
+    enabled: bool = True
+
+
+@dataclass
 class PipelineConfig:
     anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
     split: str = "test"
     force: bool = False
+    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
+    diversity: DiversityConfig = field(default_factory=DiversityConfig)
+    consistency: ConsistencyConfig = field(default_factory=ConsistencyConfig)
 
 
 # ─────────── mlflow ───────────
@@ -166,18 +193,6 @@ class MLflowConfig:
 
 
 # ─────────── adapter ───────────
-
-
-@dataclass
-class AdapterConfig:
-    epochs: int = 50
-    learning_rate: float = 0.001
-    batch_size: int = 256
-    bias: bool = True
-    dropout: float = 0.3
-
-
-# ─────────── ensemble (schema for meta_split only; ensembles list is dynamic) ───────────
 
 
 @dataclass
@@ -195,20 +210,35 @@ class MetaSplitConfig:
 
 
 @dataclass
-class DefaultAnchorSelectionConfig:
-    """Default anchor selection used by meta-learners when not overridden per entry."""
+class AnchorSelectionConfig:
+    """Anchor selection used by meta-learners."""
     per_class: int = 100
     strategy: str = "per_class_first_n"
     order_by: str = "example_id"
 
 
 @dataclass
+class AdapterConfig:
+    epochs: int = 50
+    learning_rate: float = 0.001
+    batch_size: int = 256
+    bias: bool = True
+    dropout: float = 0.3
+    meta_type: str = "meta_lr"
+    feature_type: str = "logits"
+    similarity_metric: str = "cosine"
+    hidden_dim: int = 128
+    init_seed: int = 42
+    meta_split: MetaSplitConfig = field(default_factory=MetaSplitConfig)
+    anchor_selection: AnchorSelectionConfig = field(default_factory=AnchorSelectionConfig)
+
+
+# ─────────── ensemble ───────────
+
+
+@dataclass
 class EnsembleConfig:
     """Top-level ensemble config.  ``ensembles`` is a list of dicts (dynamic)."""
-    meta_split: MetaSplitConfig = field(default_factory=MetaSplitConfig)
-    default_anchor_selection: DefaultAnchorSelectionConfig = field(
-        default_factory=DefaultAnchorSelectionConfig
-    )
     ensembles: List[Any] = field(default_factory=list)
 
 

@@ -12,8 +12,7 @@ Meta-learner identity is now driven by Hydra adapter config:
   - ``adapter.similarity_metric``: cosine | l2 (used with embeddings/profiles)
   - ``adapter.hidden_dim``:       MLP hidden dim (meta_mlp only)
 
-Anchor selection falls back to ``ensemble.default_anchor_selection``,
-then ``pipeline.anchors``.
+Anchor selection is configured via ``adapter.anchor_selection``.
 
 Usage:
     # Single run:
@@ -68,9 +67,9 @@ from src.mlflow_utils import (
 
 
 def _resolve_anchor_selection(cfg):
-    """Resolve anchor_selection from ensemble defaults, then pipeline.anchors."""
-    default_sel = OmegaConf.to_container(cfg.ensemble.default_anchor_selection, resolve=True)
-    return default_sel
+    """Resolve anchor_selection from adapter config."""
+    anchor_sel = OmegaConf.to_container(cfg.adapter.anchor_selection, resolve=True)
+    return anchor_sel
 
 
 def _load_features_for_runs(run_ids, artifacts_root, split="test", feature_key="logits"):
@@ -393,6 +392,12 @@ def _main(cfg: DictConfig) -> None:
     split = cfg.pipeline.split
     artifacts_root = cfg.runtime.artifacts_root
 
+    # Seed for reproducibility
+    init_seed = cfg.adapter.init_seed
+    torch.manual_seed(init_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(init_seed)
+
     # Adapter training hyperparams from Hydra config
     adapter_epochs = cfg.adapter.epochs
     adapter_lr = cfg.adapter.learning_rate
@@ -406,8 +411,8 @@ def _main(cfg: DictConfig) -> None:
     similarity_metric = cfg.adapter.similarity_metric
     hidden_dim = cfg.adapter.hidden_dim
 
-    # Meta-split config from Hydra (ensemble group)
-    meta_split_cfg = cfg.ensemble.meta_split
+    # Meta-split config from adapter group
+    meta_split_cfg = cfg.adapter.meta_split
 
     # Dataset manifest for example_id membership logging
     manifest = get_or_create_manifest(
@@ -524,6 +529,7 @@ def _main(cfg: DictConfig) -> None:
             anchor_spec=a_spec_hash,
             meta_split_spec=meta_split_spec,
             similarity_metric=similarity_metric,
+            init_seed=str(init_seed),
         )
 
         # Idempotency check
@@ -568,6 +574,7 @@ def _main(cfg: DictConfig) -> None:
                 "anchor_spec_hash": a_spec_hash,
                 "adapter_bias": str(adapter_bias),
                 "adapter_arch": meta_type,
+                "init_seed": str(init_seed),
             },
         )
 
@@ -596,6 +603,7 @@ def _main(cfg: DictConfig) -> None:
                 "n_val": len(val_idx),
                 "n_holdout": len(holdout_idx),
                 "dataset_manifest_hash": manifest_hash,
+                "init_seed": init_seed,
             })
             if meta_type == "meta_mlp":
                 mlflow.log_params({"hidden_dim": hidden_dim})

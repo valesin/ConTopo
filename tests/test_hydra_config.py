@@ -82,11 +82,13 @@ class TestEnsembleInHydra:
         assert isinstance(ensembles, (list, ListConfig))
         assert len(ensembles) > 0
 
-    def test_ensemble_has_meta_split(self, cfg):
-        assert "meta_split" in cfg.ensemble
-        ms = cfg.ensemble.meta_split
-        assert "seed" in ms
-        assert "fractions" in ms
+    def test_ensemble_has_no_meta_split(self, cfg):
+        """meta_split should NOT be in ensemble (moved to adapter)."""
+        assert "meta_split" not in cfg.ensemble
+
+    def test_ensemble_has_no_default_anchor_selection(self, cfg):
+        """default_anchor_selection should NOT be in ensemble (moved to adapter)."""
+        assert "default_anchor_selection" not in cfg.ensemble
 
     def test_ensemble_def_has_name(self, cfg):
         first = cfg.ensemble.ensembles[0]
@@ -130,6 +132,26 @@ class TestAdapterConfig:
     def test_adapter_has_hidden_dim(self, cfg):
         assert cfg.adapter.hidden_dim == 128
 
+    def test_adapter_has_init_seed(self, cfg):
+        assert cfg.adapter.init_seed == 42
+
+    def test_adapter_has_meta_split(self, cfg):
+        assert "meta_split" in cfg.adapter
+        ms = cfg.adapter.meta_split
+        assert "seed" in ms
+        assert "fractions" in ms
+        assert ms.seed == 42
+        assert ms.fractions.train == 0.6
+        assert ms.fractions.val == 0.2
+        assert ms.fractions.holdout == 0.2
+
+    def test_adapter_has_anchor_selection(self, cfg):
+        assert "anchor_selection" in cfg.adapter
+        sel = cfg.adapter.anchor_selection
+        assert sel.per_class == 100
+        assert sel.strategy == "per_class_first_n"
+        assert sel.order_by == "example_id"
+
 
 class TestExcludedKeys:
     """Verify EXCLUDED_KEYS includes all non-training config groups."""
@@ -156,7 +178,7 @@ class TestExcludedKeys:
         """Changing ensemble config must NOT change model cfg_hash."""
         h1 = cfg_hash(cfg)
         cfg2 = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
-        cfg2.ensemble.meta_split.seed = 99999
+        cfg2.ensemble.ensembles = []
         h2 = cfg_hash(cfg2)
         assert h1 == h2
 

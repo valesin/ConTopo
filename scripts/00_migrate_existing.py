@@ -241,7 +241,6 @@ def migrate(cfg: DictConfig) -> None:
             if os.path.isfile(inf_cache):
                 # Load and re-save as separate artifacts for the new convention
                 inf_data = torch.load(inf_cache, map_location="cpu", weights_only=False)
-                import tempfile
                 with tempfile.TemporaryDirectory() as tmpdir:
                     for key in ["logits", "preds", "labels", "embeddings"]:
                         if key in inf_data and inf_data[key] is not None:

@@ -7,20 +7,6 @@
 #     adapter.meta_type=meta_lr,meta_mlp \
 #     adapter.feature_type=logits,embeddings,embeddings+profiles
 
-meta_split:
-  seed: 42
-  strategy: random               # random | stratified (future)
-  fractions:
-    train: 0.6
-    val: 0.2
-    holdout: 0.2
-
-# Default anchor selection for meta-learners (used when not overridden per entry)
-default_anchor_selection:
-  per_class: 100
-  strategy: per_class_first_n
-  order_by: example_id
-
 ensembles:
   - name: CE_torus_rho0
     selector:

@@ -200,12 +200,16 @@ def behavior_input_hash(
     anchor_spec: str = "",
     meta_split_spec: str = "",
     similarity_metric: str = "",
+    init_seed: str = "",
 ) -> str:
     """Derived hash summarising everything that changes behavior input data.
 
     The ``similarity_metric`` field is included so that switching from e.g.
     cosine to L2 produces a different hash (and therefore a new run).
     Default is ``""`` for backward-compatibility with logits-only runs.
+
+    The ``init_seed`` field is included so that different adapter init seeds
+    produce different hashes (and therefore separate runs).
     """
     parts = [
         component_set_hash_val,
@@ -215,6 +219,7 @@ def behavior_input_hash(
         anchor_spec,
         meta_split_spec,
         similarity_metric,
+        init_seed,
     ]
     canonical = json.dumps(parts, ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

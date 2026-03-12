@@ -24,8 +24,6 @@ def _split_train_val_indices(root: str, val_per_class: int = 500):
         if class_counts[y_int] < val_per_class:
             val_idx.append(idx)
             class_counts[y_int] += 1
-        if all(v >= val_per_class for v in class_counts.values()):
-            break
     all_idx = set(range(len(targets)))
     train_idx = sorted(all_idx - set(val_idx))
     val_idx = sorted(val_idx)
