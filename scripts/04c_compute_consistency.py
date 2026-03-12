@@ -34,6 +34,7 @@ from src.data.anchors import get_or_create_anchors
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
 from src.ensemble.selector import resolve_components
+from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
     component_set_hash,
     log_git_info,
@@ -79,7 +80,7 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.pipeline.split
     force = cfg.pipeline.force
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
     anchors_cfg = cfg.pipeline.anchors
 
     # Manifest + anchors
@@ -87,14 +88,14 @@ def main(cfg: DictConfig) -> None:
         dataset_name=cfg.dataset.name,
         split=split,
         data_root=cfg.runtime.data_root,
-        artifacts_root=artifacts_root,
+        artifacts_root=str(cache_dir),
     )
     anchors = get_or_create_anchors(
         manifest,
         per_class=anchors_cfg.per_class,
         strategy=anchors_cfg.strategy,
         order_by=anchors_cfg.order_by,
-        artifacts_root=artifacts_root,
+        artifacts_root=str(cache_dir),
     )
     anchor_indices = anchors["anchor_indices"]
     a_spec_hash = anchors["spec_hash"]
@@ -135,14 +136,14 @@ def main(cfg: DictConfig) -> None:
         print(f"  Components: {len(run_ids)} runs")
 
         # Compute per-model RDMs from anchor embeddings
-        cons_dir = os.path.join(artifacts_root, "consistency", ens_name)
+        cons_dir = str(cache_dir / "consistency" / ens_name)
         os.makedirs(cons_dir, exist_ok=True)
 
         rdms = {}
         skip = False
         for run_id in run_ids:
-            emb_path = os.path.join(
-                artifacts_root, "inference", run_id, split,
+            emb_path = str(
+                cache_dir / "inference" / run_id / split /
                 f"embeddings{backend.extension}"
             )
             if not backend.exists(emb_path):

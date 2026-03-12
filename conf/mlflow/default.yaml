@@ -1,3 +1,4 @@
 # ── MLflow tracking (excluded from cfg_hash) ──
-tracking_uri: sqlite:///mlflow.db
+tracking_uri: sqlite:///outputs/mlflow.db
 experiment_name: contopo
+enable_system_metrics: true

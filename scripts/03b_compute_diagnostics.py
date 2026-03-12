@@ -29,6 +29,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.cache import get_backend
+from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
     log_git_info,
     log_resolved_config,
@@ -138,7 +139,7 @@ def main(cfg: DictConfig) -> None:
 
     force = cfg.pipeline.force
     split = cfg.pipeline.split
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
     diag_cfg = cfg.pipeline.diagnostics
 
     # Determine enabled diagnostics

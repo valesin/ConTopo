@@ -8,8 +8,13 @@ print_freq: 10
 
 # Paths (platform-specific)
 data_root: ./dataset
-artifacts_root: artifacts
-models_root: save/ResNet18/models
+outputs_root: outputs
+
+# Centralized output paths (all relative to outputs_root)
+paths:
+  models: models          # trained model checkpoints
+  cache: cache            # inference cache, anchors, manifests
+  analysis: analysis      # diversity, consistency results
 
 # Inference caching
 inference:

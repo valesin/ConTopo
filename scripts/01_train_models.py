@@ -23,6 +23,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.amp import GradScaler
 
 from src.config.hash import cfg_hash
+from src.config.paths import get_cache_dir, get_models_dir
 from src.config.schema import apply_schema_defaults
 from src.data.loaders import get_cifar10_loaders
 from src.data.manifest import get_or_create_manifest
@@ -96,7 +97,7 @@ def main(cfg: DictConfig) -> None:
         dataset_name=cfg.dataset.name,
         split="test",
         data_root=cfg.runtime.data_root,
-        artifacts_root=cfg.runtime.artifacts_root,
+        artifacts_root=str(get_cache_dir(cfg)),
     )
     manifest_hash = manifest.manifest_hash
 
@@ -139,7 +140,7 @@ def main(cfg: DictConfig) -> None:
     rho_str = str(float(cfg.loss.rho))
     topo_str = cfg.loss.topology
     trial_str = f"trial_{int(cfg.trial):02d}"
-    model_dir = os.path.join(cfg.runtime.models_root, f"CE_{topo_str}_rho{rho_str}", trial_str)
+    model_dir = str(get_models_dir(cfg) / f"CE_{topo_str}_rho{rho_str}" / trial_str)
     os.makedirs(model_dir, exist_ok=True)
 
     save_freq = max(1, int(cfg.training.save_freq_epochs))

@@ -30,6 +30,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.data.cache import get_backend
 from src.ensemble.selector import resolve_components
+from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
     component_set_hash,
     log_git_info,
@@ -72,7 +73,7 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.pipeline.split
     force = cfg.pipeline.force
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
     metrics_list = list(cfg.pipeline.diversity.metrics)
 
     if not metrics_list:
@@ -127,7 +128,7 @@ def main(cfg: DictConfig) -> None:
         has_logits = "iou_top_n" in needed
 
         for run_id in run_ids:
-            artifact_dir = os.path.join(artifacts_root, "inference", run_id, split)
+            artifact_dir = str(cache_dir / "inference" / run_id / split)
             preds_path = os.path.join(artifact_dir, f"preds{backend.extension}")
             if not backend.exists(preds_path):
                 raise FileNotFoundError(
@@ -158,7 +159,7 @@ def main(cfg: DictConfig) -> None:
         results = compute_metrics(ctx, needed, reduce_group=True)
 
         # Save locally (all metrics in one file for convenience)
-        div_dir = os.path.join(artifacts_root, "diversity", ens_name)
+        div_dir = str(cache_dir / "diversity" / ens_name)
         os.makedirs(div_dir, exist_ok=True)
 
         # Log one MLflow run per metric

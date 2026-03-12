@@ -24,6 +24,7 @@ from omegaconf import DictConfig
 
 from src.data.loaders import get_cifar10_eval_loader
 from src.data.manifest import get_or_create_manifest
+from src.config.paths import get_cache_dir
 from src.inference import (
     ARTIFACT_KEYS,
     artifacts_complete,
@@ -90,7 +91,7 @@ def main(cfg: DictConfig) -> None:
     split = cfg.pipeline.split
     force = cfg.pipeline.force
     backend = get_backend(cfg.runtime.storage.backend)
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
 
     exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
     if exp is None:
@@ -111,7 +112,7 @@ def main(cfg: DictConfig) -> None:
         dataset_name=cfg.dataset.name,
         split=split,
         data_root=cfg.runtime.data_root,
-        artifacts_root=artifacts_root,
+        artifacts_root=str(cache_dir),
     )
     manifest_hash = manifest.manifest_hash
 
@@ -129,7 +130,7 @@ def main(cfg: DictConfig) -> None:
         rho = run.data.tags.get("rho", "?")
         trial = run.data.tags.get("trial", "?")
         topology = run.data.tags.get("topology", "?")
-        artifact_dir = os.path.join(artifacts_root, "inference", run_id, split)
+        artifact_dir = str(cache_dir / "inference" / run_id / split)
 
         # Idempotency: check if inference run already exists
         if not force:

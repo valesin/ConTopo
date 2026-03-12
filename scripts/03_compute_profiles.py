@@ -40,6 +40,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.data.anchors import get_or_create_anchors
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
+from src.config.paths import get_cache_dir
 from src.profiling.category_similarity import (
     compute_similarity_profile,
     similarity_profile_hash,
@@ -193,14 +194,14 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.pipeline.split
     force = cfg.pipeline.force
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
 
     # Manifest
     manifest = get_or_create_manifest(
         dataset_name=cfg.dataset.name,
         split=split,
         data_root=cfg.runtime.data_root,
-        artifacts_root=artifacts_root,
+        artifacts_root=str(cache_dir),
     )
 
     # Explicit user-intent skip flag (default: false)
@@ -237,7 +238,7 @@ def main(cfg: DictConfig) -> None:
         print(f"\n{'─'*50}")
         print(f"Computing: metric={spec['similarity_metric']}  anchors={spec['anchor_selection']}")
         computed, skipped = _compute_for_spec(
-            cfg, spec, model_runs, manifest, artifacts_root, split, force
+            cfg, spec, model_runs, manifest, str(cache_dir), split, force
         )
         total_computed += computed
         total_skipped += skipped

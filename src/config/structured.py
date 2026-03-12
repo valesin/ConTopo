@@ -124,6 +124,14 @@ class StorageConfig:
 
 
 @dataclass
+class PathsConfig:
+    """Centralized output paths, all relative to outputs_root."""
+    models: str = "models"
+    cache: str = "cache"
+    analysis: str = "analysis"
+
+
+@dataclass
 class RuntimeConfig:
     device: str = "auto"
     data_parallel: bool = False
@@ -132,8 +140,8 @@ class RuntimeConfig:
     persistent_workers: bool = False
     print_freq: int = 10
     data_root: str = "./dataset"
-    artifacts_root: str = "artifacts"
-    models_root: str = "save/ResNet18/models"
+    outputs_root: str = "outputs"
+    paths: PathsConfig = field(default_factory=PathsConfig)
     inference: InferenceRuntimeConfig = field(default_factory=InferenceRuntimeConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
 
@@ -174,10 +182,17 @@ class ConsistencyConfig:
 
 
 @dataclass
+class ProfilesConfig:
+    """Category similarity profile computation (step 03)."""
+    skip: bool = False
+
+
+@dataclass
 class PipelineConfig:
     anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
     split: str = "test"
     force: bool = False
+    profiles: ProfilesConfig = field(default_factory=ProfilesConfig)
     diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
     diversity: DiversityConfig = field(default_factory=DiversityConfig)
     consistency: ConsistencyConfig = field(default_factory=ConsistencyConfig)
@@ -188,8 +203,9 @@ class PipelineConfig:
 
 @dataclass
 class MLflowConfig:
-    tracking_uri: str = "mlruns"
+    tracking_uri: str = "sqlite:///outputs/mlflow.db"
     experiment_name: str = "contopo"
+    enable_system_metrics: bool = True
 
 
 # ─────────── adapter ───────────

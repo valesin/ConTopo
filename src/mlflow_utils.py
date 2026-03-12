@@ -23,15 +23,31 @@ from omegaconf import DictConfig, OmegaConf
 
 # ── Re-export cfg_hash from canonical location ──
 from src.config.hash import cfg_hash  # noqa: F401
+from src.config.paths import ensure_output_dirs
 
 
 # ───────────────── setup ─────────────────
 
 
 def setup_mlflow(cfg: DictConfig) -> None:
-    """Configure MLflow tracking URI and experiment from Hydra config."""
+    """Configure MLflow tracking URI, experiment, and system metrics from Hydra config.
+    
+    Also ensures output directories exist before any MLflow operations.
+    """
+    # Ensure output directories exist (including parent of mlflow.db)
+    ensure_output_dirs(cfg)
+    
     mlflow.set_tracking_uri(cfg.mlflow.tracking_uri)
     mlflow.set_experiment(cfg.mlflow.experiment_name)
+    
+    # Enable system metrics logging if configured (MLflow 2.8+)
+    enable_system_metrics = getattr(cfg.mlflow, 'enable_system_metrics', False)
+    if enable_system_metrics:
+        try:
+            mlflow.enable_system_metrics_logging()
+        except AttributeError:
+            # MLflow version doesn't support system metrics
+            pass
 
 
 def log_resolved_config(cfg: DictConfig) -> None:

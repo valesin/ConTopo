@@ -32,6 +32,7 @@ from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
 from src.ensemble.selector import resolve_components
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
+from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
     behavior_tags,
     component_set_hash,
@@ -155,14 +156,14 @@ def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
     split = cfg.pipeline.split
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
 
     # Load manifest for compatibility verification
     manifest = get_or_create_manifest(
         dataset_name=cfg.dataset.name,
         split=split,
         data_root=cfg.runtime.data_root,
-        artifacts_root=artifacts_root,
+        artifacts_root=str(cache_dir),
     )
     manifest_hash = manifest.manifest_hash
 
@@ -193,7 +194,7 @@ def main(cfg: DictConfig) -> None:
         _verify_manifest_compat(run_ids, manifest_hash)
 
         # Load logits — HARD FAIL on missing
-        logits_list, labels = _load_logits_for_runs(run_ids, artifacts_root, split)
+        logits_list, labels = _load_logits_for_runs(run_ids, str(cache_dir), split)
 
         # Compute hashes
         cs_hash = component_set_hash(run_ids)

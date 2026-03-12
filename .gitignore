@@ -38,13 +38,16 @@ docs/
 *.jpg
 *.jpeg
 
-# MLflow and Hydra
+# MLflow and Hydra (legacy locations)
 mlruns/
 artifacts/
 *.db
 *.sqlite
 outputs/
 multirun/
+
+# Unified output directory
+output/
 
 # Marimo
 __marimo__/

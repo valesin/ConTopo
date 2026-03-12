@@ -48,6 +48,7 @@ from src.ensemble.selector import resolve_components
 from src.data.cache import get_backend
 from src.data.anchors import get_or_create_anchors, anchor_spec_hash
 from src.data.manifest import get_or_create_manifest
+from src.config.paths import get_cache_dir
 from src.networks.heads import LinearAdapter, ThreeLayerMLPAdapter
 from src.profiling.category_similarity import (
     compute_similarity_profile,
@@ -390,7 +391,8 @@ def _main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
     split = cfg.pipeline.split
-    artifacts_root = cfg.runtime.artifacts_root
+    cache_dir = get_cache_dir(cfg)
+    artifacts_root = str(cache_dir)  # legacy compat for function params
 
     # Seed for reproducibility
     init_seed = cfg.adapter.init_seed
