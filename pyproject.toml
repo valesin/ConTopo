@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "contopo"
 version = "0.1.0"
 description = "Topographic representations in neural networks — CE training, profiling, ensembles"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0",
     "torchvision>=0.15",

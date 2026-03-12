@@ -1,0 +1,15 @@
+__pycache__/
+**/__pycache__/
+**/.pytest_cache/
+.github/
+.venv/
+artifacts/
+build/
+contopo.egg-info/
+dataset/
+docs/
+logs/
+mlruns/
+multirun/
+outputs/
+save/

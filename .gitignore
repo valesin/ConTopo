@@ -48,3 +48,6 @@ multirun/
 
 # Marimo
 __marimo__/
+
+# Containers
+*.sif

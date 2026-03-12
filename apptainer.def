@@ -1,0 +1,37 @@
+
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    apt-get update && apt-get install -y python3.11 python3.11-venv python3-pip git build-essential
+    python3.11 -m pip install --upgrade pip
+    mkdir -p /persistent_repo
+
+%environment
+    export REPO_DIR=/persistent_repo/ConTopo
+    export VENV_DIR=/persistent_repo/.venv
+    export PYTHONPATH=$REPO_DIR
+
+%runscript
+    # Clone repo if not present
+    if [ ! -d "$REPO_DIR" ]; then
+        git clone https://github.com/valesin/ConTopo.git "$REPO_DIR"
+    fi
+    cd "$REPO_DIR"
+    git fetch
+    git checkout structure_tools_refactoring
+    git pull origin structure_tools_refactoring
+    # Create venv if not present
+    if [ ! -d "$VENV_DIR" ]; then
+        python3.11 -m venv "$VENV_DIR"
+    fi
+    source "$VENV_DIR/bin/activate"
+    pip install --upgrade pip
+    pip install -e "$REPO_DIR"
+    echo "Repo ready at $REPO_DIR, venv at $VENV_DIR, branch structure_tools_refactoring checked out and updated."
+
+%labels
+    Author YourName
+
+%help
+    This container runs the ConTopo pipeline. At runtime, it clones the repo (persistent), creates a venv, installs dependencies, and checks out the structure_tools_refactoring branch. Use apptainer run or shell to enter and run scripts manually.
