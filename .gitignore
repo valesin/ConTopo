@@ -22,7 +22,9 @@ Thumbs.db
 
 # Repo-specific
 save/
-dataset/
+dataset/*
+# But do NOT ignore conf/dataset/ (configs)
+!conf/dataset/
 
 # VS-code
 .github/
