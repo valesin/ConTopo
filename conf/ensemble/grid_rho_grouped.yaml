@@ -1,0 +1,51 @@
+# ── Grid topology grouped by rho (4 trials per rho) ──
+# Based on training sweep: loss.rho=0,0.008,0.04,0.2,1,5 loss.topology=grid trial=0,1,2,3
+
+ensembles:
+  - name: grid_rho0
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {eq: "0"}
+      trial: {range: [0, 3]}
+    votes: [soft, hard, max_confidence, conf_weighted]
+
+  - name: grid_rho0.008
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {eq: "0.008"}
+      trial: {range: [0, 3]}
+    votes: [soft, hard, max_confidence, conf_weighted]
+
+  - name: grid_rho0.04
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {eq: "0.04"}
+      trial: {range: [0, 3]}
+    votes: [soft, hard, max_confidence, conf_weighted]
+
+  - name: grid_rho0.2
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {eq: "0.2"}
+      trial: {range: [0, 3]}
+    votes: [soft, hard, max_confidence, conf_weighted]
+
+  - name: grid_rho1
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {eq: "1"}
+      trial: {range: [0, 3]}
+    votes: [soft, hard, max_confidence, conf_weighted]
+
+  - name: grid_rho5
+    selector:
+      loss_type: cross_entropy
+      topology: grid
+      rho: {eq: "5"}
+      trial: {range: [0, 3]}
+    votes: [soft, hard, max_confidence, conf_weighted]
