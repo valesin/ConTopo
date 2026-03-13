@@ -49,7 +49,7 @@ from src.data.cache import get_backend
 from src.data.anchors import AnchorSpec, get_or_create_anchors, anchor_spec_hash
 from src.data.manifest import get_or_create_manifest
 from src.config.paths import get_cache_dir
-from src.networks.heads import LinearAdapter, ThreeLayerMLPAdapter
+from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter
 from src.profiling.category_similarity import (
     compute_similarity_profile,
     similarity_profile_hash,
@@ -471,7 +471,7 @@ def _main(cfg: DictConfig) -> None:
                 emb_dim=in_dim, num_classes=num_classes, bias=adapter_bias
             ).to(device)
         elif meta_type == "meta_mlp":
-            adapter = ThreeLayerMLPAdapter(
+            adapter = TwoLayerMLPAdapter(
                 in_dim=in_dim, num_classes=num_classes,
                 hidden_dim=hidden_dim, dropout=adapter_dropout, bias=adapter_bias,
             ).to(device)

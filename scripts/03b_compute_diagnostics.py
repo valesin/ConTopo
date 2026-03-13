@@ -140,6 +140,7 @@ def main(cfg: DictConfig) -> None:
     force = cfg.pipeline.force
     split = cfg.pipeline.split
     cache_dir = get_cache_dir(cfg)
+    artifacts_root = str(cache_dir)
     diag_cfg = cfg.pipeline.diagnostics
 
     # Determine enabled diagnostics
