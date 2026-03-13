@@ -57,3 +57,6 @@ __marimo__/
 
 # Containers
 *.sif
+
+# UV
+uv.lock
