@@ -35,9 +35,9 @@ import os
 import hydra
 import mlflow
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-from src.data.anchors import get_or_create_anchors
+from src.data.anchors import AnchorSpec, get_or_create_anchors
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
 from src.config.paths import get_cache_dir
@@ -66,7 +66,12 @@ def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
     Pipeline best practice: cross-config reusable artifacts must not be
     gated on the current run configuration.
     """
-    anchor_sel = OmegaConf.to_container(cfg.adapter.anchor_selection, resolve=True)
+    sel = cfg.adapter.anchor_selection
+    anchor_sel = {
+        "per_class": sel.per_class,
+        "strategy": sel.strategy,
+        "order_by": sel.order_by,
+    }
     similarity_metric = cfg.adapter.similarity_metric
 
     return [{
@@ -91,11 +96,17 @@ def _compute_for_spec(
     anchor_sel = spec["anchor_selection"]
     similarity_metric = spec["similarity_metric"]
 
+    anchor_spec = AnchorSpec(
+        source_split=manifest.split,
+        per_class=anchor_sel["per_class"],
+        strategy=anchor_sel["strategy"],
+        order_by=anchor_sel["order_by"],
+        num_classes=cfg.dataset.num_classes,
+    )
+
     anchors = get_or_create_anchors(
         manifest,
-        per_class=anchor_sel.get("per_class", 100),
-        strategy=anchor_sel.get("strategy", "per_class_first_n"),
-        order_by=anchor_sel.get("order_by", "example_id"),
+        spec=anchor_spec,
         artifacts_root=artifacts_root,
     )
     a_spec_hash = anchors["spec_hash"]
@@ -204,9 +215,8 @@ def main(cfg: DictConfig) -> None:
         artifacts_root=str(cache_dir),
     )
 
-    # Explicit user-intent skip flag (default: false)
-    skip_profiles = OmegaConf.select(cfg, "pipeline.profiles.skip", default=False)
-    if skip_profiles:
+    # Explicit user-intent skip flag (default: false, via structured config)
+    if cfg.pipeline.profiles.skip:
         print("Profile computation skipped (pipeline.profiles.skip=true).")
         return
 

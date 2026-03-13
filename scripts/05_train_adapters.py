@@ -46,7 +46,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.ensemble.selector import resolve_components
 from src.data.cache import get_backend
-from src.data.anchors import get_or_create_anchors, anchor_spec_hash
+from src.data.anchors import AnchorSpec, get_or_create_anchors, anchor_spec_hash
 from src.data.manifest import get_or_create_manifest
 from src.config.paths import get_cache_dir
 from src.networks.heads import LinearAdapter, ThreeLayerMLPAdapter
@@ -67,10 +67,17 @@ from src.mlflow_utils import (
 )
 
 
-def _resolve_anchor_selection(cfg):
-    """Resolve anchor_selection from adapter config."""
-    anchor_sel = OmegaConf.to_container(cfg.adapter.anchor_selection, resolve=True)
-    return anchor_sel
+def _resolve_anchor_selection(cfg) -> AnchorSpec:
+    """Build AnchorSpec from adapter config — no hidden defaults."""
+    sel = cfg.adapter.anchor_selection
+    # num_classes comes from the dataset config
+    return AnchorSpec(
+        source_split=cfg.pipeline.split,
+        per_class=sel.per_class,
+        strategy=sel.strategy,
+        order_by=sel.order_by,
+        num_classes=cfg.dataset.num_classes,
+    )
 
 
 def _load_features_for_runs(run_ids, artifacts_root, split="test", feature_key="logits"):
@@ -435,8 +442,8 @@ def _main(cfg: DictConfig) -> None:
     # Ensemble definitions from Hydra (no yaml.safe_load)
     ensembles = OmegaConf.to_container(cfg.ensemble.ensembles, resolve=True)
 
-    # Anchor selection (from ensemble defaults → pipeline.anchors)
-    anchor_sel = _resolve_anchor_selection(cfg)
+    # Anchor selection (from adapter config — no hidden defaults)
+    anchor_spec = _resolve_anchor_selection(cfg)
 
     print(f"\nMeta-learner config: type={meta_type} feature_type={feature_type} "
           f"similarity_metric={similarity_metric} bias={adapter_bias}")
@@ -462,9 +469,7 @@ def _main(cfg: DictConfig) -> None:
         # ── Anchor setup ──
         anchors = get_or_create_anchors(
             manifest,
-            per_class=anchor_sel.get("per_class", 100),
-            strategy=anchor_sel.get("strategy", "per_class_first_n"),
-            order_by=anchor_sel.get("order_by", "example_id"),
+            spec=anchor_spec,
             artifacts_root=artifacts_root,
         )
         a_spec_hash = anchors["spec_hash"]

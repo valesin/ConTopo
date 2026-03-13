@@ -125,8 +125,7 @@ class TestPipelineProfilesSkipFlag:
 
     def test_pipeline_profiles_skip_default_false(self, cfg):
         """Default config should not skip profiles."""
-        skip = OmegaConf.select(cfg, "pipeline.profiles.skip", default=False)
-        assert skip is False
+        assert cfg.pipeline.profiles.skip is False
 
     def test_pipeline_profiles_section_exists(self, cfg):
         """pipeline.profiles section should exist in config."""

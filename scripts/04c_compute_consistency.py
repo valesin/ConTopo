@@ -30,7 +30,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-from src.data.anchors import get_or_create_anchors
+from src.data.anchors import AnchorSpec, get_or_create_anchors
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
 from src.ensemble.selector import resolve_components
@@ -90,11 +90,16 @@ def main(cfg: DictConfig) -> None:
         data_root=cfg.runtime.data_root,
         artifacts_root=str(cache_dir),
     )
-    anchors = get_or_create_anchors(
-        manifest,
+    anchor_spec = AnchorSpec(
+        source_split=split,
         per_class=anchors_cfg.per_class,
         strategy=anchors_cfg.strategy,
         order_by=anchors_cfg.order_by,
+        num_classes=cfg.dataset.num_classes,
+    )
+    anchors = get_or_create_anchors(
+        manifest,
+        spec=anchor_spec,
         artifacts_root=str(cache_dir),
     )
     anchor_indices = anchors["anchor_indices"]

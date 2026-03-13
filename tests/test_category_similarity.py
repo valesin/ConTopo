@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from src.data.anchors import anchor_spec_hash, select_anchors_from_manifest
+from src.data.anchors import AnchorSpec, anchor_spec_hash, select_anchors_from_manifest
 from src.data.manifest import DatasetManifest
 from src.mlflow_utils import (
     behavior_input_hash,
@@ -375,9 +375,14 @@ class TestEndToEndFeatureAssembly:
         emb = _make_embeddings(N=N, D=D, seed=42)
 
         # Select anchors
-        anchors = select_anchors_from_manifest(
-            manifest, per_class=K_per_class, num_classes=num_classes
+        spec = AnchorSpec(
+            source_split="test",
+            per_class=K_per_class,
+            strategy="per_class_first_n",
+            order_by="example_id",
+            num_classes=num_classes,
         )
+        anchors = select_anchors_from_manifest(manifest, spec)
         K = K_per_class * num_classes  # total anchors
         assert len(anchors["anchor_indices"]) == K
 
@@ -394,9 +399,7 @@ class TestEndToEndFeatureAssembly:
         assert combined.shape == (N, D + K)
 
         # Determinism: repeat and compare
-        anchors2 = select_anchors_from_manifest(
-            manifest, per_class=K_per_class, num_classes=num_classes
-        )
+        anchors2 = select_anchors_from_manifest(manifest, spec)
         anchor_emb2 = emb[anchors2["anchor_indices"]]
         profiles_cos2 = compute_similarity_profile(emb, anchor_emb2, metric="cosine")
         assert torch.equal(profiles_cos, profiles_cos2)
