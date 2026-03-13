@@ -35,9 +35,9 @@ import os
 import hydra
 import mlflow
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-from src.data.anchors import get_or_create_anchors
+from src.data.anchors import AnchorSpec, get_or_create_anchors
 from src.data.cache import get_backend
 from src.data.manifest import get_or_create_manifest
 from src.config.paths import get_cache_dir
@@ -55,7 +55,7 @@ from src.mlflow_utils import (
 
 
 def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
-    """Build the (anchor_selection, similarity_metric) spec from ``cfg.adapter``.
+    """Build the (anchor_spec, similarity_metric) spec from ``cfg.adapter``.
 
     Always returns exactly one spec dict so that profiles are pre-computed
     for all model runs regardless of the current ``adapter.feature_type``.
@@ -66,11 +66,18 @@ def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
     Pipeline best practice: cross-config reusable artifacts must not be
     gated on the current run configuration.
     """
-    anchor_sel = OmegaConf.to_container(cfg.adapter.anchor_selection, resolve=True)
+    sel = cfg.adapter.anchor_selection
+    anchor_spec = AnchorSpec(
+        source_split=cfg.pipeline.split,
+        per_class=sel.per_class,
+        strategy=sel.strategy,
+        order_by=sel.order_by,
+        num_classes=cfg.dataset.num_classes,
+    )
     similarity_metric = cfg.adapter.similarity_metric
 
     return [{
-        "anchor_selection": anchor_sel,
+        "anchor_spec": anchor_spec,
         "similarity_metric": similarity_metric,
     }]
 
@@ -84,18 +91,16 @@ def _compute_for_spec(
     split: str,
     force: bool,
 ) -> tuple[int, int]:
-    """Compute profiles for one (anchor_selection, metric) spec across all model runs.
+    """Compute profiles for one (anchor_spec, metric) spec across all model runs.
 
     Returns (computed_count, skipped_count).
     """
-    anchor_sel = spec["anchor_selection"]
+    anchor_spec = spec["anchor_spec"]
     similarity_metric = spec["similarity_metric"]
 
     anchors = get_or_create_anchors(
         manifest,
-        per_class=anchor_sel.get("per_class", 100),
-        strategy=anchor_sel.get("strategy", "per_class_first_n"),
-        order_by=anchor_sel.get("order_by", "example_id"),
+        spec=anchor_spec,
         artifacts_root=artifacts_root,
     )
     a_spec_hash = anchors["spec_hash"]
@@ -204,9 +209,8 @@ def main(cfg: DictConfig) -> None:
         artifacts_root=str(cache_dir),
     )
 
-    # Explicit user-intent skip flag (default: false)
-    skip_profiles = OmegaConf.select(cfg, "pipeline.profiles.skip", default=False)
-    if skip_profiles:
+    # Explicit user-intent skip flag (default: false, via structured config)
+    if cfg.pipeline.profiles.skip:
         print("Profile computation skipped (pipeline.profiles.skip=true).")
         return
 
@@ -214,9 +218,9 @@ def main(cfg: DictConfig) -> None:
     # Always generates profiles — not gated on adapter.feature_type
     specs = _collect_profile_specs(cfg)
 
-    print(f"Found {len(specs)} unique (anchor_selection, metric) combinations to compute.")
+    print(f"Found {len(specs)} unique (anchor_spec, metric) combinations to compute.")
     for i, s in enumerate(specs):
-        print(f"  [{i}] metric={s['similarity_metric']}  anchors={s['anchor_selection']}")
+        print(f"  [{i}] metric={s['similarity_metric']}  anchors={s['anchor_spec']}")
 
     # Get all FINISHED model runs
     exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
@@ -236,7 +240,7 @@ def main(cfg: DictConfig) -> None:
 
     for spec in specs:
         print(f"\n{'─'*50}")
-        print(f"Computing: metric={spec['similarity_metric']}  anchors={spec['anchor_selection']}")
+        print(f"Computing: metric={spec['similarity_metric']}  anchors={spec['anchor_spec']}")
         computed, skipped = _compute_for_spec(
             cfg, spec, model_runs, manifest, str(cache_dir), split, force
         )

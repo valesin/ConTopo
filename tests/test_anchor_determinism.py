@@ -2,6 +2,7 @@
 Tests for anchor selection determinism and specification hashing.
 
 Validates:
+  - AnchorSpec dataclass and its hash property
   - Anchor selection is deterministic given the same manifest + spec
   - anchor_spec_hash is deterministic and sensitive to spec changes
   - Anchor identity (spec_hash) can be included in behavior_input_hash
@@ -13,6 +14,7 @@ import pytest
 import torch
 
 from src.data.anchors import (
+    AnchorSpec,
     anchor_spec_hash,
     select_anchors_from_manifest,
 )
@@ -34,8 +36,54 @@ def _make_test_manifest(N=500, num_classes=10, split="test"):
     )
 
 
+def _make_spec(**overrides) -> AnchorSpec:
+    """Create an AnchorSpec with sensible test defaults."""
+    defaults = dict(
+        source_split="test",
+        per_class=5,
+        strategy="per_class_first_n",
+        order_by="example_id",
+        num_classes=10,
+    )
+    defaults.update(overrides)
+    return AnchorSpec(**defaults)
+
+
+class TestAnchorSpec:
+    """Test the AnchorSpec dataclass itself."""
+
+    def test_frozen(self):
+        spec = _make_spec()
+        with pytest.raises(AttributeError):
+            spec.per_class = 200  # type: ignore[misc]
+
+    def test_hash_stable(self):
+        spec = _make_spec()
+        assert spec.hash == spec.hash
+
+    def test_hash_length(self):
+        assert len(_make_spec().hash) == 16
+
+    def test_different_per_class_different_hash(self):
+        h1 = _make_spec(per_class=5).hash
+        h2 = _make_spec(per_class=10).hash
+        assert h1 != h2
+
+    def test_to_dict(self):
+        spec = _make_spec()
+        d = spec.to_dict()
+        assert isinstance(d, dict)
+        assert d["per_class"] == 5
+        assert d["source_split"] == "test"
+
+    def test_hash_matches_legacy_dict_hash(self):
+        """AnchorSpec.hash must agree with anchor_spec_hash(dict)."""
+        spec = _make_spec()
+        assert spec.hash == anchor_spec_hash(spec.to_dict())
+
+
 class TestAnchorSpecHash:
-    """Test deterministic hashing of anchor specifications."""
+    """Test deterministic hashing of anchor specifications (legacy dict API)."""
 
     def test_stable(self):
         spec = {"per_class": 100, "strategy": "per_class_first_n", "order_by": "example_id"}
@@ -63,33 +111,36 @@ class TestAnchorSelection:
 
     def test_deterministic(self):
         manifest = _make_test_manifest()
-        a1 = select_anchors_from_manifest(manifest, per_class=5, num_classes=10)
-        a2 = select_anchors_from_manifest(manifest, per_class=5, num_classes=10)
+        spec = _make_spec(per_class=5)
+        a1 = select_anchors_from_manifest(manifest, spec)
+        a2 = select_anchors_from_manifest(manifest, spec)
         assert a1["anchor_indices"] == a2["anchor_indices"]
         assert a1["anchor_example_ids"] == a2["anchor_example_ids"]
 
     def test_correct_count(self):
         manifest = _make_test_manifest()
-        anchors = select_anchors_from_manifest(manifest, per_class=5, num_classes=10)
+        anchors = select_anchors_from_manifest(manifest, _make_spec(per_class=5))
         assert len(anchors["anchor_indices"]) == 50  # 5 * 10
 
     def test_spec_hash_in_result(self):
         manifest = _make_test_manifest()
-        anchors = select_anchors_from_manifest(manifest, per_class=5, num_classes=10)
+        anchors = select_anchors_from_manifest(manifest, _make_spec(per_class=5))
         assert "spec_hash" in anchors
         assert len(anchors["spec_hash"]) == 16
 
     def test_different_per_class_different_result(self):
         manifest = _make_test_manifest()
-        a1 = select_anchors_from_manifest(manifest, per_class=5, num_classes=10)
-        a2 = select_anchors_from_manifest(manifest, per_class=3, num_classes=10)
+        a1 = select_anchors_from_manifest(manifest, _make_spec(per_class=5))
+        a2 = select_anchors_from_manifest(manifest, _make_spec(per_class=3))
         assert a1["spec_hash"] != a2["spec_hash"]
         assert len(a2["anchor_indices"]) == 30
 
     def test_raises_on_insufficient_samples(self):
         manifest = _make_test_manifest(N=50, num_classes=10)
         with pytest.raises(RuntimeError, match="only .* examples"):
-            select_anchors_from_manifest(manifest, per_class=100, num_classes=10)
+            select_anchors_from_manifest(
+                manifest, _make_spec(per_class=100)
+            )
 
 
 class TestAnchorIdentityInBehaviorHash:
