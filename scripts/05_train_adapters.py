@@ -12,7 +12,7 @@ Meta-learner identity is now driven by Hydra adapter config:
   - ``adapter.similarity_metric``: cosine | l2 (used with embeddings/profiles)
   - ``adapter.hidden_dim``:       MLP hidden dim (meta_mlp only)
 
-Anchor selection is configured via ``adapter.anchor_selection``.
+Anchor selection is configured via ``pipeline.anchors``.
 
 Usage:
     # Single run:
@@ -68,11 +68,11 @@ from src.mlflow_utils import (
 
 
 def _resolve_anchor_selection(cfg) -> AnchorSpec:
-    """Build AnchorSpec from adapter config — no hidden defaults."""
-    sel = cfg.adapter.anchor_selection
+    """Build AnchorSpec from pipeline config — no hidden defaults."""
+    sel = cfg.pipeline.anchors
     # num_classes comes from the dataset config
     return AnchorSpec(
-        source_split=cfg.pipeline.split,
+        source_split=sel.source_split,
         per_class=sel.per_class,
         strategy=sel.strategy,
         order_by=sel.order_by,
@@ -112,7 +112,7 @@ def _load_features_for_runs(run_ids, artifacts_root, split="test", feature_key="
     return concat, labels
 
 
-def _get_or_compute_similarity_profile(
+def _load_similarity_profile_or_fail(
     *,
     run_id: str,
     anchors: dict,
@@ -121,11 +121,10 @@ def _get_or_compute_similarity_profile(
     artifacts_root: str,
     experiment_name: str,
 ) -> torch.Tensor:
-    """Demand-driven similarity profile computation with MLflow caching.
-
-    1. Look up existing profile run in MLflow by tags.
-    2. If found, load from local cache.
-    3. If not found, compute profiles, save locally, and log as new MLflow run.
+    """Load pre-computed similarity profile or fail.
+    
+    Similarity profiles should be computed by pipeline step 03 ahead of time based on `pipeline.profiles.metrics`.
+    If the adapter requests a metric that was not pre-computed, we hard fail.
 
     Returns:
         [N, K] profile tensor where K = num_anchors.
@@ -159,54 +158,16 @@ def _get_or_compute_similarity_profile(
             os.makedirs(profile_dir, exist_ok=True)
             torch.save(profiles, profile_path)
             return profiles
-        except Exception:
-            pass  # Fall through to compute
+        except Exception as e:
+            raise RuntimeError(f"Failed to download existing profile artifact: {e}")
 
-    # 3. Compute from scratch
-    backend = get_backend("pt")
-    emb_path = os.path.join(artifacts_root, "inference", run_id, split, f"embeddings{backend.extension}")
-    if not backend.exists(emb_path):
-        raise FileNotFoundError(
-            f"HARD FAIL: embeddings not found at {emb_path}. "
-            f"Run scripts/02_cache_inference.py first."
-        )
-    embeddings = backend.load(emb_path)  # [N, D]
-
-    anchor_indices = anchors["anchor_indices"]
-    anchor_embeddings = embeddings[anchor_indices]  # [K, D]
-
-    profiles = compute_similarity_profile(embeddings, anchor_embeddings, metric=similarity_metric)
-
-    # Save locally
-    os.makedirs(profile_dir, exist_ok=True)
-    torch.save(profiles, profile_path)
-
-    # Log as MLflow run (kind=category_similarity_profile)
-    tags = category_similarity_profile_tags(
-        parent_run_id=run_id,
-        anchor_spec_hash=a_spec_hash,
-        similarity_metric=similarity_metric,
-        split=split,
-        profile_hash=prof_hash,
+    # 3. Fail if not found
+    raise FileNotFoundError(
+        f"HARD FAIL: Pre-computed similarity profiles not found for run {run_id}, "
+        f"metric='{similarity_metric}'.\n"
+        f"Please ensure `pipeline.profiles.metrics` includes '{similarity_metric}' "
+        f"and run scripts/03_compute_profiles.py first."
     )
-    with mlflow.start_run(
-        run_name=f"csp_{similarity_metric}_{run_id[:8]}",
-        tags=tags,
-    ):
-        mlflow.log_params({
-            "parent_run_id": run_id,
-            "anchor_spec_hash": a_spec_hash,
-            "similarity_metric": similarity_metric,
-            "split": split,
-            "profile_hash": prof_hash,
-            "num_anchors": len(anchor_indices),
-            "num_samples": int(profiles.shape[0]),
-            "profile_dim": int(profiles.shape[1]),
-        })
-        mlflow.log_artifact(profile_path, artifact_path="profiles")
-        log_git_info()
-
-    return profiles
 
 
 def _assemble_features(
@@ -259,7 +220,7 @@ def _assemble_features(
             emb = backend.load(emb_path)  # [N, D]
 
             # Get or compute similarity profiles (demand-driven)
-            profiles = _get_or_compute_similarity_profile(
+            profiles = _load_similarity_profile_or_fail(
                 run_id=run_id,
                 anchors=anchors,
                 similarity_metric=similarity_metric,

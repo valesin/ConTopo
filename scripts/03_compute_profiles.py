@@ -8,9 +8,9 @@ against deterministic anchors.  Reads cached embeddings from step 02.
 Each profiling job is tracked as its own MLflow run
 (kind=category_similarity_profile), linked to the parent model run.
 
-Anchor selection and similarity metric are read from ``cfg.adapter``:
-  - ``adapter.anchor_selection``  (per_class, strategy, order_by)
-  - ``adapter.similarity_metric`` (cosine | l2)
+Anchor selection and similarity metric are read from ``cfg.pipeline``:
+  - ``pipeline.anchors``          (per_class, strategy, order_by, source_split)
+  - ``pipeline.profiles.metrics`` (list of metrics, e.g. [cosine, l2])
 
 Profiles are **always computed** for all FINISHED model runs, regardless of
 the current ``adapter.feature_type`` setting.  This is intentional:
@@ -23,8 +23,8 @@ To explicitly skip profile computation, set ``pipeline.profiles.skip=true``.
 Usage:
     python scripts/03_compute_profiles.py
     python scripts/03_compute_profiles.py pipeline.force=true
-    python scripts/03_compute_profiles.py adapter.anchor_selection.per_class=200
-    python scripts/03_compute_profiles.py adapter.similarity_metric=l2
+    python scripts/03_compute_profiles.py pipeline.anchors.per_class=200
+    python scripts/03_compute_profiles.py "pipeline.profiles.metrics=[l2]"
     python scripts/03_compute_profiles.py pipeline.profiles.skip=true
 """
 
@@ -55,9 +55,9 @@ from src.mlflow_utils import (
 
 
 def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
-    """Build the (anchor_spec, similarity_metric) spec from ``cfg.adapter``.
+    """Build the list of profile specs from ``cfg.pipeline``.
 
-    Always returns exactly one spec dict so that profiles are pre-computed
+    Always returns a list of spec dicts so that profiles are pre-computed
     for all model runs regardless of the current ``adapter.feature_type``.
     Downstream steps (e.g. Step 5 adapter training) may later run with
     ``feature_type=embeddings+profiles`` even when the current config uses
@@ -66,20 +66,23 @@ def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
     Pipeline best practice: cross-config reusable artifacts must not be
     gated on the current run configuration.
     """
-    sel = cfg.adapter.anchor_selection
+    sel = cfg.pipeline.anchors
     anchor_spec = AnchorSpec(
-        source_split=cfg.pipeline.split,
+        source_split=sel.source_split,
         per_class=sel.per_class,
         strategy=sel.strategy,
         order_by=sel.order_by,
         num_classes=cfg.dataset.num_classes,
     )
-    similarity_metric = cfg.adapter.similarity_metric
+    
+    specs = []
+    for metric in cfg.pipeline.profiles.metrics:
+        specs.append({
+            "anchor_spec": anchor_spec,
+            "similarity_metric": metric,
+        })
 
-    return [{
-        "anchor_spec": anchor_spec,
-        "similarity_metric": similarity_metric,
-    }]
+    return specs
 
 
 def _compute_for_spec(
@@ -214,7 +217,7 @@ def main(cfg: DictConfig) -> None:
         print("Profile computation skipped (pipeline.profiles.skip=true).")
         return
 
-    # Collect all unique (anchor_selection, similarity_metric) specs
+    # Collect all unique (anchor_spec, similarity_metric) specs
     # Always generates profiles — not gated on adapter.feature_type
     specs = _collect_profile_specs(cfg)
 

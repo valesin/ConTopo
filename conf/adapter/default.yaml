@@ -24,9 +24,3 @@ meta_split:
     train: 0.6
     val: 0.2
     holdout: 0.2
-
-# ── Anchor selection for meta-learners ──
-anchor_selection:
-  per_class: 100
-  strategy: per_class_first_n
-  order_by: example_id
