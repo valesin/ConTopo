@@ -100,13 +100,11 @@ class TestProfileSpecsNotGatedOnFeatureType:
 class TestProfileSpecContent:
     """Verify the spec dict has the right keys and values."""
 
-    def test_spec_has_anchor_selection(self, cfg):
+    def test_spec_has_anchor_spec(self, cfg):
+        from src.data.anchors import AnchorSpec
         specs = _collect_profile_specs(cfg)
-        assert "anchor_selection" in specs[0]
-        sel = specs[0]["anchor_selection"]
-        assert isinstance(sel, dict)
-        assert "per_class" in sel
-        assert "strategy" in sel
+        assert "anchor_spec" in specs[0]
+        assert isinstance(specs[0]["anchor_spec"], AnchorSpec)
 
     def test_spec_has_similarity_metric(self, cfg):
         specs = _collect_profile_specs(cfg)
@@ -117,7 +115,7 @@ class TestProfileSpecContent:
         """Spec must use the adapter config values."""
         specs = _collect_profile_specs(cfg)
         assert specs[0]["similarity_metric"] == cfg.adapter.similarity_metric
-        assert specs[0]["anchor_selection"]["per_class"] == cfg.adapter.anchor_selection.per_class
+        assert specs[0]["anchor_spec"].per_class == cfg.adapter.anchor_selection.per_class
 
 
 class TestPipelineProfilesSkipFlag:

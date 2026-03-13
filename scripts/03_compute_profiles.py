@@ -55,7 +55,7 @@ from src.mlflow_utils import (
 
 
 def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
-    """Build the (anchor_selection, similarity_metric) spec from ``cfg.adapter``.
+    """Build the (anchor_spec, similarity_metric) spec from ``cfg.adapter``.
 
     Always returns exactly one spec dict so that profiles are pre-computed
     for all model runs regardless of the current ``adapter.feature_type``.
@@ -67,15 +67,17 @@ def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
     gated on the current run configuration.
     """
     sel = cfg.adapter.anchor_selection
-    anchor_sel = {
-        "per_class": sel.per_class,
-        "strategy": sel.strategy,
-        "order_by": sel.order_by,
-    }
+    anchor_spec = AnchorSpec(
+        source_split=cfg.pipeline.split,
+        per_class=sel.per_class,
+        strategy=sel.strategy,
+        order_by=sel.order_by,
+        num_classes=cfg.dataset.num_classes,
+    )
     similarity_metric = cfg.adapter.similarity_metric
 
     return [{
-        "anchor_selection": anchor_sel,
+        "anchor_spec": anchor_spec,
         "similarity_metric": similarity_metric,
     }]
 
@@ -89,20 +91,12 @@ def _compute_for_spec(
     split: str,
     force: bool,
 ) -> tuple[int, int]:
-    """Compute profiles for one (anchor_selection, metric) spec across all model runs.
+    """Compute profiles for one (anchor_spec, metric) spec across all model runs.
 
     Returns (computed_count, skipped_count).
     """
-    anchor_sel = spec["anchor_selection"]
+    anchor_spec = spec["anchor_spec"]
     similarity_metric = spec["similarity_metric"]
-
-    anchor_spec = AnchorSpec(
-        source_split=manifest.split,
-        per_class=anchor_sel["per_class"],
-        strategy=anchor_sel["strategy"],
-        order_by=anchor_sel["order_by"],
-        num_classes=cfg.dataset.num_classes,
-    )
 
     anchors = get_or_create_anchors(
         manifest,
@@ -224,9 +218,9 @@ def main(cfg: DictConfig) -> None:
     # Always generates profiles — not gated on adapter.feature_type
     specs = _collect_profile_specs(cfg)
 
-    print(f"Found {len(specs)} unique (anchor_selection, metric) combinations to compute.")
+    print(f"Found {len(specs)} unique (anchor_spec, metric) combinations to compute.")
     for i, s in enumerate(specs):
-        print(f"  [{i}] metric={s['similarity_metric']}  anchors={s['anchor_selection']}")
+        print(f"  [{i}] metric={s['similarity_metric']}  anchors={s['anchor_spec']}")
 
     # Get all FINISHED model runs
     exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
@@ -246,7 +240,7 @@ def main(cfg: DictConfig) -> None:
 
     for spec in specs:
         print(f"\n{'─'*50}")
-        print(f"Computing: metric={spec['similarity_metric']}  anchors={spec['anchor_selection']}")
+        print(f"Computing: metric={spec['similarity_metric']}  anchors={spec['anchor_spec']}")
         computed, skipped = _compute_for_spec(
             cfg, spec, model_runs, manifest, str(cache_dir), split, force
         )
