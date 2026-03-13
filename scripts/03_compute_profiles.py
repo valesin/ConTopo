@@ -30,6 +30,7 @@ Usage:
 
 from __future__ import annotations
 
+import dataclasses
 import os
 
 import hydra
@@ -54,14 +55,27 @@ from src.mlflow_utils import (
 )
 
 
-def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
+@dataclasses.dataclass(frozen=True)
+class ProfileSpec:
+    """Immutable specification for a profile computation job.
+
+    Combines an ``AnchorSpec`` with the similarity metric so that
+    ``_compute_for_spec`` receives a fully-typed object instead of a
+    plain dict.
+    """
+
+    anchor_spec: AnchorSpec
+    similarity_metric: str
+
+
+def _collect_profile_specs(cfg: DictConfig) -> list[ProfileSpec]:
     """Build the (anchor_spec, similarity_metric) spec from ``cfg.adapter``.
 
-    Always returns exactly one spec dict so that profiles are pre-computed
-    for all model runs regardless of the current ``adapter.feature_type``.
-    Downstream steps (e.g. Step 5 adapter training) may later run with
-    ``feature_type=embeddings+profiles`` even when the current config uses
-    ``logits`` or ``embeddings``.
+    Always returns exactly one ``ProfileSpec`` so that profiles are
+    pre-computed for all model runs regardless of the current
+    ``adapter.feature_type``.  Downstream steps (e.g. Step 5 adapter
+    training) may later run with ``feature_type=embeddings+profiles``
+    even when the current config uses ``logits`` or ``embeddings``.
 
     Pipeline best practice: cross-config reusable artifacts must not be
     gated on the current run configuration.
@@ -76,15 +90,12 @@ def _collect_profile_specs(cfg: DictConfig) -> list[dict]:
     )
     similarity_metric = cfg.adapter.similarity_metric
 
-    return [{
-        "anchor_spec": anchor_spec,
-        "similarity_metric": similarity_metric,
-    }]
+    return [ProfileSpec(anchor_spec=anchor_spec, similarity_metric=similarity_metric)]
 
 
 def _compute_for_spec(
     cfg: DictConfig,
-    spec: dict,
+    spec: ProfileSpec,
     model_runs: list,
     manifest,
     artifacts_root: str,
@@ -95,8 +106,8 @@ def _compute_for_spec(
 
     Returns (computed_count, skipped_count).
     """
-    anchor_spec = spec["anchor_spec"]
-    similarity_metric = spec["similarity_metric"]
+    anchor_spec = spec.anchor_spec
+    similarity_metric = spec.similarity_metric
 
     anchors = get_or_create_anchors(
         manifest,
@@ -220,7 +231,7 @@ def main(cfg: DictConfig) -> None:
 
     print(f"Found {len(specs)} unique (anchor_spec, metric) combinations to compute.")
     for i, s in enumerate(specs):
-        print(f"  [{i}] metric={s['similarity_metric']}  anchors={s['anchor_spec']}")
+        print(f"  [{i}] metric={s.similarity_metric}  anchors={s.anchor_spec}")
 
     # Get all FINISHED model runs
     exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
@@ -240,7 +251,7 @@ def main(cfg: DictConfig) -> None:
 
     for spec in specs:
         print(f"\n{'─'*50}")
-        print(f"Computing: metric={spec['similarity_metric']}  anchors={spec['anchor_spec']}")
+        print(f"Computing: metric={spec.similarity_metric}  anchors={spec.anchor_spec}")
         computed, skipped = _compute_for_spec(
             cfg, spec, model_runs, manifest, str(cache_dir), split, force
         )
