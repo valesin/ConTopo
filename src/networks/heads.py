@@ -19,8 +19,8 @@ class LinearAdapter(nn.Module):
 
 
 
-class ThreeLayerMLPAdapter(nn.Module):
-    """Three-layer MLP adapter for meta-learning on ensemble features (optionally without bias in final layer)."""
+class TwoLayerMLPAdapter(nn.Module):
+    """Two-layer MLP adapter for meta-learning on ensemble features (optionally without bias in final layer)."""
 
     def __init__(self, in_dim: int, hidden_dim: int = 128, num_classes: int = 10, dropout: float = 0.3, bias: bool = True):
         super().__init__()
