@@ -17,7 +17,7 @@ PERSISTENT_ABSOLUTE=$(realpath "$PERSISTENT_DIR")
 
 echo "------------------------------------------------------------"
 echo "Container: $CONTAINER_IMAGE"
-echo "Code Bind: $PERSISTENT_ABSOLUTE -> /persistent_repo"
+echo "Code Bind: $PERSISTENT_ABSOLUTE -> /persistent_repo/ConTopo/"
 echo "Output Bind: $OUTPUTS_ABSOLUTE -> /persistent_repo/ConTopo/outputs"
 echo "------------------------------------------------------------"
 
@@ -26,6 +26,6 @@ echo "------------------------------------------------------------"
 echo "Launching interactive shell with GPU support..."
 
 apptainer run --nv \
-  --bind "$PERSISTENT_ABSOLUTE":/persistent_repo \
+  --bind "$PERSISTENT_ABSOLUTE":/persistent_repo/ConTopo/ \
   --bind "$OUTPUTS_ABSOLUTE":/persistent_repo/ConTopo/outputs \
   "$CONTAINER_IMAGE" shell
