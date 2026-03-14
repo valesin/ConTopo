@@ -2,7 +2,8 @@
 """
 03b_compute_diagnostics.py — Optional per-model diagnostic metrics.
 
-For each FINISHED model run, compute spatial and weight-based diagnostics:
+For the FINISHED model run matching the current configuration, compute spatial
+and weight-based diagnostics:
   - Moran's I (spatial autocorrelation of embeddings on the topographic grid)
   - Weight norms (L2 norm of each output unit's weight vector)
   - Unit distance correlation (grid distance vs weight cosine similarity)
@@ -10,8 +11,7 @@ For each FINISHED model run, compute spatial and weight-based diagnostics:
 Each diagnostic is gated by ``pipeline.diagnostics.*`` config flags.
 
 **One MLflow run per (model, metric)**: each diagnostic produces its own
-MLflow run (kind=diagnostics).  Adding a new metric later only computes
-the missing one — previously computed metrics are never recalculated.
+MLflow run (kind=diagnostics).
 
 Usage:
     python scripts/03b_compute_diagnostics.py
@@ -22,80 +22,48 @@ Usage:
 from __future__ import annotations
 
 import os
-
 import hydra
 import mlflow
+import mlflow.artifacts
 import torch
+import torch.nn as nn
 from omegaconf import DictConfig
 
-from src.data.cache import get_backend
 from src.config.paths import get_cache_dir
+from src.config.hash import cfg_hash
+from src.data.manifest import get_or_create_manifest
 from src.mlflow_utils import (
-    log_git_info,
     log_resolved_config,
     setup_mlflow,
+    get_existing_model,
+    resolve_seed,
+    get_inference_run,
+    load_mlflow_artifact,
+    log_manifest_lineage,
+    find_finished_diagnostic_run,
 )
 from src.profiling.smoothness import morans_i
 from src.profiling.unit_analysis import weight_norms, unit_distance_correlation
-from src.training.checkpoint import load_checkpoint
-from src.networks.resnet18 import LinearResNet18
+from src.networks.registry import unwrap
 
 
-def _find_finished_diagnostic_run(experiment_name: str, parent_run_id: str, metric_name: str):
-    """Check if a diagnostic run already exists for this (model, metric)."""
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        return None
-    filter_str = (
-        f"tags.kind = 'diagnostics' and "
-        f"tags.parent_run_id = '{parent_run_id}' and "
-        f"tags.diagnostic_metric = '{metric_name}' and "
-        f"attributes.status = 'FINISHED'"
-    )
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_str,
-        max_results=1,
-        output_format="list",
-    )
-    return runs[0] if runs else None
 
-
-def _load_encoder_and_fc(run, device):
-    """Reconstruct encoder + FC layer from MLflow run checkpoint."""
-    client = mlflow.tracking.MlflowClient()
-    run_id = run.info.run_id
-    artifacts = client.list_artifacts(run_id, path="checkpoint")
-    ckpt_path = None
-    for a in artifacts:
-        if a.path.endswith(".pth"):
-            ckpt_path = client.download_artifacts(run_id, a.path)
-            break
-    if ckpt_path is None:
-        return None, None
-
-    ckpt = load_checkpoint(ckpt_path, device=device)
-    params = run.data.params
-    emb_dim = int(params.get("embedding_dim", 256))
-
-    model = LinearResNet18(emb_dim=emb_dim, num_classes=10, ret_emb=True)
-    state_dict = ckpt.get("state_dict", {})
-    if any(k.startswith("module.") for k in state_dict):
-        state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict)
-    model = model.to(device)
-    model.eval()
-    return model.encoder, model.fc
 
 
 def _log_diagnostic_run(
-    run, metric_name, metrics, artifact_dir, cfg,
+    run_id,
+    model_tags,
+    inf_run_id,
+    metric_name,
+    metrics,
+    artifact_dir,
+    cfg,
+    manifest=None,
 ):
     """Create one MLflow run for a single diagnostic metric."""
-    run_id = run.info.run_id
-    rho = run.data.tags.get("rho", "?")
-    trial = run.data.tags.get("trial", "?")
-    topology = run.data.tags.get("topology", "?")
+    rho = model_tags.get("rho", "?")
+    trial = model_tags.get("trial", "?")
+    topology = model_tags.get("topology", "?")
 
     tags = {
         "kind": "diagnostics",
@@ -105,20 +73,31 @@ def _log_diagnostic_run(
         "trial": trial,
         "topology": topology,
     }
+    if inf_run_id:
+        tags["inference_run_id"] = inf_run_id
 
     with mlflow.start_run(
         run_name=f"diag_{metric_name}_{topology}_rho{rho}_t{trial}",
         tags=tags,
     ) as diag_run:
-        mlflow.log_params({
+        params = {
             "parent_run_id": run_id,
             "diagnostic_metric": metric_name,
             "split": cfg.pipeline.split,
-        })
+        }
+        if inf_run_id:
+            params["inference_run_id"] = inf_run_id
+
+        mlflow.log_params(params)
+
         for k, v in metrics.items():
             mlflow.log_metric(k, v)
 
-        # Log artifact files for this metric
+        # ── Log the dataset manifest to MLflow for lineage ──
+        if manifest is not None:
+            log_manifest_lineage(manifest, cfg.pipeline.split, cfg.dataset.name, context="diagnostics")
+
+        # Log applicable artifact files for this metric
         if artifact_dir and os.path.isdir(artifact_dir):
             for fname in os.listdir(artifact_dir):
                 if fname.startswith(metric_name):
@@ -126,7 +105,6 @@ def _log_diagnostic_run(
                     if os.path.isfile(fpath):
                         mlflow.log_artifact(fpath, artifact_path="diagnostics")
 
-        log_git_info()
         log_resolved_config(cfg)
 
     metric_str = "  ".join(f"{k}={v:.4f}" for k, v in metrics.items())
@@ -137,13 +115,11 @@ def _log_diagnostic_run(
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
-    force = cfg.pipeline.force
-    split = cfg.pipeline.split
-    cache_dir = get_cache_dir(cfg)
-    artifacts_root = str(cache_dir)
-    diag_cfg = cfg.pipeline.diagnostics
+    # ── Seed ──
+    seed = resolve_seed(cfg)
+    cfg.seed = seed
 
-    # Determine enabled diagnostics
+    diag_cfg = cfg.pipeline.diagnostics
     enabled = []
     if diag_cfg.morans_i:
         enabled.append("morans_i")
@@ -156,99 +132,141 @@ def main(cfg: DictConfig) -> None:
         print("No diagnostics enabled. Nothing to do.")
         return
 
-    needs_checkpoint = diag_cfg.weight_norms or diag_cfg.unit_distance_correlation
+    # ── Target specific model by ID ──
+    hash_val = cfg_hash(cfg)
+    model, run_id = get_existing_model(cfg.mlflow.experiment_name, hash_val)
 
-    exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
-    if exp is None:
-        print(f"Experiment '{cfg.mlflow.experiment_name}' not found.")
+    if run_id is None:
+        print(
+            f"A model with cfg_hash={hash_val} has not been trained yet. Please run 01_train_models.py first."
+        )
         return
 
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string="tags.kind = 'model' and attributes.status = 'FINISHED'",
-        output_format="list",
+    split = cfg.pipeline.split
+    force = cfg.pipeline.force
+    cache_dir = get_cache_dir(cfg)
+    artifacts_root = str(cache_dir)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # ── Manifest ──
+    manifest = get_or_create_manifest(
+        dataset_name=cfg.dataset.name,
+        split=split,
+        data_root=cfg.runtime.data_root,
+        artifacts_root=artifacts_root,
     )
-    print(f"Found {len(runs)} model runs for diagnostics.")
+
+    # Get parent model tags for logging
+    model_run = mlflow.get_run(run_id)
+    model_tags = model_run.data.tags
+    rho = model_tags.get("rho", "?")
+    trial = model_tags.get("trial", "?")
+
+    print(f"Found target model Run ID: {run_id}, rho={rho} trial={trial}")
     print(f"Enabled diagnostics: {enabled}")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    backend = get_backend("pt")
-
-    for run in runs:
-        run_id = run.info.run_id
-        rho = run.data.tags.get("rho", "?")
-        trial = run.data.tags.get("trial", "?")
-
-        # Check which metrics still need computing for this model
-        needed = []
-        for metric_name in enabled:
-            if not force:
-                existing = _find_finished_diagnostic_run(
-                    cfg.mlflow.experiment_name, run_id, metric_name
-                )
-                if existing is not None:
-                    continue
-            needed.append(metric_name)
-
-        if not needed:
-            print(f"  SKIP rho={rho} trial={trial} (all diagnostics computed)")
-            continue
-
-        print(f"  Computing rho={rho} trial={trial}: {needed}")
-
-        diag_dir = os.path.join(artifacts_root, "diagnostics", run_id)
-        os.makedirs(diag_dir, exist_ok=True)
-
-        # ── Moran's I ──
-        if "morans_i" in needed:
-            emb_path = os.path.join(
-                artifacts_root, "inference", run_id, split,
-                f"embeddings{backend.extension}"
+    # ── Check what needs to be computed ──
+    needed = []
+    for metric_name in enabled:
+        if not force:
+            existing = find_finished_diagnostic_run(
+                cfg.mlflow.experiment_name, run_id, metric_name
             )
-            if backend.exists(emb_path):
-                embs = backend.load(emb_path)
-                emb_dim = int(run.data.params.get("embedding_dim", 256))
-                mi = morans_i(embs, emb_dim)
+            if existing is not None:
+                print(f"  -> Diagnostic {metric_name} already computed. Skipping.")
+                continue
+        needed.append(metric_name)
+
+    if not needed:
+        print("All requested diagnostics are already computed.")
+        return
+
+    print(f"Computing: {needed}")
+
+    diag_dir = os.path.join(artifacts_root, "diagnostics", run_id)
+    os.makedirs(diag_dir, exist_ok=True)
+
+    # ── Fetch corresponding Inference Run (for Moran's I) ──
+    inf_run_id = None
+    if "morans_i" in needed:
+        inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
+
+        if len(inf_runs) > 0:
+            inf_run_id = inf_runs.iloc[0].run_id
+        else:
+            print(
+                f"  WARN: No inference run found for split '{split}'. Skipping morans_i."
+            )
+            needed.remove("morans_i")
+
+    # ── Moran's I ──
+    if "morans_i" in needed:
+        data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
+        embs = torch.from_numpy(data["embeddings"])
+
+        emb_dim = int(model_run.data.params.get("embedding_dim", 256))
+        mi = morans_i(embs, emb_dim)
+
+        _log_diagnostic_run(
+            run_id,
+            model_tags,
+            inf_run_id,
+            "morans_i",
+            {"morans_i": mi},
+            diag_dir,
+            cfg,
+        )
+
+    # ── Weight-based diagnostics ──
+    weight_needed = [
+        m for m in needed if m in ("weight_norms", "unit_distance_correlation")
+    ]
+    if weight_needed:
+        # Safely unwrap model to target the `fc` layer directly
+        base_model = unwrap(model).to(device)
+        fc_layer = getattr(base_model, "fc", None)
+
+        if fc_layer is None or not isinstance(fc_layer, nn.Linear):
+            print(
+                "    WARN: fc_layer is not nn.Linear (or not found), skipping weight diagnostics"
+            )
+        else:
+            if "weight_norms" in weight_needed:
+                wnorms = weight_norms(fc_layer)
+                torch.save(wnorms, os.path.join(diag_dir, "weight_norms.pt"))
                 _log_diagnostic_run(
-                    run, "morans_i", {"morans_i": mi}, diag_dir, cfg,
+                    run_id,
+                    model_tags,
+                    None,
+                    "weight_norms",
+                    {
+                        "weight_norms_mean": float(wnorms.mean()),
+                        "weight_norms_std": float(wnorms.std()),
+                    },
+                    diag_dir,
+                    cfg,
                 )
-            else:
-                print(f"    WARN: embeddings not cached for {run_id}, skipping morans_i")
 
-        # ── Weight-based diagnostics (share checkpoint loading) ──
-        weight_needed = [m for m in needed if m in ("weight_norms", "unit_distance_correlation")]
-        if weight_needed:
-            encoder, fc_layer = _load_encoder_and_fc(run, device)
-            if fc_layer is None:
-                print(f"    WARN: no checkpoint for {run_id}, skipping weight diagnostics")
-            else:
-                import torch.nn as nn
-                if not isinstance(fc_layer, nn.Linear):
-                    print(f"    WARN: fc_layer is not nn.Linear, skipping weight diagnostics")
-                else:
-                    if "weight_norms" in weight_needed:
-                        wnorms = weight_norms(fc_layer)
-                        torch.save(wnorms, os.path.join(diag_dir, "weight_norms.pt"))
-                        _log_diagnostic_run(
-                            run, "weight_norms",
-                            {"weight_norms_mean": float(wnorms.mean()),
-                             "weight_norms_std": float(wnorms.std())},
-                            diag_dir, cfg,
-                        )
+            if "unit_distance_correlation" in weight_needed:
+                udc = unit_distance_correlation(fc_layer)
+                torch.save(udc, os.path.join(diag_dir, "unit_distance_correlation.pt"))
+                metrics = {}
+                if udc.shape[0] > 2:
+                    from src.profiling.rdm import pearson_corrcoef
 
-                    if "unit_distance_correlation" in weight_needed:
-                        udc = unit_distance_correlation(fc_layer)
-                        torch.save(udc, os.path.join(diag_dir, "unit_distance_correlation.pt"))
-                        metrics = {}
-                        if udc.shape[0] > 2:
-                            from src.profiling.rdm import pearson_corrcoef
-                            r = float(pearson_corrcoef(udc.t())[0, 1].item())
-                            metrics["unit_dist_cos_correlation"] = r
-                        _log_diagnostic_run(
-                            run, "unit_distance_correlation", metrics, diag_dir, cfg,
-                        )
+                    r = float(pearson_corrcoef(udc.t())[0, 1].item())
+                    metrics["unit_dist_cos_correlation"] = r
+                _log_diagnostic_run(
+                    run_id,
+                    model_tags,
+                    None,
+                    "unit_distance_correlation",
+                    metrics,
+                    diag_dir,
+                    cfg,
+                )
 
-    print("Diagnostics complete.")
+    print("\nDone.")
 
 
 if __name__ == "__main__":

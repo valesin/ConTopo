@@ -9,7 +9,7 @@ defaults:
   - runtime: default
   - pipeline: default
   - mlflow: default
-  - ensemble: ce_ensembles
+  - ensemble: dynamic
   - adapter: default
   - _self_
 
@@ -23,3 +23,17 @@ seed: null          # null → auto: 100 + trial
 # ── Migration (one-time) ──
 migration:
   dry_run: false
+
+# Hydra internals
+hydra:
+  run:
+    dir: ./outputs/hydra/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ./outputs/hydra/multirun/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job_logging:
+    root:
+      level: WARNING
+    loggers:
+      hydra:
+        level: WARNING

@@ -1,8 +1,8 @@
-# ── Training / optimizer hyperparams (experiment-affecting → in cfg_hash) ──
+# ── Training / optimiser hyperparams (experiment-affecting → in cfg_hash) ──
 epochs: 200
 batch_size: 512
 learning_rate: 0.002
-optimizer: adam            # adam | adamw | sgd
+optimiser: adam            # adam | adamw | sgd
 weight_decay: 0.0
 momentum: 0.9             # only used for SGD
 scheduler: none           # none (extend later: cosine, step, ...)

@@ -2,7 +2,6 @@
 Adapter / meta-learner heads for ensemble experiments.
 """
 
-import torch
 import torch.nn as nn
 
 

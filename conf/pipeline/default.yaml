@@ -19,7 +19,7 @@ force: false
 # embeddings+profiles) have pre-computed profiles available.
 profiles:
   skip: false                      # set true to explicitly skip profile computation
-  metrics: [cosine]                # cosine | l2
+  metrics: [cosine, l2]                # cosine | l2
 
 # ── Per-model diagnostics (step 03b, optional) ──
 diagnostics:

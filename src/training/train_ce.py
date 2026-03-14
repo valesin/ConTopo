@@ -63,7 +63,7 @@ def train_one_epoch(
     model: nn.Module,
     task_loss_fn: nn.Module,
     topo_loss_fn: nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimiser: torch.optim.Optimizer,
     epoch: int,
     balancer: GradNormBalancer,
     *,
@@ -119,14 +119,14 @@ def train_one_epoch(
         scale = balancer.step(task_loss.float(), topo_loss.float(), measure_params)
         loss = task_loss + scale * topo_loss
 
-        optimizer.zero_grad()
+        optimiser.zero_grad()
         if use_amp and scaler is not None:
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
+            scaler.step(optimiser)
             scaler.update()
         else:
             loss.backward()
-            optimizer.step()
+            optimiser.step()
 
         acc1 = accuracy(logits.float(), labels)[0]
         meters["loss"].update(loss.item(), bsz)

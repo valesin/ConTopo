@@ -1,0 +1,8 @@
+# @package _global_
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      adapter.meta_type: meta_lr, meta_mlp
+      adapter.feature_type: logits, embeddings, "embeddings+profiles"
+      adapter.similarity_metric: cosine, l2

@@ -6,7 +6,6 @@ import os
 from typing import Any, Dict
 
 import torch
-import torch.nn as nn
 
 
 def save_checkpoint(path: str, payload: Dict[str, Any]) -> None:

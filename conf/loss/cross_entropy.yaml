@@ -4,6 +4,6 @@ rho: 0.0                        # topographic loss weight ratio (sweep surface)
 topography_type: ws              # 'ws' or 'global'
 topology: grid                  # 'grid' or 'torus'
 task_loss: cross_entropy
-neighborhood:
+neighbourhood:
   type: moore                    # moore | von_neumann
   radius: 1

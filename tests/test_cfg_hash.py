@@ -21,7 +21,7 @@ def _make_cfg(**overrides):
             "topography_type": "ws",
             "topology": "torus",
             "rho": 0.05,
-            "neighborhood": {"type": "moore", "radius": 1},
+            "neighbourhood": {"type": "moore", "radius": 1},
         },
         "dataset": {
             "name": "cifar10",
@@ -32,7 +32,7 @@ def _make_cfg(**overrides):
             "epochs": 200,
             "batch_size": 512,
             "learning_rate": 0.002,
-            "optimizer": "adam",
+            "optimiser": "adam",
             "weight_decay": 0.0,
             "momentum": 0.9,
             "scheduler": "none",

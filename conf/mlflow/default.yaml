@@ -1,4 +1,7 @@
 # ── MLflow tracking (excluded from cfg_hash) ──
-tracking_uri: sqlite:///outputs/mlflow.db
+# Note: we use ${hydra:runtime.cwd} to ensure paths are always absolute from the root
+# regardless of whether the script is run from root or a subfolder like notebooks/
+tracking_uri: sqlite:///${hydra:runtime.cwd}/outputs/mlflow.db
+artifact_location: ${hydra:runtime.cwd}/outputs/mlruns
 experiment_name: contopo
-enable_system_metrics: true
+enable_system_metrics: false
