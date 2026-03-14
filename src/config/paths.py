@@ -15,7 +15,6 @@ Usage::
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,7 +34,7 @@ def get_models_dir(cfg: DictConfig) -> Path:
 
 def get_cache_dir(cfg: DictConfig) -> Path:
     """Return the absolute path to the cache directory (inference, anchors, manifests)."""
-    return get_outputs_root(cfg) / cfg.runtime.paths.cache
+    return get_outputs_root(cfg) / cfg.runtime.paths.inference_cache
 
 
 def get_analysis_dir(cfg: DictConfig) -> Path:
@@ -48,7 +47,7 @@ def get_mlflow_db_path(cfg: DictConfig) -> Path:
     # Parse from tracking_uri which is like "sqlite:///outputs/mlflow.db"
     uri = cfg.mlflow.tracking_uri
     if uri.startswith("sqlite:///"):
-        db_path = uri[len("sqlite:///"):]
+        db_path = uri[len("sqlite:///") :]
         return Path(db_path).resolve()
     # For non-sqlite URIs, return None or raise
     return get_outputs_root(cfg) / "mlflow.db"

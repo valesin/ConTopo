@@ -13,36 +13,36 @@ Usage:
 
 from __future__ import annotations
 
-import os
+import copy
 
 import hydra
 import mlflow
+from mlflow.models.signature import infer_signature
 import torch
 import torch.backends.cudnn as cudnn
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from torch.amp import GradScaler
 
 from src.config.hash import cfg_hash
-from src.config.paths import get_cache_dir, get_models_dir
-from src.config.schema import apply_schema_defaults
+from src.config.paths import get_cache_dir
 from src.data.loaders import get_cifar10_loaders
 from src.data.manifest import get_or_create_manifest
 from src.losses.balancer import GradNormBalancer
 from src.losses.topographic import Global_Topographic_Loss, Local_WS_Loss
-from src.mlflow_utils import find_finished_run, log_git_info, log_resolved_config, model_tags, setup_mlflow
-from src.networks.registry import build_model, to_device, unwrap
-from src.training.checkpoint import save_checkpoint
+from src.mlflow_utils import (
+    log_resolved_config,
+    model_tags,
+    setup_mlflow,
+    check_existing_model,
+    resolve_seed,
+    log_manifest_lineage,
+)
+from src.networks.registry import build_model, unwrap
 from src.training.train_ce import train_one_epoch, validate
 
 
-def _resolve_seed(cfg: DictConfig) -> int:
-    if cfg.seed is not None:
-        return int(cfg.seed)
-    return 100 + int(cfg.trial)
-
-
-def _build_optimizer(cfg: DictConfig, model):
-    name = cfg.training.optimizer.lower()
+def _build_optimiser(cfg: DictConfig, model):
+    name = cfg.training.optimiser.lower()
     lr = cfg.training.learning_rate
     wd = cfg.training.weight_decay
     if name == "adam":
@@ -51,11 +51,13 @@ def _build_optimizer(cfg: DictConfig, model):
         return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
     elif name == "sgd":
         return torch.optim.SGD(
-            model.parameters(), lr=lr, weight_decay=wd,
+            model.parameters(),
+            lr=lr,
+            weight_decay=wd,
             momentum=cfg.training.momentum,
         )
     else:
-        raise ValueError(f"Unknown optimizer: {name}")
+        raise ValueError(f"Unknown optimiser: {name}")
 
 
 def _build_topo_loss(cfg: DictConfig, emb_dim: int):
@@ -68,12 +70,14 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
         raise ValueError(f"Unknown topography_type: {topo_type}")
 
 
+
+
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    cfg = apply_schema_defaults(cfg)
+    # cfg = apply_schema_defaults(cfg)
 
     # ── Seed ──
-    seed = _resolve_seed(cfg)
+    seed = resolve_seed(cfg)
     cfg.seed = seed
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -84,9 +88,9 @@ def main(cfg: DictConfig) -> None:
     hash_val = cfg_hash(cfg)
     setup_mlflow(cfg)
 
-    existing = find_finished_run(cfg.mlflow.experiment_name, hash_val, kind="model")
-    if existing is not None:
-        print(f"Run with cfg_hash={hash_val} already FINISHED (run_id={existing.info.run_id}). Skipping.")
+    exists = check_existing_model(cfg.mlflow.experiment_name, hash_val, kind="model")
+    if exists:
+        print(f"Run with cfg_hash={hash_val} already FINISHED. Skipping.")
         return
 
     # ── Data ──
@@ -112,7 +116,11 @@ def main(cfg: DictConfig) -> None:
     # ── Model ──
     model = build_model(cfg, ret_emb=True)
     model = model.to(device)
-    if cfg.runtime.data_parallel and device.type == "cuda" and torch.cuda.device_count() > 1:
+    if (
+        cfg.runtime.data_parallel
+        and device.type == "cuda"
+        and torch.cuda.device_count() > 1
+    ):
         model = torch.nn.DataParallel(model)
 
     # ── Losses ──
@@ -129,69 +137,123 @@ def main(cfg: DictConfig) -> None:
         lambda_max=cfg.training.balancer.lambda_max,
     )
 
-    # ── Optimizer ──
-    optimizer = _build_optimizer(cfg, model)
+    # ── Optimiser ──
+    optimiser = _build_optimiser(cfg, model)
 
     # ── AMP ──
     use_amp = bool(cfg.training.amp)
     scaler = GradScaler("cuda", enabled=use_amp) if use_amp else None
 
-    # ── Model save directory ──
+    # ── Setup Tracking Variables ──
     rho_str = str(float(cfg.loss.rho))
     topo_str = cfg.loss.topology
     trial_str = f"trial_{int(cfg.trial):02d}"
-    model_dir = str(get_models_dir(cfg) / f"CE_{topo_str}_rho{rho_str}" / trial_str)
-    os.makedirs(model_dir, exist_ok=True)
-
     save_freq = max(1, int(cfg.training.save_freq_epochs))
 
     # ── MLflow run ──
     tags = model_tags(cfg, hash_val, dataset_manifest_hash=manifest_hash)
 
-    with mlflow.start_run(run_name=f"CE_{topo_str}_rho{rho_str}/{trial_str}", tags=tags) as run:
+    with mlflow.start_run(
+        run_name=f"CE_{topo_str}_rho{rho_str}/{trial_str}", tags=tags
+    ) as run:
         # Log experiment-semantic params
-        mlflow.log_params({
-            "schema_version": cfg.schema_version,
-            "rho": float(cfg.loss.rho),
-            "trial": cfg.trial,
-            "seed": seed,
-            "epochs": cfg.training.epochs,
-            "batch_size": cfg.training.batch_size,
-            "learning_rate": cfg.training.learning_rate,
-            "optimizer": cfg.training.optimizer,
-            "weight_decay": cfg.training.weight_decay,
-            "momentum": cfg.training.momentum,
-            "scheduler": cfg.training.scheduler,
-            "amp": cfg.training.amp,
-            "topography_type": cfg.loss.topography_type,
-            "topology": cfg.loss.topology,
-            "neighborhood_type": cfg.loss.neighborhood.type,
-            "neighborhood_radius": cfg.loss.neighborhood.radius,
-            "embedding_dim": cfg.model.embedding_dim,
-            "p_dropout": cfg.model.p_dropout,
-            "head_bias": cfg.model.head.bias,
-            "model_arch": cfg.model.arch,
-            "dataset": cfg.dataset.name,
-            "transforms_preset": cfg.dataset.transforms.preset,
-            "split_strategy": cfg.dataset.split.strategy,
-            "split_seed": cfg.dataset.split.seed,
-            "val_per_class": cfg.dataset.split.val_per_class,
-            "dataset_manifest_hash": manifest_hash,
-        })
-        log_git_info()
-
-        # Log resolved config as artifact
+        mlflow.log_params(
+            {
+                "schema_version": cfg.schema_version,
+                "rho": float(cfg.loss.rho),
+                "trial": cfg.trial,
+                "seed": seed,
+                "epochs": cfg.training.epochs,
+                "batch_size": cfg.training.batch_size,
+                "learning_rate": cfg.training.learning_rate,
+                "optimiser": cfg.training.optimiser,
+                "weight_decay": cfg.training.weight_decay,
+                "momentum": cfg.training.momentum,
+                "scheduler": cfg.training.scheduler,
+                "amp": cfg.training.amp,
+                "topography_type": cfg.loss.topography_type,
+                "topology": cfg.loss.topology,
+                "neighbourhood_type": cfg.loss.neighbourhood.type,
+                "neighbourhood_radius": cfg.loss.neighbourhood.radius,
+                "embedding_dim": cfg.model.embedding_dim,
+                "p_dropout": cfg.model.p_dropout,
+                "head_bias": cfg.model.head.bias,
+                "model_arch": cfg.model.arch,
+                "dataset": cfg.dataset.name,
+                "transforms_preset": cfg.dataset.transforms.preset,
+                "split_strategy": cfg.dataset.split.strategy,
+                "split_seed": cfg.dataset.split.seed,
+                "val_per_class": cfg.dataset.split.val_per_class,
+                "dataset_manifest_hash": manifest_hash,
+            }
+        )
         log_resolved_config(cfg)
 
+        # ── Log Dataset Splits to MLflow ──
+        # import pandas as pd # This import is no longer needed
+
+        def log_split_to_mlflow(split_name, ctx):
+            split_manifest = get_or_create_manifest(
+                dataset_name=cfg.dataset.name,
+                split=split_name,
+                data_root=cfg.runtime.data_root,
+                artifacts_root=str(get_cache_dir(cfg)),
+            )
+            # ── Log the dataset manifest to MLflow for lineage ──
+            log_manifest_lineage(split_manifest, split_name, cfg.dataset.name, context=ctx)
+
+        log_split_to_mlflow("train", "training")
+        log_split_to_mlflow("val", "validation")
+        log_split_to_mlflow("test", "testing")
+
+        # ── Create Signature and Input Example (Before Loop) ──
+        # Grab one batch from the train_loader
+        sig_inputs, _ = next(iter(train_loader))
+        sig_inputs = sig_inputs.to(device)
+
+        # Isolate a single image/sample for the example
+        input_sample = sig_inputs[:1]
+
+        # Get the model output for this sample
+        unwrap(model).eval()
+        with torch.no_grad():
+            output_sample = unwrap(model)(input_sample)
+
+        # Convert PyTorch tensors to NumPy arrays for MLflow
+        input_example_np = input_sample.cpu().numpy()
+
+        # The model is built with ret_emb=True, so it returns (embeddings, logits)
+        emb_sample, logit_sample = output_sample
+        output_example_np = {
+            "embeddings": emb_sample.cpu().numpy(),
+            "logits": logit_sample.cpu().numpy(),
+        }
+
+        # Infer the signature once
+        signature = infer_signature(input_example_np, output_example_np)
+
+        # Set the model back to train mode before the loop begins
+        unwrap(model).train()
+
         best_val_acc = 0.0
+        best_epoch = 0
         epochs_no_improve = 0
         patience = cfg.training.early_stopping_patience
+
+        # Initialize memory for the best model weights
+        best_model_state = None
 
         for epoch in range(1, cfg.training.epochs + 1):
             prev_best = best_val_acc
 
             metrics = train_one_epoch(
-                train_loader, model, task_loss_fn, topo_loss_fn, optimizer, epoch, balancer,
+                train_loader,
+                model,
+                task_loss_fn,
+                topo_loss_fn,
+                optimiser,
+                epoch,
+                balancer,
                 topography_type=cfg.loss.topography_type,
                 print_freq=cfg.runtime.print_freq,
                 use_amp=use_amp,
@@ -199,46 +261,41 @@ def main(cfg: DictConfig) -> None:
             )
 
             val_loss, val_acc = validate(
-                val_loader, model, task_loss_fn,
+                val_loader,
+                model,
+                task_loss_fn,
                 print_freq=cfg.runtime.print_freq,
             )
 
             # ── Log metrics to MLflow ──
-            mlflow.log_metrics({
-                "train_total_loss": metrics["total_loss"],
-                "train_task_loss": metrics["task_loss"],
-                "train_topo_loss": metrics["topo_loss"],
-                "lambda_hat": metrics["lambda_hat"],
-                "train_acc": metrics["train_acc"],
-                "val_loss": val_loss,
-                "val_acc": val_acc,
-            }, step=epoch)
+            mlflow.log_metrics(
+                {
+                    "train_total_loss": metrics["total_loss"],
+                    "train_task_loss": metrics["task_loss"],
+                    "train_topo_loss": metrics["topo_loss"],
+                    "lambda_hat": metrics["lambda_hat"],
+                    "train_acc": metrics["train_acc"],
+                    "val_loss": val_loss,
+                    "val_acc": val_acc,
+                },
+                step=epoch,
+            )
 
             # ── Periodic checkpoint ──
             if epoch % save_freq == 0:
-                state = {
-                    "stage": "e2e",
-                    "epoch": epoch,
-                    "state_dict": unwrap(model).state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "metrics": {**metrics, "val_loss": val_loss, "val_acc": val_acc},
-                }
-                ckpt_path = os.path.join(model_dir, f"e2e_epoch{epoch:04d}.pth")
-                save_checkpoint(ckpt_path, state)
+                checkpoint_name = f"checkpoint_epoch{epoch:04d}"
+                mlflow.pytorch.log_model(
+                    unwrap(model),
+                    name=checkpoint_name,
+                    signature=signature,
+                )
 
             # ── Best checkpoint ──
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
-                best_state = {
-                    "stage": "e2e",
-                    "epoch": epoch,
-                    "state_dict": unwrap(model).state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "args": OmegaConf.to_container(cfg, resolve=True),
-                    "metrics": {**metrics, "val_loss": val_loss, "val_acc": val_acc},
-                }
-                best_path = os.path.join(model_dir, "e2e_best.pth")
-                save_checkpoint(best_path, best_state)
+                best_epoch = epoch
+                # Track best state IN MEMORY, avoid MLflow overwriting errors
+                best_model_state = copy.deepcopy(unwrap(model).state_dict())
 
             # ── Early stopping ──
             if best_val_acc > prev_best:
@@ -250,21 +307,28 @@ def main(cfg: DictConfig) -> None:
                     break
 
         # ── Final test evaluation ──
-        best_path = os.path.join(model_dir, "e2e_best.pth")
-        if os.path.isfile(best_path):
-            ckpt = torch.load(best_path, map_location=device, weights_only=False)
-            unwrap(model).load_state_dict(ckpt["state_dict"])
+        # Load the best weights from memory back into the model
+        if best_model_state is not None:
+            unwrap(model).load_state_dict(best_model_state)
+
         test_loss, test_acc = validate(
-            test_loader, model, task_loss_fn,
+            test_loader,
+            model,
+            task_loss_fn,
             print_freq=cfg.runtime.print_freq,
         )
+
+        # Log final metrics
         mlflow.log_metric("test_accuracy", test_acc)
         mlflow.log_metric("test_loss", test_loss)
         mlflow.log_metric("best_val_acc", best_val_acc)
 
-        # ── Log checkpoint artifact ──
-        if os.path.isfile(best_path):
-            mlflow.log_artifact(best_path, artifact_path="checkpoint")
+        # ── Log the finalized best model artifact ONCE ──
+        mlflow.pytorch.log_model(
+            unwrap(model),
+            name="e2e_best",
+            signature=signature,
+        )
 
         print(f"Done. test_acc={test_acc:.4f}, run_id={run.info.run_id}")
 

@@ -8,15 +8,14 @@ Inference runner + caching layer.
 
 Artifacts per run (logged to MLflow and saved locally):
   - logits.pt, preds.pt, probs.pt, embeddings.pt
-  - labels.pt, example_ids.pt, original_indices.pt
+  - labels.pt, hashes.pt, original_indices.pt
   - accuracy is logged as an MLflow *metric*, not an artifact
 """
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
 import torch.nn as nn
@@ -90,7 +89,7 @@ def run_combined_model_inference(
 
 # ───────────── artifact I/O ─────────────
 
-ARTIFACT_KEYS = ["logits", "preds", "probs", "embeddings", "labels", "example_ids", "original_indices"]
+ARTIFACT_KEYS = ["logits", "preds", "probs", "embeddings", "labels", "hashes", "original_indices"]
 
 
 def save_inference_artifacts(
@@ -153,7 +152,7 @@ def get_or_run_inference(
     If cached artifacts exist in ``artifact_dir`` and ``force=False``, load and return.
     Otherwise, run inference using ``model`` + ``loader`` and save.
 
-    ``manifest_data`` should contain ``example_ids`` and ``original_indices`` that
+    ``manifest_data`` should contain ``hashes`` and ``original_indices`` that
     will be included in the saved artifacts.
     """
     backend = get_backend(backend_name)
@@ -174,7 +173,7 @@ def get_or_run_inference(
 
     # Attach manifest alignment data if provided
     if manifest_data is not None:
-        results["example_ids"] = manifest_data.get("example_ids")
+        results["hashes"] = manifest_data.get("hashes")
         results["original_indices"] = manifest_data.get("original_indices")
         # labels from manifest take precedence (ground truth)
         if "labels" in manifest_data:

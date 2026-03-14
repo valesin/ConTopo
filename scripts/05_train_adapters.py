@@ -1,356 +1,177 @@
 #!/usr/bin/env python3
 """
-05_train_adapters.py — Hydra + MLflow meta-learner adapter training.
+05_train_adapters.py — Meta-learner / adapter training over ensemble components.
 
-For each ensemble, trains the meta-learner specified by ``cfg.adapter.*``
-using a THREE-WAY SPLIT (train/val/holdout) of the evaluation data.
-Logs exact example_id membership for each split partition.
-
-Meta-learner identity is now driven by Hydra adapter config:
-  - ``adapter.meta_type``:        meta_lr | meta_mlp
-  - ``adapter.feature_type``:     logits | embeddings | embeddings+profiles
-  - ``adapter.similarity_metric``: cosine | l2 (used with embeddings/profiles)
-  - ``adapter.hidden_dim``:       MLP hidden dim (meta_mlp only)
-
-Anchor selection is configured via ``pipeline.anchors``.
-
-Usage:
-    # Single run:
-    python scripts/05_train_adapters.py
-
-    # Sweep meta-learner types and feature types:
-    python scripts/05_train_adapters.py --multirun \\
-        adapter.meta_type=meta_lr,meta_mlp \\
-        adapter.feature_type=logits,embeddings,embeddings+profiles
-
-    # Also sweep bias:
-    python scripts/05_train_adapters.py --multirun \\
-        adapter.meta_type=meta_lr,meta_mlp \\
-        adapter.feature_type=logits,embeddings \\
-        adapter.bias=true,false
+This script operates on FINISHED component runs dynamically grouped.
+It learns a meta-combination (e.g., Logistic Regression or MLP) over the
+frozen representations (logits or embeddings). Topographic profiles can be
+appended as additional features.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
+import numpy as np
+import pandas as pd
 
 import hydra
 import mlflow
-import numpy as np
+from mlflow.models.signature import infer_signature
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader, TensorDataset
 
-from src.ensemble.selector import resolve_components
-from src.data.cache import get_backend
-from src.data.anchors import AnchorSpec, get_or_create_anchors, anchor_spec_hash
 from src.data.manifest import get_or_create_manifest
+from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
-from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter
-from src.profiling.category_similarity import (
-    compute_similarity_profile,
-    similarity_profile_hash,
-)
 from src.mlflow_utils import (
-    behavior_tags,
-    category_similarity_profile_tags,
+    behaviour_tags,
     component_set_hash,
-    behavior_input_hash,
-    find_finished_behavior_run,
-    find_finished_similarity_profile_run,
-    log_git_info,
+    find_finished_metalearner_run,
+    behaviour_input_hash,
     log_resolved_config,
     setup_mlflow,
+    get_inference_run,
+    get_profile_run,
+    load_mlflow_artifact,
+    log_manifest_lineage,
+    safe_to_numpy_float64,
 )
 
-
-def _resolve_anchor_selection(cfg) -> AnchorSpec:
-    """Build AnchorSpec from pipeline config — no hidden defaults."""
-    sel = cfg.pipeline.anchors
-    # num_classes comes from the dataset config
-    return AnchorSpec(
-        source_split=sel.source_split,
-        per_class=sel.per_class,
-        strategy=sel.strategy,
-        order_by=sel.order_by,
-        num_classes=cfg.dataset.num_classes,
-    )
+# ─── MODELS ───
 
 
-def _load_features_for_runs(run_ids, artifacts_root, split="test", feature_key="logits"):
-    """Load a single feature type (logits or embeddings) for all runs → [N, M*D].
+class MetaLR(nn.Module):
+    def __init__(self, input_dim: int, num_classes: int, bias: bool = True):
+        super().__init__()
+        self.linear = nn.Linear(input_dim, num_classes, bias=bias)
 
-    HARD FAIL on missing artifacts.
-    """
-    backend = get_backend("pt")
-    features_list = []
-    labels = None
-
-    for run_id in run_ids:
-        artifact_dir = os.path.join(artifacts_root, "inference", run_id, split)
-        feat_path = os.path.join(artifact_dir, f"{feature_key}{backend.extension}")
-
-        if not backend.exists(feat_path):
-            raise FileNotFoundError(
-                f"HARD FAIL: {feature_key} not found at {feat_path}. "
-                f"Run scripts/02_cache_inference.py first."
-            )
-        features_list.append(backend.load(feat_path))
-
-        if labels is None:
-            labels_path = os.path.join(artifact_dir, f"labels{backend.extension}")
-            if backend.exists(labels_path):
-                labels = backend.load(labels_path)
-
-    if labels is None:
-        raise FileNotFoundError("HARD FAIL: could not find labels for any component run.")
-
-    concat = torch.cat(features_list, dim=1)  # [N, M*D]
-    return concat, labels
+    def forward(self, x):
+        return self.linear(x)
 
 
-def _load_similarity_profile_or_fail(
-    *,
-    run_id: str,
-    anchors: dict,
-    similarity_metric: str,
-    split: str,
-    artifacts_root: str,
-    experiment_name: str,
-) -> torch.Tensor:
-    """Load pre-computed similarity profile or fail.
-    
-    Similarity profiles should be computed by pipeline step 03 ahead of time based on `pipeline.profiles.metrics`.
-    If the adapter requests a metric that was not pre-computed, we hard fail.
-
-    Returns:
-        [N, K] profile tensor where K = num_anchors.
-    """
-    a_spec_hash = anchors["spec_hash"]
-    prof_hash = similarity_profile_hash(run_id, a_spec_hash, similarity_metric, split)
-
-    # Local cache path
-    profile_dir = os.path.join(
-        artifacts_root, "similarity_profiles", run_id, a_spec_hash, similarity_metric, split
-    )
-    profile_path = os.path.join(profile_dir, "profiles.pt")
-
-    # 1. Check local cache first
-    if os.path.isfile(profile_path):
-        return torch.load(profile_path, weights_only=True)
-
-    # 2. Check MLflow for existing run
-    existing_run = find_finished_similarity_profile_run(
-        experiment_name, run_id, a_spec_hash, similarity_metric, split
-    )
-    if existing_run is not None:
-        # Try to download artifact from MLflow
-        try:
-            client = mlflow.tracking.MlflowClient()
-            local = client.download_artifacts(
-                existing_run.info.run_id, "profiles/profiles.pt"
-            )
-            profiles = torch.load(local, weights_only=True)
-            # Cache locally for future use
-            os.makedirs(profile_dir, exist_ok=True)
-            torch.save(profiles, profile_path)
-            return profiles
-        except Exception as e:
-            raise RuntimeError(f"Failed to download existing profile artifact: {e}")
-
-    # 3. Fail if not found
-    raise FileNotFoundError(
-        f"HARD FAIL: Pre-computed similarity profiles not found for run {run_id}, "
-        f"metric='{similarity_metric}'.\n"
-        f"Please ensure `pipeline.profiles.metrics` includes '{similarity_metric}' "
-        f"and run scripts/03_compute_profiles.py first."
-    )
-
-
-def _assemble_features(
-    *,
-    run_ids: list,
-    artifacts_root: str,
-    split: str,
-    feature_type: str,
-    similarity_metric: str,
-    anchors: dict,
-    experiment_name: str,
-) -> tuple:
-    """Assemble features for a meta-learner based on feature_type.
-
-    Feature types:
-      - ``logits``:             stacked logits     → [N, M*C]
-      - ``embeddings``:         stacked embeddings → [N, M*D]
-      - ``embeddings+profiles``: stacked embeddings concatenated with
-                                 stacked similarity profiles → [N, M*(D+K)]
-
-    The concatenation order for embeddings+profiles per model is:
-        [embedding_i | profile_i]    (embedding first, profile second)
-    Then stacked across models:
-        [emb_0|prof_0 | emb_1|prof_1 | ... | emb_{M-1}|prof_{M-1}]
-
-    Returns:
-        (features_tensor, labels_tensor)
-    """
-    if feature_type == "logits":
-        return _load_features_for_runs(run_ids, artifacts_root, split, "logits")
-
-    elif feature_type == "embeddings":
-        return _load_features_for_runs(run_ids, artifacts_root, split, "embeddings")
-
-    elif feature_type == "embeddings+profiles":
-        backend = get_backend("pt")
-        per_model_features = []
-        labels = None
-
-        for run_id in run_ids:
-            artifact_dir = os.path.join(artifacts_root, "inference", run_id, split)
-
-            # Load embeddings
-            emb_path = os.path.join(artifact_dir, f"embeddings{backend.extension}")
-            if not backend.exists(emb_path):
-                raise FileNotFoundError(
-                    f"HARD FAIL: embeddings not found at {emb_path}. "
-                    f"Run scripts/02_cache_inference.py first."
-                )
-            emb = backend.load(emb_path)  # [N, D]
-
-            # Get or compute similarity profiles (demand-driven)
-            profiles = _load_similarity_profile_or_fail(
-                run_id=run_id,
-                anchors=anchors,
-                similarity_metric=similarity_metric,
-                split=split,
-                artifacts_root=artifacts_root,
-                experiment_name=experiment_name,
-            )  # [N, K]
-
-            # Concatenate: [embedding | profile] per model
-            combined = torch.cat([emb, profiles], dim=1)  # [N, D+K]
-            per_model_features.append(combined)
-
-            if labels is None:
-                labels_path = os.path.join(artifact_dir, f"labels{backend.extension}")
-                if backend.exists(labels_path):
-                    labels = backend.load(labels_path)
-
-        if labels is None:
-            raise FileNotFoundError("HARD FAIL: could not find labels for any component run.")
-
-        # Stack across models: [N, M*(D+K)]
-        stacked = torch.cat(per_model_features, dim=1)
-        return stacked, labels
-
-    else:
-        raise ValueError(
-            f"Unknown feature_type '{feature_type}'. "
-            f"Supported: logits, embeddings, embeddings+profiles"
+class MetaMLP(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        num_classes: int,
+        dropout: float = 0.3,
+        bias: bool = True,
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim, bias=bias),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_dim, num_classes, bias=bias),
         )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+# ─── LOGIC ───
 
 
 def _three_way_split(N: int, fractions: dict, seed: int):
-    """
-    Return (train_idx, val_idx, holdout_idx) as numpy arrays.
-    fractions: {"train": 0.6, "val": 0.2, "holdout": 0.2}
-    """
-    rng = np.random.RandomState(seed)
-    perm = rng.permutation(N)
-    n_train = int(N * fractions["train"])
-    n_val = int(N * fractions["val"])
-    # remainder goes to holdout
-    train_idx = perm[:n_train]
-    val_idx = perm[n_train : n_train + n_val]
-    holdout_idx = perm[n_train + n_val :]
+    """Deterministically split N indices into train/val/holdout."""
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(N)
+
+    f_train = fractions.get("train", 0.6)
+    f_val = fractions.get("val", 0.2)
+
+    n_train = int(N * f_train)
+    n_val = int(N * f_val)
+
+    train_idx = indices[:n_train]
+    val_idx = indices[n_train : n_train + n_val]
+    holdout_idx = indices[n_train + n_val :]
+
     return train_idx, val_idx, holdout_idx
-
-
-def _log_split_membership(manifest, train_idx, val_idx, holdout_idx):
-    """Log exact example_id membership for each partition as MLflow artifact."""
-    membership = {
-        "train": {
-            "count": len(train_idx),
-            "example_ids": [manifest.example_ids[i] for i in sorted(train_idx)],
-        },
-        "val": {
-            "count": len(val_idx),
-            "example_ids": [manifest.example_ids[i] for i in sorted(val_idx)],
-        },
-        "holdout": {
-            "count": len(holdout_idx),
-            "example_ids": [manifest.example_ids[i] for i in sorted(holdout_idx)],
-        },
-    }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(membership, f, indent=2)
-        f.flush()
-        mlflow.log_artifact(f.name, artifact_path="meta_split")
-        os.unlink(f.name)
-    return membership
 
 
 def _train_adapter(
     model: nn.Module,
-    X_train: torch.Tensor,
-    y_train: torch.Tensor,
-    X_val: torch.Tensor,
-    y_val: torch.Tensor,
-    *,
-    epochs: int = 50,
-    lr: float = 0.001,
-    batch_size: int = 256,
-):
-    """Train adapter on explicit train/val split. Return (best_val_acc, best_state, history)."""
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    loss_fn = nn.CrossEntropyLoss()
-    best_acc = 0.0
-    best_state = None
-    n_train = X_train.size(0)
+    device: torch.device,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    epochs: int,
+    lr: float,
+) -> tuple[nn.Module, list[dict]]:
+    model = model.to(device)
+    optimiser = torch.optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss()
 
-    model.train()
-    for ep in range(epochs):
-        # Shuffle each epoch
-        perm = torch.randperm(n_train)
-        for i in range(0, n_train, batch_size):
-            idx = perm[i : i + batch_size]
-            xb = X_train[idx]
-            yb = y_train[idx]
-            out = model(xb)
-            loss = loss_fn(out, yb)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    history = []
 
-        # Validation
-        model.eval()
-        with torch.no_grad():
-            val_out = model(X_val)
-            val_preds = val_out.argmax(dim=1)
-            val_acc = float((val_preds == y_val).float().mean().item())
+    for epoch in range(epochs):
         model.train()
+        train_loss, train_correct, train_total = 0.0, 0, 0
+        for X, y in train_loader:
+            X, y = X.to(device), y.to(device)
+            optimiser.zero_grad()
+            out = model(X)
+            loss = criterion(out, y)
+            loss.backward()
+            optimiser.step()
 
-        if val_acc > best_acc:
-            best_acc = val_acc
-            best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            train_loss += loss.item() * X.size(0)
+            train_correct += (torch.argmax(out, dim=1) == y).sum().item()
+            train_total += X.size(0)
 
-    return best_acc, best_state
+        model.eval()
+        val_loss, val_correct, val_total = 0.0, 0, 0
+        with torch.no_grad():
+            for X, y in val_loader:
+                X, y = X.to(device), y.to(device)
+                out = model(X)
+                loss = criterion(out, y)
+                val_loss += loss.item() * X.size(0)
+                val_correct += (torch.argmax(out, dim=1) == y).sum().item()
+                val_total += X.size(0)
+
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss / max(train_total, 1),
+                "train_acc": train_correct / max(train_total, 1),
+                "val_loss": val_loss / max(val_total, 1),
+                "val_acc": val_correct / max(val_total, 1),
+            }
+        )
+    return model, history
 
 
-def _evaluate_holdout(model: nn.Module, X_holdout: torch.Tensor, y_holdout: torch.Tensor) -> float:
-    """Evaluate on holdout set. Returns accuracy."""
+def _evaluate_holdout(
+    model, device, loader, criterion
+) -> tuple[float, float, torch.Tensor]:
     model.eval()
+    holdout_loss, holdout_corr, holdout_tot = 0.0, 0, 0
+    all_probs = []
+
     with torch.no_grad():
-        out = model(X_holdout)
-        preds = out.argmax(dim=1)
-        acc = float((preds == y_holdout).float().mean().item())
-    return acc
+        for X, y in loader:
+            X, y = X.to(device), y.to(device)
+            out = model(X)
+            probs = torch.softmax(out, dim=1)
+            all_probs.append(probs.cpu())
+            loss = criterion(out, y)
+            holdout_loss += loss.item() * X.size(0)
+            holdout_corr += (torch.argmax(out, dim=1) == y).sum().item()
+            holdout_tot += X.size(0)
+
+    mean_loss = holdout_loss / max(holdout_tot, 1)
+    acc = holdout_corr / max(holdout_tot, 1)
+    return mean_loss, acc, torch.cat(all_probs, dim=0)
+
+
+# ─── MAIN ───
 
 
 def main():
-    """Entry point — redirects to Hydra main."""
     _main()
 
 
@@ -360,248 +181,289 @@ def _main(cfg: DictConfig) -> None:
 
     split = cfg.pipeline.split
     cache_dir = get_cache_dir(cfg)
-    artifacts_root = str(cache_dir)  # legacy compat for function params
 
-    # Seed for reproducibility
     init_seed = cfg.adapter.init_seed
     torch.manual_seed(init_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(init_seed)
 
-    # Adapter training hyperparams from Hydra config
     adapter_epochs = cfg.adapter.epochs
     adapter_lr = cfg.adapter.learning_rate
     adapter_batch_size = cfg.adapter.batch_size
     adapter_bias = cfg.adapter.bias
     adapter_dropout = cfg.adapter.dropout
 
-    # Meta-learner identity from Hydra config (sweepable via --multirun)
     meta_type = cfg.adapter.meta_type
     feature_type = cfg.adapter.feature_type
     similarity_metric = cfg.adapter.similarity_metric
     hidden_dim = cfg.adapter.hidden_dim
-
-    # Meta-split config from adapter group
     meta_split_cfg = cfg.adapter.meta_split
+    use_profiles = "profiles" in feature_type
 
-    # Dataset manifest for example_id membership logging
+    # 1. Dataset Manifest Lock
     manifest = get_or_create_manifest(
         dataset_name=cfg.dataset.name,
         split=split,
         data_root=cfg.runtime.data_root,
-        artifacts_root=artifacts_root,
+        artifacts_root=str(cache_dir),
     )
-    manifest_hash = manifest.manifest_hash
+    labels_tensor = manifest.labels
+    total_examples = len(labels_tensor)
 
-    # Device — defaults to cuda via conf/runtime/default.yaml
-    dev_name = cfg.runtime.device
-    if dev_name == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device(dev_name)
+    # 2. Discover Ensemble Components from MLflow
+    groups = discover_ensembles(cfg.mlflow.experiment_name)
+    if not groups:
+        print("No dynamic ensembles discovered. Exiting.")
+        return
 
-    # Ensemble definitions from Hydra (no yaml.safe_load)
-    ensembles = OmegaConf.to_container(cfg.ensemble.ensembles, resolve=True)
+    client = mlflow.tracking.MlflowClient()
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        and getattr(cfg.pipeline, "device", "cuda") != "cpu"
+        else "cpu"
+    )
 
-    # Anchor selection (from adapter config — no hidden defaults)
-    anchor_spec = _resolve_anchor_selection(cfg)
-
-    print(f"\nMeta-learner config: type={meta_type} feature_type={feature_type} "
-          f"similarity_metric={similarity_metric} bias={adapter_bias}")
-
-    for ens_def in ensembles:
-        ens_name = ens_def["name"]
-        selector = ens_def.get("selector", {})
-
-        print(f"\n{'='*60}")
-        print(f"Meta-learner training for ensemble: {ens_name}")
-
-        # Resolve components — HARD FAIL
-        try:
-            run_ids = resolve_components(selector, cfg.mlflow.experiment_name)
-        except ValueError as e:
-            raise RuntimeError(f"HARD FAIL resolving ensemble '{ens_name}': {e}")
-
-        if not run_ids:
-            raise RuntimeError(f"HARD FAIL: no component runs for ensemble '{ens_name}'")
-
-        print(f"  Components: {len(run_ids)} runs")
-
-        # ── Anchor setup ──
-        anchors = get_or_create_anchors(
-            manifest,
-            spec=anchor_spec,
-            artifacts_root=artifacts_root,
-        )
-        a_spec_hash = anchors["spec_hash"]
-
-        # ── Assemble features (demand-driven profiles if needed) ──
-        features, labels = _assemble_features(
-            run_ids=run_ids,
-            artifacts_root=artifacts_root,
-            split=split,
-            feature_type=feature_type,
-            similarity_metric=similarity_metric,
-            anchors=anchors,
-            experiment_name=cfg.mlflow.experiment_name,
-        )
-        features = features.to(device)
-        labels = labels.to(device)
-        in_dim = features.size(1)
-        num_classes = int(labels.max().item()) + 1
-
-        # Three-way split
-        train_idx, val_idx, holdout_idx = _three_way_split(
-            features.size(0),
-            {
-                "train": float(meta_split_cfg.fractions.train),
-                "val": float(meta_split_cfg.fractions.val),
-                "holdout": float(meta_split_cfg.fractions.holdout),
-            },
-            int(meta_split_cfg.seed),
+    for ens_name, run_ids in groups.items():
+        print(
+            f"\n{'=' * 60}\nAdapters: {ens_name} | Meta: {meta_type} | Feat: {feature_type}"
         )
 
-        X_train, y_train = features[train_idx], labels[train_idx]
-        X_val, y_val = features[val_idx], labels[val_idx]
-        X_holdout, y_holdout = features[holdout_idx], labels[holdout_idx]
-
-        # Build adapter
-        if meta_type == "meta_lr":
-            adapter = LinearAdapter(
-                emb_dim=in_dim, num_classes=num_classes, bias=adapter_bias
-            ).to(device)
-        elif meta_type == "meta_mlp":
-            adapter = TwoLayerMLPAdapter(
-                in_dim=in_dim, num_classes=num_classes,
-                hidden_dim=hidden_dim, dropout=adapter_dropout, bias=adapter_bias,
-            ).to(device)
-        else:
-            print(f"  WARN: unknown meta head arch '{meta_type}', skipping.")
-            continue
-
-        # Hash computation — includes meta-learner identity
         cs_hash = component_set_hash(run_ids)
-        meta_split_spec = json.dumps({
-            "seed": int(meta_split_cfg.seed),
-            "strategy": str(meta_split_cfg.strategy),
-            "fractions": {
-                "train": float(meta_split_cfg.fractions.train),
-                "val": float(meta_split_cfg.fractions.val),
-                "holdout": float(meta_split_cfg.fractions.holdout),
-            },
-        }, sort_keys=True)
-        bi_hash = behavior_input_hash(
-            cs_hash,
+        adapter_cfg_dict = OmegaConf.to_container(cfg.adapter, resolve=True)
+        # Lock identity
+        bi_hash = behaviour_input_hash(
+            component_set_hash_val=cs_hash,
+            dataset_manifest_hash=manifest.manifest_hash,
             split=split,
             feature_type=feature_type,
-            anchor_spec=a_spec_hash,
-            meta_split_spec=meta_split_spec,
-            similarity_metric=similarity_metric,
-            init_seed=str(init_seed),
+            similarity_metric=similarity_metric if use_profiles else "",
+            init_seed=str(init_seed)
+            + str(meta_split_cfg.seed)
+            + str(meta_split_cfg.fractions),
         )
 
-        # Idempotency check
-        existing = find_finished_behavior_run(
-            cfg.mlflow.experiment_name, bi_hash, behavior=meta_type
+        existing = find_finished_metalearner_run(
+            cfg.mlflow.experiment_name, bi_hash, meta_type=meta_type
         )
-        if existing is not None:
-            print(f"  {meta_type}: already exists (run_id={existing.info.run_id}). Skipping.")
+        if existing is not None and not cfg.pipeline.force:
+            print(
+                f"  SKIP: {meta_type} adapter already trained (run_id={existing.info.run_id})"
+            )
             continue
 
-        # Train
-        best_val_acc, best_state = _train_adapter(
-            adapter, X_train, y_train, X_val, y_val,
-            epochs=adapter_epochs,
-            lr=adapter_lr,
-            batch_size=adapter_batch_size,
-        )
+        try:
+            # 3. Secure Feature Extraction
+            base_tensors = []
+            profile_tensors = []
 
-        # Evaluate on holdout
-        if best_state is not None:
-            adapter.load_state_dict(best_state)
-        holdout_acc = _evaluate_holdout(adapter, X_holdout, y_holdout)
+            for run_id in run_ids:
+                # Get inference base
+                inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
+                if inf_runs.empty:
+                    raise RuntimeError(f"Missing '{split}' inference for {run_id}")
+                inf_run_id = inf_runs.iloc[0].run_id
 
-        # Tags
-        name_parts = [f"adapter_{ens_name}_{meta_type}"]
-        if meta_type == "meta_mlp":
-            name_parts.append(f"h{hidden_dim}")
+                # Optional Profile Extraction
+                inf_prof_node = None
+                if use_profiles:
+                    prof_runs = get_profile_run(cfg.mlflow.experiment_name, run_id, similarity_metric, split)
+                    if prof_runs.empty:
+                        raise RuntimeError(f"Missing '{similarity_metric}' profile for {run_id}")
 
-        tags = behavior_tags(
-            behavior=meta_type,
-            component_run_ids=run_ids,
-            behavior_input_hash=bi_hash,
-            component_set_hash=cs_hash,
-            extra={
-                "ensemble_name": ens_name,
-                "split": split,
-                "feature_type": feature_type,
-                "similarity_metric": similarity_metric,
-                "kind": "behavior",
-                "meta_type": meta_type,
-                "dataset_manifest_hash": manifest_hash,
-                "anchor_spec_hash": a_spec_hash,
-                "adapter_bias": str(adapter_bias),
-                "adapter_arch": meta_type,
-                "init_seed": str(init_seed),
-            },
-        )
+                    prof_run_id = prof_runs.iloc[0].run_id
+                    inf_prof_node = load_mlflow_artifact(prof_run_id, f"profiles/{split}_{similarity_metric}_profiles.pt", file_type="torch", strict=True).cpu()
+                    profile_tensors.append(inf_prof_node)
 
-        with mlflow.start_run(run_name="_".join(name_parts), tags=tags) as run:
-            mlflow.log_params({
-                "ensemble_name": ens_name,
-                "adapter_type": meta_type,
-                "method_type": "meta",
-                "num_components": len(run_ids),
-                "in_dim": in_dim,
-                "feature_type": feature_type,
-                "similarity_metric": similarity_metric,
-                "split": split,
-                "epochs": adapter_epochs,
-                "learning_rate": adapter_lr,
-                "batch_size": adapter_batch_size,
-                "adapter_bias": adapter_bias,
-                "adapter_dropout": adapter_dropout,
-                "anchor_spec_hash": a_spec_hash,
-                "meta_split_seed": int(meta_split_cfg.seed),
-                "meta_split_strategy": str(meta_split_cfg.strategy),
-                "meta_split_train_frac": float(meta_split_cfg.fractions.train),
-                "meta_split_val_frac": float(meta_split_cfg.fractions.val),
-                "meta_split_holdout_frac": float(meta_split_cfg.fractions.holdout),
-                "n_train": len(train_idx),
-                "n_val": len(val_idx),
-                "n_holdout": len(holdout_idx),
-                "dataset_manifest_hash": manifest_hash,
-                "init_seed": init_seed,
-            })
-            if meta_type == "meta_mlp":
-                mlflow.log_params({"hidden_dim": hidden_dim})
+                # Get Base Tensor
+                data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
 
-            mlflow.log_metric("adapter_val_accuracy", best_val_acc)
-            mlflow.log_metric("adapter_holdout_accuracy", holdout_acc)
+                base_tensor = None
+                if "logits" in feature_type:
+                    base_tensor = torch.from_numpy(data["logits"])
+                elif "embeddings" in feature_type:
+                    base_tensor = torch.from_numpy(data["embeddings"])
+                else:
+                    raise ValueError(f"Unknown feature_type: {feature_type}")
 
-            # Log example_id membership
-            _log_split_membership(manifest, train_idx, val_idx, holdout_idx)
+                base_tensors.append(base_tensor)
 
-            # Log adapter weights
-            if best_state is not None:
-                with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-                    torch.save(best_state, f.name)
-                    mlflow.log_artifact(f.name, artifact_path="adapter")
-                    os.unlink(f.name)
+            # Assemble Concatenated Base Features [N, K * dim]
+            X_base = torch.cat(base_tensors, dim=1)
+            
+            if use_profiles:
+                # P shape: [N, K, num_classes]
+                P = torch.stack(profile_tensors, dim=1)
+                
+                # Pearson correlation across the num_classes dim (dim=2)
+                Pc = P - P.mean(dim=2, keepdim=True)
+                P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
+                P_n = Pc / P_norm  # [N, K, num_classes]
+                
+                # Correlation distance = 1 - pearson correlation
+                corr = torch.bmm(P_n, P_n.transpose(1, 2))  # [N, K, K]
+                rdm = 1.0 - corr                            # [N, K, K]
+                
+                # Extract upper triangle without the diagonal
+                K = P_n.size(1)
+                idx = torch.triu_indices(K, K, offset=1)
+                S = rdm[:, idx[0], idx[1]]  # [N, K*(K-1)/2]
+                
+                # Assemble Feature Matrix [N, K*dim + K*(K-1)/2]
+                X_all = torch.cat([X_base, S], dim=1)
+            else:
+                X_all = X_base
 
-            # Log component IDs
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump({"component_run_ids": run_ids}, f, indent=2)
-                f.flush()
-                mlflow.log_artifact(f.name, artifact_path="adapter")
-                os.unlink(f.name)
+            y_all = labels_tensor
 
-            log_git_info()
-            log_resolved_config(cfg)
+            # 4. Construct Data Splits
+            train_idx, val_idx, holdout_idx = _three_way_split(
+                total_examples, meta_split_cfg.fractions, meta_split_cfg.seed
+            )
 
-            print(f"  {meta_type}: val_acc={best_val_acc:.4f} holdout_acc={holdout_acc:.4f}  run_id={run.info.run_id}")
+            ds_train = TensorDataset(X_all[train_idx], y_all[train_idx])
+            ds_val = TensorDataset(X_all[val_idx], y_all[val_idx])
+            ds_hold = TensorDataset(X_all[holdout_idx], y_all[holdout_idx])
 
-    print("\nMeta-learner training complete.")
+            train_loader = DataLoader(
+                ds_train, batch_size=adapter_batch_size, shuffle=True
+            )
+            val_loader = DataLoader(
+                ds_val, batch_size=adapter_batch_size, shuffle=False
+            )
+            hold_loader = DataLoader(
+                ds_hold, batch_size=adapter_batch_size, shuffle=False
+            )
+
+            # 5. Build and Train
+            num_classes = cfg.dataset.num_classes
+            input_dim = X_all.shape[1]
+
+            if meta_type == "meta_lr":
+                model = MetaLR(input_dim, num_classes, bias=adapter_bias)
+            elif meta_type == "meta_mlp":
+                model = MetaMLP(
+                    input_dim, hidden_dim, num_classes, adapter_dropout, adapter_bias
+                )
+            else:
+                raise ValueError(f"Unknown meta_type: {meta_type}")
+
+            print(
+                f"  Training {meta_type} (input_dim={input_dim}) for {adapter_epochs} epochs..."
+            )
+
+            model, history = _train_adapter(
+                model=model,
+                device=device,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                epochs=adapter_epochs,
+                lr=adapter_lr,
+            )
+
+            hold_loss, hold_acc, hold_probs = _evaluate_holdout(
+                model, device, hold_loader, nn.CrossEntropyLoss()
+            )
+
+            # Determine Rho (unanimous or mixed)
+            rhos = set()
+            for rid in run_ids:
+                r = client.get_run(rid)
+                r_rho = r.data.tags.get("rho")
+                if r_rho is not None:
+                    rhos.add(r_rho)
+            rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
+
+            # 6. Logging
+            tags = behaviour_tags(
+                kind="metalearner",
+                behaviour=meta_type,
+                component_run_ids=run_ids,
+                behaviour_input_hash=bi_hash,
+                component_set_hash=cs_hash,
+                rho=rho_sum,
+                extra={
+                    "ensemble_name": ens_name,
+                    "split": split,
+                    "feature_type": feature_type,
+                    "similarity_metric": similarity_metric,
+                    "meta_split_seed": str(meta_split_cfg.seed),
+                },
+            )
+
+            with mlflow.start_run(
+                run_name=f"{ens_name}_adapter_{meta_type}", tags=tags
+            ) as run:
+                mlflow.log_params(
+                    {
+                        "adapter_epochs": adapter_epochs,
+                        "adapter_lr": adapter_lr,
+                        "adapter_batch_size": adapter_batch_size,
+                        "adapter_dropout": adapter_dropout,
+                        "hidden_dim": hidden_dim if meta_type == "meta_mlp" else None,
+                        "meta_split_seed": meta_split_cfg.seed,
+                        "meta_split_train": meta_split_cfg.fractions.get("train", 0.6),
+                        "meta_split_val": meta_split_cfg.fractions.get("val", 0.2),
+                    }
+                )
+
+                # Log final holdout metrics directly
+                mlflow.log_metrics(
+                    {
+                        "holdout_loss": hold_loss,
+                        "holdout_acc": hold_acc,
+                        "val_acc": history[-1]["val_acc"],
+                        "train_acc": history[-1]["train_acc"],
+                    }
+                )
+
+                # Parquet / NPZ Logging (Same structure as 04_run_ensemble natively scoped just for holdout subset)
+                tabular_path = os.path.join(
+                    cache_dir, f"adapter_holdout_{bi_hash}.parquet"
+                )
+                tensors_path = os.path.join(cache_dir, f"adapter_holdout_{bi_hash}.npz")
+
+                df_hold = pd.DataFrame(
+                    {
+                        "example_id": [manifest.hashes[i] for i in holdout_idx],
+                        "original_index": safe_to_numpy_float64(manifest.original_indices[holdout_idx]),
+                        "label": safe_to_numpy_float64(manifest.labels[holdout_idx]),
+                        "prediction": safe_to_numpy_float64(hold_probs.argmax(dim=1)),
+                        "confidence": safe_to_numpy_float64(hold_probs.max(dim=1).values),
+                    }
+                )
+
+                df_hold.to_parquet(tabular_path, index=False)
+                np.savez_compressed(tensors_path, probs=hold_probs.numpy())
+
+                mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
+                mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
+
+                # Dataset Schema Tracking
+                # Use standard manifest logging
+                log_manifest_lineage(manifest, "train", cfg.dataset.name, context="training")
+                log_manifest_lineage(manifest, "val", cfg.dataset.name, context="validation")
+                log_manifest_lineage(manifest, "test", cfg.dataset.name, context="testing")
+
+                # Infer signature and log the adapter model
+                input_example_np = X_all[val_idx][:5].numpy()
+                model.eval()
+                with torch.no_grad():
+                    output_example_np = model(X_all[val_idx][:5].to(device)).cpu().numpy()
+                
+                signature = infer_signature(input_example_np, output_example_np)
+                
+                mlflow.pytorch.log_model(
+                    model,
+                    name="model",
+                    signature=signature,
+                )
+
+                log_resolved_config(cfg)
+                print(f"  Holdout Acc = {hold_acc:.4f}  run_id={run.info.run_id}")
+
+        except Exception as e:
+            print(f"  FAIL: {e}")
 
 
 if __name__ == "__main__":

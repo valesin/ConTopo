@@ -6,7 +6,7 @@ Validates:
   - similarity_profile_hash stability and sensitivity
   - compute_similarity_profile correctness (cosine + L2)
   - demand-driven caching logic (mock MLflow)
-  - behavior_input_hash includes anchor_spec_hash + similarity_metric + feature_type
+  - behaviour_input_hash includes anchor_spec_hash + similarity_metric + feature_type
   - feature_type changes produced feature dimensions deterministically
   - category_similarity_profile_tags contain required keys
 """
@@ -24,7 +24,7 @@ import torch
 from src.data.anchors import AnchorSpec, anchor_spec_hash, select_anchors_from_manifest
 from src.data.manifest import DatasetManifest
 from src.mlflow_utils import (
-    behavior_input_hash,
+    behaviour_input_hash,
     category_similarity_profile_tags,
     component_set_hash,
     find_finished_similarity_profile_run,
@@ -40,10 +40,10 @@ from src.profiling.category_similarity import (
 
 def _make_manifest(N=500, num_classes=10, split="test"):
     labels = torch.tensor([i % num_classes for i in range(N)])
-    example_ids = [f"img_{i:05d}" for i in range(N)]
+    hashes = [f"img_{i:05d}" for i in range(N)]
     original_indices = torch.arange(N)
     return DatasetManifest(
-        example_ids=example_ids,
+        hashes=hashes,
         original_indices=original_indices,
         labels=labels,
         dataset_name="test",
@@ -63,7 +63,11 @@ class TestAnchorSpecHashStability:
     """anchor_spec_hash must be stable and sensitive to spec changes."""
 
     def test_stable_across_calls(self):
-        spec = {"per_class": 100, "strategy": "per_class_first_n", "order_by": "example_id"}
+        spec = {
+            "per_class": 100,
+            "strategy": "per_class_first_n",
+            "order_by": "example_id",
+        }
         assert anchor_spec_hash(spec) == anchor_spec_hash(spec)
 
     def test_order_invariant(self):
@@ -174,7 +178,9 @@ class TestComputeSimilarityProfile:
 
     def test_unknown_metric_raises(self):
         with pytest.raises(ValueError, match="Unknown similarity metric"):
-            compute_similarity_profile(torch.randn(5, 3), torch.randn(2, 3), metric="dot")
+            compute_similarity_profile(
+                torch.randn(5, 3), torch.randn(2, 3), metric="dot"
+            )
 
     def test_deterministic(self):
         """Same inputs produce identical outputs."""
@@ -185,10 +191,10 @@ class TestComputeSimilarityProfile:
         assert torch.equal(p1, p2)
 
 
-# ──────── behavior_input_hash includes all identity fields ────────
+# ──────── behaviour_input_hash includes all identity fields ────────
 
 
-class TestBehaviorInputHashIdempotency:
+class TestBehaviourInputHashIdempotency:
     """Meta-learner idempotency must include anchor_spec_hash + similarity_metric + feature_type."""
 
     def _base_args(self):
@@ -204,35 +210,35 @@ class TestBehaviorInputHashIdempotency:
 
     def test_same_inputs_same_hash(self):
         args = self._base_args()
-        assert behavior_input_hash(**args) == behavior_input_hash(**args)
+        assert behaviour_input_hash(**args) == behaviour_input_hash(**args)
 
     def test_anchor_spec_changes_hash(self):
         args1 = self._base_args()
         args2 = {**args1, "anchor_spec": "anchor_hash_BBBB"}
-        assert behavior_input_hash(**args1) != behavior_input_hash(**args2)
+        assert behaviour_input_hash(**args1) != behaviour_input_hash(**args2)
 
     def test_similarity_metric_changes_hash(self):
         args1 = self._base_args()
         args2 = {**args1, "similarity_metric": "l2"}
-        assert behavior_input_hash(**args1) != behavior_input_hash(**args2)
+        assert behaviour_input_hash(**args1) != behaviour_input_hash(**args2)
 
     def test_feature_type_changes_hash(self):
         args1 = self._base_args()
         args2 = {**args1, "feature_type": "embeddings"}
-        assert behavior_input_hash(**args1) != behavior_input_hash(**args2)
+        assert behaviour_input_hash(**args1) != behaviour_input_hash(**args2)
 
     def test_logits_vs_embeddings_different(self):
         args_logits = {**self._base_args(), "feature_type": "logits"}
         args_emb = {**self._base_args(), "feature_type": "embeddings"}
-        assert behavior_input_hash(**args_logits) != behavior_input_hash(**args_emb)
+        assert behaviour_input_hash(**args_logits) != behaviour_input_hash(**args_emb)
 
     def test_empty_similarity_metric_backward_compat(self):
         """Empty similarity_metric is default for logits-only (backward compat)."""
         args = self._base_args()
         args["similarity_metric"] = ""
-        h1 = behavior_input_hash(**args)
+        h1 = behaviour_input_hash(**args)
         args["similarity_metric"] = "cosine"
-        h2 = behavior_input_hash(**args)
+        h2 = behaviour_input_hash(**args)
         assert h1 != h2
 
 
@@ -272,7 +278,10 @@ class TestFeatureTypeDimensions:
         M, N, D, K = 3, 100, 256, 50
         emb_only = torch.cat([torch.randn(N, D) for _ in range(M)], dim=1)
         ep = torch.cat(
-            [torch.cat([torch.randn(N, D), torch.randn(N, K)], dim=1) for _ in range(M)],
+            [
+                torch.cat([torch.randn(N, D), torch.randn(N, K)], dim=1)
+                for _ in range(M)
+            ],
             dim=1,
         )
         assert ep.shape[1] == emb_only.shape[1] + M * K
@@ -347,7 +356,9 @@ class TestDemandDrivenCaching:
 
         # Verify the filter string contains all identity fields
         call_kwargs = mock_mlflow.search_runs.call_args
-        filter_str = call_kwargs.kwargs.get("filter_string") or call_kwargs[1].get("filter_string", "")
+        filter_str = call_kwargs.kwargs.get("filter_string") or call_kwargs[1].get(
+            "filter_string", ""
+        )
         assert "category_similarity_profile" in filter_str
         assert "run_abc" in filter_str
         assert "hash_123" in filter_str

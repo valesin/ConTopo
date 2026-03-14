@@ -16,7 +16,7 @@ def _make_manifest(n: int = 100, seed: int = 0) -> DatasetManifest:
     indices = torch.arange(n)
     labels = torch.randint(0, 10, (n,), generator=gen)
     return DatasetManifest(
-        example_ids=ids,
+        hashes=ids,
         original_indices=indices,
         labels=labels,
         dataset_name="synthetic",
@@ -30,7 +30,7 @@ class TestManifest:
         path = str(tmp_path / "manifest.pt")
         m.save(path)
         m2 = DatasetManifest.load(path)
-        assert m2.example_ids == m.example_ids
+        assert m2.hashes == m.hashes
         assert torch.equal(m2.original_indices, m.original_indices)
         assert torch.equal(m2.labels, m.labels)
         assert m2.dataset_name == m.dataset_name
@@ -38,13 +38,13 @@ class TestManifest:
 
     def test_example_ids_unique(self):
         m = _make_manifest(n=200)
-        assert len(set(m.example_ids)) == len(m.example_ids)
+        assert len(set(m.hashes)) == len(m.hashes)
 
     def test_labels_shape(self):
         m = _make_manifest(n=50)
         assert m.labels.shape == (50,)
         assert m.original_indices.shape == (50,)
-        assert len(m.example_ids) == 50
+        assert len(m.hashes) == 50
 
 
 class TestAlignment:
@@ -62,7 +62,7 @@ class TestAlignment:
             idx_a = int(m.original_indices[i])
             idx_b = int(m.original_indices[i])
             assert idx_a == idx_b
-            assert m.example_ids[i] == m.example_ids[i]
+            assert m.hashes[i] == m.hashes[i]
 
     def test_manifest_preserves_order(self, tmp_path):
         """Save/load preserves the exact ordering."""
@@ -72,4 +72,4 @@ class TestAlignment:
         m2 = DatasetManifest.load(path)
         # Order must be identical
         for i in range(300):
-            assert m.example_ids[i] == m2.example_ids[i]
+            assert m.hashes[i] == m2.hashes[i]

@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-from omegaconf import MISSING
 
 
 # ─────────── model ───────────
@@ -42,7 +41,7 @@ class ModelConfig:
 
 
 @dataclass
-class NeighborhoodConfig:
+class NeighbourhoodConfig:
     type: str = "moore"
     radius: int = 1
 
@@ -54,7 +53,7 @@ class LossConfig:
     topography_type: str = "ws"
     topology: str = "torus"
     task_loss: str = "cross_entropy"
-    neighborhood: NeighborhoodConfig = field(default_factory=NeighborhoodConfig)
+    neighbourhood: NeighbourhoodConfig = field(default_factory=NeighbourhoodConfig)
 
 
 # ─────────── dataset ───────────
@@ -99,7 +98,7 @@ class TrainingConfig:
     epochs: int = 200
     batch_size: int = 512
     learning_rate: float = 0.002
-    optimizer: str = "adam"
+    optimiser: str = "adam"
     weight_decay: float = 0.0
     momentum: float = 0.9
     scheduler: str = "none"

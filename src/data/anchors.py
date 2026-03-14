@@ -2,7 +2,7 @@
 Deterministic anchor / subset selection derived from dataset manifest.
 
 Anchors are NOT model-dependent — they are derived solely from:
-  - DatasetManifest (example_ids, labels, indices)
+  - DatasetManifest (hashes, labels, indices)
   - AnchorSpec (source_split, per_class, strategy, order_by, num_classes)
 
 The ``AnchorSpec`` dataclass is the single source of truth for anchor
@@ -21,7 +21,6 @@ import os
 from typing import Any, Dict
 
 import torch
-from torchvision import datasets
 
 from src.data.manifest import DatasetManifest
 
@@ -90,7 +89,7 @@ def select_anchors_from_manifest(
     class_indices: dict[int, list[tuple]] = {c: [] for c in range(spec.num_classes)}
     for i, label in enumerate(manifest.labels.tolist()):
         if spec.order_by == "example_id":
-            sort_key = manifest.example_ids[i]
+            sort_key = manifest.hashes[i]
         elif spec.order_by == "original_index":
             sort_key = int(manifest.original_indices[i])
         else:
@@ -105,12 +104,12 @@ def select_anchors_from_manifest(
             raise RuntimeError(
                 f"Class {c}: only {len(sorted_items)} examples, need {spec.per_class}"
             )
-        for _, manifest_idx in sorted_items[:spec.per_class]:
+        for _, manifest_idx in sorted_items[: spec.per_class]:
             selected_indices.append(manifest_idx)
 
     return {
         "anchor_indices": selected_indices,
-        "anchor_example_ids": [manifest.example_ids[i] for i in selected_indices],
+        "anchor_example_ids": [manifest.hashes[i] for i in selected_indices],
         "anchor_labels": manifest.labels[selected_indices],
         "spec": spec.to_dict(),
         "spec_hash": spec.hash,
@@ -143,8 +142,12 @@ def get_or_create_anchors(
     """
     spec_h = spec.hash
     anchor_path = os.path.join(
-        artifacts_root, "anchors",
-        manifest.dataset_name, manifest.split, spec_h, "anchors.pt"
+        artifacts_root,
+        "anchors",
+        manifest.dataset_name,
+        manifest.split,
+        spec_h,
+        "anchors.pt",
     )
 
     if os.path.isfile(anchor_path):
@@ -153,5 +156,3 @@ def get_or_create_anchors(
     anchors = select_anchors_from_manifest(manifest, spec)
     save_anchors(anchors, anchor_path)
     return anchors
-
-

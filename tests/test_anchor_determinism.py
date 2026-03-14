@@ -5,7 +5,7 @@ Validates:
   - AnchorSpec dataclass and its hash property
   - Anchor selection is deterministic given the same manifest + spec
   - anchor_spec_hash is deterministic and sensitive to spec changes
-  - Anchor identity (spec_hash) can be included in behavior_input_hash
+  - Anchor identity (spec_hash) can be included in behaviour_input_hash
 """
 
 from __future__ import annotations
@@ -19,16 +19,16 @@ from src.data.anchors import (
     select_anchors_from_manifest,
 )
 from src.data.manifest import DatasetManifest
-from src.mlflow_utils import behavior_input_hash, component_set_hash
+from src.mlflow_utils import behaviour_input_hash, component_set_hash
 
 
 def _make_test_manifest(N=500, num_classes=10, split="test"):
     """Create a synthetic DatasetManifest for testing."""
     labels = torch.tensor([i % num_classes for i in range(N)])
-    example_ids = [f"img_{i:05d}" for i in range(N)]
+    hashes = [f"img_{i:05d}" for i in range(N)]
     original_indices = torch.arange(N)
     return DatasetManifest(
-        example_ids=example_ids,
+        hashes=hashes,
         original_indices=original_indices,
         labels=labels,
         dataset_name="test",
@@ -86,7 +86,11 @@ class TestAnchorSpecHash:
     """Test deterministic hashing of anchor specifications (legacy dict API)."""
 
     def test_stable(self):
-        spec = {"per_class": 100, "strategy": "per_class_first_n", "order_by": "example_id"}
+        spec = {
+            "per_class": 100,
+            "strategy": "per_class_first_n",
+            "order_by": "example_id",
+        }
         h1 = anchor_spec_hash(spec)
         h2 = anchor_spec_hash(spec)
         assert h1 == h2
@@ -138,43 +142,49 @@ class TestAnchorSelection:
     def test_raises_on_insufficient_samples(self):
         manifest = _make_test_manifest(N=50, num_classes=10)
         with pytest.raises(RuntimeError, match="only .* examples"):
-            select_anchors_from_manifest(
-                manifest, _make_spec(per_class=100)
-            )
+            select_anchors_from_manifest(manifest, _make_spec(per_class=100))
 
 
-class TestAnchorIdentityInBehaviorHash:
-    """Test that anchor spec hash affects behavior_input_hash (requirement #4)."""
+class TestAnchorIdentityInBehaviourHash:
+    """Test that anchor spec hash affects behaviour_input_hash (requirement #4)."""
 
-    def test_anchor_spec_changes_behavior_hash(self):
-        """Changing anchor selection MUST change meta-learner behavior_input_hash."""
+    def test_anchor_spec_changes_behaviour_hash(self):
+        """Changing anchor selection MUST change meta-learner behaviour_input_hash."""
         cs = component_set_hash(["run_a", "run_b"])
         meta_split = '{"seed": 42}'
 
-        h1 = behavior_input_hash(
-            cs, split="test", feature_type="logits",
+        h1 = behaviour_input_hash(
+            cs,
+            split="test",
+            feature_type="logits",
             anchor_spec="anchor_hash_AAA",
             meta_split_spec=meta_split,
         )
-        h2 = behavior_input_hash(
-            cs, split="test", feature_type="logits",
+        h2 = behaviour_input_hash(
+            cs,
+            split="test",
+            feature_type="logits",
             anchor_spec="anchor_hash_BBB",
             meta_split_spec=meta_split,
         )
         assert h1 != h2
 
-    def test_same_anchors_same_behavior_hash(self):
-        """Same anchor spec MUST produce same behavior_input_hash."""
+    def test_same_anchors_same_behaviour_hash(self):
+        """Same anchor spec MUST produce same behaviour_input_hash."""
         cs = component_set_hash(["run_a", "run_b"])
         meta_split = '{"seed": 42}'
 
-        h1 = behavior_input_hash(
-            cs, split="test", feature_type="logits",
+        h1 = behaviour_input_hash(
+            cs,
+            split="test",
+            feature_type="logits",
             anchor_spec="anchor_hash_SAME",
             meta_split_spec=meta_split,
         )
-        h2 = behavior_input_hash(
-            cs, split="test", feature_type="logits",
+        h2 = behaviour_input_hash(
+            cs,
+            split="test",
+            feature_type="logits",
             anchor_spec="anchor_hash_SAME",
             meta_split_spec=meta_split,
         )

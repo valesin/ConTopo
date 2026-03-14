@@ -13,7 +13,7 @@ outputs_root: outputs
 # Centralized output paths (all relative to outputs_root)
 paths:
   models: models          # trained model checkpoints
-  cache: cache            # inference cache, anchors, manifests
+  inference_cache: cache            # inference cache, anchors, manifests
   analysis: analysis      # diversity, consistency results
 
 # Inference caching

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict
 
 import torch
 import torch.nn.functional as F
@@ -30,6 +29,7 @@ import torch.nn.functional as F
 def compute_similarity_profile(
     embeddings: torch.Tensor,
     anchor_embeddings: torch.Tensor,
+    num_classes: int,
     metric: str = "cosine",
 ) -> torch.Tensor:
     """
@@ -38,10 +38,11 @@ def compute_similarity_profile(
     Args:
         embeddings:        [N, D] — sample embeddings.
         anchor_embeddings: [K, D] — anchor embeddings.
+        num_classes:       Number of classes in the dataset.
         metric:            ``"cosine"`` or ``"l2"``.
 
     Returns:
-        [N, K] similarity profile tensor (float32).
+        [N, num_classes] similarity profile tensor (float32).
     """
     embeddings = embeddings.float()
     anchor_embeddings = anchor_embeddings.float()
@@ -50,7 +51,7 @@ def compute_similarity_profile(
         # Normalise then matmul → [N, K] cosine similarities
         e_norm = F.normalize(embeddings, p=2, dim=1)
         a_norm = F.normalize(anchor_embeddings, p=2, dim=1)
-        return e_norm @ a_norm.t()
+        sims = e_norm @ a_norm.t()
 
     elif metric == "l2":
         # Negative pairwise L2 distance → [N, K]
@@ -59,12 +60,16 @@ def compute_similarity_profile(
         a_sq = (anchor_embeddings ** 2).sum(dim=1).unsqueeze(0)  # [1, K]
         dist_sq = e_sq + a_sq - 2.0 * embeddings @ anchor_embeddings.t()
         dist_sq = dist_sq.clamp_min(0.0)
-        return -dist_sq.sqrt()  # negate so higher = more similar
+        sims = -dist_sq.sqrt()  # negate so higher = more similar
 
     else:
         raise ValueError(
             f"Unknown similarity metric '{metric}'. Supported: cosine, l2"
         )
+        
+    N = sims.shape[0]
+    A = sims.shape[1] // num_classes
+    return sims.view(N, num_classes, A).mean(dim=2)
 
 
 def similarity_profile_hash(
