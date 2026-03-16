@@ -5,9 +5,18 @@
 
 CONTAINER_IMAGE="contopo.sif"
 PROJECT_DIR="/mnt/raid_storage/hasson/valerios/contopo_workspace"
+
+# Convert to absolute path for bind mount
+PROJECT_ABSOLUTE=$(realpath "$PROJECT_DIR")
+
+echo "------------------------------------------------------------"
+echo "Container: $CONTAINER_IMAGE"
+echo "Project Bind: $PROJECT_ABSOLUTE -> /persistent_repo"
+echo "------------------------------------------------------------"
+
 SCRIPT_PATH="/persistent_repo/ConTopo/launch_mlflow_ui_container.sh"
 
 apptainer exec --nv \
-  --bind "$PROJECT_DIR":/persistent_repo \
+  --bind "$PROJECT_ABSOLUTE":/persistent_repo \
   "$CONTAINER_IMAGE" \
   "$SCRIPT_PATH"
