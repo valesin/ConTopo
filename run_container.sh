@@ -1,29 +1,26 @@
 #!/bin/bash
 
 # --- Configuration ---
-PERSISTENT_DIR="./code"
-# Hardcoded output directory
-OUTPUTS_DIR="/mnt/raid_storage/hasson/valerios/"
+# Set ONE unified directory for your entire project (code + outputs).
+# We are using your RAID storage since outputs are likely large.
+PROJECT_DIR="/mnt/raid_storage/hasson/valerios/contopo_workspace"
+
 CONTAINER_IMAGE="contopo.sif"
 
-# 1. Ensure directories exist
-mkdir -p "$PERSISTENT_DIR"
-mkdir -p "$OUTPUTS_DIR"
+# 1. Ensure the directory exists
+mkdir -p "$PROJECT_DIR"
 
-# 2. Convert to absolute paths
-OUTPUTS_ABSOLUTE=$(realpath "$OUTPUTS_DIR")
-PERSISTENT_ABSOLUTE=$(realpath "$PERSISTENT_DIR")
+# 2. Convert to absolute path
+PROJECT_ABSOLUTE=$(realpath "$PROJECT_DIR")
 
 echo "------------------------------------------------------------"
 echo "Container: $CONTAINER_IMAGE"
-echo "Code Bind: $PERSISTENT_ABSOLUTE -> /persistent_repo"
-echo "Output Bind: $OUTPUTS_ABSOLUTE -> /persistent_repo/outputs"
+echo "Project Bind: $PROJECT_ABSOLUTE -> /persistent_repo"
 echo "------------------------------------------------------------"
 
-# 3. Launch the container (Simplified Binds)
+# 3. Launch the container (Single Bind)
 echo "Launching interactive shell with GPU support..."
 
 apptainer run --nv \
-  --bind "$PERSISTENT_ABSOLUTE":/persistent_repo \
-  --bind "$OUTPUTS_ABSOLUTE":/persistent_repo/outputs \
+  --bind "$PROJECT_ABSOLUTE":/persistent_repo \
   "$CONTAINER_IMAGE" shell
