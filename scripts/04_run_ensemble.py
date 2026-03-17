@@ -74,7 +74,12 @@ def _load_inference_artifacts(run_ids, exp_id, split="test"):
         inf_run_id = inf_runs.iloc[0].run_id
 
         # 2. Download the tracked tensor artifact
-        data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
+        data = load_mlflow_artifact(
+            inf_run_id,
+            f"inference_data/{split}_tensors.npz",
+            file_type="numpy",
+            strict=True,
+        )
 
         # Map predictions to torch format matching old syntax
         logits_tensor = torch.from_numpy(data["logits"])
@@ -144,6 +149,8 @@ def _run_votes(
         acc = ensemble_accuracy(probs, labels)
         preds = torch.argmax(probs, dim=1)
 
+        component_run_ids_csv = ",".join(run_ids)
+
         tags = behaviour_tags(
             kind="ensemble",
             behaviour=method,
@@ -167,10 +174,12 @@ def _run_votes(
                     "method": method,
                     "method_type": "vote",
                     "num_components": len(run_ids),
+                    "component_run_ids_csv": component_run_ids_csv,
                     "split": split_name,
                     "dataset_manifest_hash": manifest.manifest_hash,
                 }
             )
+            mlflow.set_tag("component_run_ids_csv", component_run_ids_csv)
 
             mlflow.log_metric("ensemble_accuracy", acc)
 
@@ -179,13 +188,11 @@ def _run_votes(
             mlflow.log_metric("comp_max_acc", comp["max_acc"])
 
             # ── Link the Component Composition Artifact ──
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False
-            ) as f:
-                json.dump(composition_map, f, indent=4)
-                f.flush()
-                mlflow.log_artifact(f.name, artifact_path="ensemble_data")
-                os.unlink(f.name)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                composition_path = os.path.join(tmpdir, "composition_map.json")
+                with open(composition_path, "w") as f:
+                    json.dump(composition_map, f, indent=4)
+                mlflow.log_artifact(composition_path, artifact_path="ensemble_data")
 
             # ── Ensemble Inference Tracking Parity (Parquet/NPZ) ──
             eval_df = pd.DataFrame(
@@ -195,13 +202,20 @@ def _run_votes(
                     "label": safe_to_numpy_float64(manifest.labels),
                     "prediction": safe_to_numpy_float64(preds),
                     "confidence": safe_to_numpy_float64(
-                        probs.numpy().max(axis=1) if hasattr(probs, "numpy") else probs.max(axis=1)
+                        probs.numpy().max(axis=1)
+                        if hasattr(probs, "numpy")
+                        else probs.max(axis=1)
                     ),
                 }
             )
 
             # Dataset tracking for data lineage
-            log_manifest_lineage(manifest, split_name, cfg.dataset.name, context="validation" if split_name == "val" else "testing")
+            log_manifest_lineage(
+                manifest,
+                split_name,
+                cfg.dataset.name,
+                context="validation" if split_name == "val" else "testing",
+            )
 
             # Local saves
             os.makedirs(cache_dir, exist_ok=True)
