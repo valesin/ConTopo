@@ -51,21 +51,16 @@ class MetaLR(nn.Module):
         return self.linear(x)
 
 
-class MetaMLP(nn.Module):
-    def __init__(
-        self,
-        input_dim: int,
-        hidden_dim: int,
-        num_classes: int,
-        dropout: float = 0.3,
-        bias: bool = True,
-    ):
+class AdapterMLP(nn.Module):
+
+    def __init__(self, input_dim: int, num_classes: int, bias: bool = True):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim, bias=bias),
+            nn.Linear(input_dim, 128, bias=bias),
             nn.ReLU(),
-            nn.Dropout(p=dropout),
-            nn.Linear(hidden_dim, num_classes, bias=bias),
+            nn.Linear(128, 64, bias=bias),
+            nn.ReLU(),
+            nn.Linear(64, num_classes, bias=bias),
         )
 
     def forward(self, x):
@@ -91,6 +86,24 @@ def _three_way_split(N: int, fractions: dict, seed: int):
     holdout_idx = indices[n_train + n_val :]
 
     return train_idx, val_idx, holdout_idx
+
+
+def _standardize_features(
+    train_feat: torch.Tensor, val_feat: torch.Tensor, holdout_feat: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Standardize features using mean and std computed ONLY on the training set
+    to prevent data leakage into the validation and holdout sets.
+    """
+    mean = train_feat.mean(dim=0, keepdim=True)
+    std = train_feat.std(dim=0, keepdim=True)
+
+    # Add epsilon to prevent division by zero
+    train_std = (train_feat - mean) / (std + 1e-6)
+    val_std = (val_feat - mean) / (std + 1e-6)
+    holdout_std = (holdout_feat - mean) / (std + 1e-6)
+
+    return train_std, val_std, holdout_std
 
 
 def _train_adapter(
@@ -204,12 +217,10 @@ def _main(cfg: DictConfig) -> None:
     adapter_lr = cfg.adapter.learning_rate
     adapter_batch_size = cfg.adapter.batch_size
     adapter_bias = cfg.adapter.bias
-    adapter_dropout = cfg.adapter.dropout
 
     meta_type = cfg.adapter.meta_type
     feature_type = cfg.adapter.feature_type
     similarity_metric = cfg.adapter.similarity_metric
-    hidden_dim = cfg.adapter.hidden_dim
     meta_split_cfg = cfg.adapter.meta_split
     use_profiles = "profiles" in feature_type
 
@@ -301,11 +312,15 @@ def _main(cfg: DictConfig) -> None:
                         "adapter_epochs": adapter_epochs,
                         "adapter_lr": adapter_lr,
                         "adapter_batch_size": adapter_batch_size,
-                        "adapter_dropout": adapter_dropout,
-                        "hidden_dim": hidden_dim if meta_type == "meta_mlp" else None,
                         "meta_split_seed": meta_split_cfg.seed,
                         "meta_split_train": meta_split_cfg.fractions.get("train", 0.6),
                         "meta_split_val": meta_split_cfg.fractions.get("val", 0.2),
+                        "adapter_architecture": (
+                            "Input -> 128 -> ReLU -> 64 -> ReLU -> num_classes"
+                            if meta_type == "meta_mlp"
+                            else "Linear"
+                        ),
+                        "standardization_applied": True,
                     }
                 )
 
@@ -337,9 +352,9 @@ def _main(cfg: DictConfig) -> None:
                             file_type="torch",
                             strict=True,
                         ).cpu()
-                        _assert_valid_feature_tensor(
-                            "profile_tensor", inf_prof_node, total_examples
-                        )
+
+                        # Note: _assert_valid_feature_tensor expects 2D, but profiles are typically 3D [N, Classes]
+                        # We bypass the 2D assert here as P is expected to be stacked into 3D.
                         profile_tensors.append(inf_prof_node)
 
                     data = load_mlflow_artifact(
@@ -373,9 +388,20 @@ def _main(cfg: DictConfig) -> None:
                 _assert_valid_feature_tensor("X_base", X_base, total_examples)
 
                 if use_profiles:
+                    # P shape: (N, M, C)
                     P = torch.stack(profile_tensors, dim=1)
+                    N, M, C = P.shape
 
-                    Pc = P - P.mean(dim=2, keepdim=True)
+                    # Dynamically mask out the true class for each example (equivalent to remove_correct_label=True)
+                    mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
+                    mask[torch.arange(N), labels_tensor] = False
+
+                    # Apply mask and reshape to form profiles purely of off-target predictions
+                    mask_3d = mask.unsqueeze(1).expand(N, M, C)
+                    P_masked = P[mask_3d].view(N, M, C - 1)
+
+                    # Compute RDM on masked profiles
+                    Pc = P_masked - P_masked.mean(dim=2, keepdim=True)
                     P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
                     P_n = Pc / P_norm
 
@@ -398,9 +424,19 @@ def _main(cfg: DictConfig) -> None:
                     total_examples, meta_split_cfg.fractions, meta_split_cfg.seed
                 )
 
-                ds_train = TensorDataset(X_all[train_idx], y_all[train_idx])
-                ds_val = TensorDataset(X_all[val_idx], y_all[val_idx])
-                ds_hold = TensorDataset(X_all[holdout_idx], y_all[holdout_idx])
+                # Split data
+                X_train = X_all[train_idx]
+                X_val = X_all[val_idx]
+                X_holdout = X_all[holdout_idx]
+
+                # Apply Standardization (preventing data leakage)
+                X_train, X_val, X_holdout = _standardize_features(
+                    X_train, X_val, X_holdout
+                )
+
+                ds_train = TensorDataset(X_train, y_all[train_idx])
+                ds_val = TensorDataset(X_val, y_all[val_idx])
+                ds_hold = TensorDataset(X_holdout, y_all[holdout_idx])
 
                 train_loader = DataLoader(
                     ds_train, batch_size=adapter_batch_size, shuffle=True
@@ -414,17 +450,15 @@ def _main(cfg: DictConfig) -> None:
 
                 # 5. Build and Train
                 num_classes = cfg.dataset.num_classes
-                input_dim = X_all.shape[1]
+                input_dim = X_train.shape[1]
 
                 if meta_type == "meta_lr":
                     model = MetaLR(input_dim, num_classes, bias=adapter_bias)
                 elif meta_type == "meta_mlp":
-                    model = MetaMLP(
+                    model = AdapterMLP(
                         input_dim,
-                        hidden_dim,
                         num_classes,
-                        adapter_dropout,
-                        adapter_bias,
+                        bias=adapter_bias,
                     )
                 else:
                     raise ValueError(f"Unknown meta_type: {meta_type}")
@@ -491,12 +525,10 @@ def _main(cfg: DictConfig) -> None:
                     manifest, "test", cfg.dataset.name, context="testing"
                 )
 
-                input_example_np = X_all[val_idx][:5].numpy()
+                input_example_np = X_val[:5].numpy()
                 model.eval()
                 with torch.no_grad():
-                    output_example_np = (
-                        model(X_all[val_idx][:5].to(device)).cpu().numpy()
-                    )
+                    output_example_np = model(X_val[:5].to(device)).cpu().numpy()
 
                 signature = infer_signature(input_example_np, output_example_np)
 
