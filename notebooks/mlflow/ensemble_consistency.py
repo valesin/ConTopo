@@ -14,6 +14,7 @@ models_pd = mlflow.search_runs(
 )
 ensembles = pl.from_pandas(models_pd)
 ensembles = ensembles.filter(pl.col("params.method") == "soft")
+ensembles = ensembles.filter(pl.col("tags.num_components") == "10")
 ensembles
 # %%
 ensembles.columns
