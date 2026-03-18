@@ -168,6 +168,19 @@ def _evaluate_holdout(
     return mean_loss, acc, torch.cat(all_probs, dim=0)
 
 
+def _assert_valid_feature_tensor(
+    name: str, tensor: torch.Tensor, expected_rows: int
+) -> None:
+    if tensor.ndim != 2:
+        raise ValueError(f"{name} must be 2D, got shape={tuple(tensor.shape)}")
+    if tensor.shape[0] != expected_rows:
+        raise ValueError(
+            f"{name} row mismatch: expected {expected_rows}, got {tensor.shape[0]}"
+        )
+    if not torch.isfinite(tensor).all():
+        raise ValueError(f"{name} contains NaN/Inf values")
+
+
 # ─── MAIN ───
 
 
@@ -252,145 +265,34 @@ def _main(cfg: DictConfig) -> None:
             )
             continue
 
+        # Determine Rho (unanimous or mixed)
+        rhos = set()
+        for rid in run_ids:
+            r = client.get_run(rid)
+            r_rho = r.data.tags.get("rho")
+            if r_rho is not None:
+                rhos.add(r_rho)
+        rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
+
+        # Start run before any artifact loading/training so failures are recorded as FAILED.
+        tags = behaviour_tags(
+            kind="metalearner",
+            behaviour=meta_type,
+            component_run_ids=run_ids,
+            behaviour_input_hash=bi_hash,
+            component_set_hash=cs_hash,
+            rho=rho_sum,
+            extra={
+                "ensemble_name": ens_name,
+                "split": split,
+                "feature_type": feature_type,
+                "similarity_metric": similarity_metric,
+                "meta_split_seed": str(meta_split_cfg.seed),
+            },
+        )
+
+        run = None
         try:
-            # 3. Secure Feature Extraction
-            base_tensors = []
-            profile_tensors = []
-
-            for run_id in run_ids:
-                # Get inference base
-                inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
-                if inf_runs.empty:
-                    raise RuntimeError(f"Missing '{split}' inference for {run_id}")
-                inf_run_id = inf_runs.iloc[0].run_id
-
-                # Optional Profile Extraction
-                inf_prof_node = None
-                if use_profiles:
-                    prof_runs = get_profile_run(cfg.mlflow.experiment_name, run_id, similarity_metric, split)
-                    if prof_runs.empty:
-                        raise RuntimeError(f"Missing '{similarity_metric}' profile for {run_id}")
-
-                    prof_run_id = prof_runs.iloc[0].run_id
-                    inf_prof_node = load_mlflow_artifact(prof_run_id, f"profiles/{split}_{similarity_metric}_profiles.pt", file_type="torch", strict=True).cpu()
-                    profile_tensors.append(inf_prof_node)
-
-                # Get Base Tensor
-                data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
-
-                base_tensor = None
-                if "logits" in feature_type:
-                    base_tensor = torch.from_numpy(data["logits"])
-                elif "embeddings" in feature_type:
-                    base_tensor = torch.from_numpy(data["embeddings"])
-                else:
-                    raise ValueError(f"Unknown feature_type: {feature_type}")
-
-                base_tensors.append(base_tensor)
-
-            # Assemble Concatenated Base Features [N, K * dim]
-            X_base = torch.cat(base_tensors, dim=1)
-            
-            if use_profiles:
-                # P shape: [N, K, num_classes]
-                P = torch.stack(profile_tensors, dim=1)
-                
-                # Pearson correlation across the num_classes dim (dim=2)
-                Pc = P - P.mean(dim=2, keepdim=True)
-                P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
-                P_n = Pc / P_norm  # [N, K, num_classes]
-                
-                # Correlation distance = 1 - pearson correlation
-                corr = torch.bmm(P_n, P_n.transpose(1, 2))  # [N, K, K]
-                rdm = 1.0 - corr                            # [N, K, K]
-                
-                # Extract upper triangle without the diagonal
-                K = P_n.size(1)
-                idx = torch.triu_indices(K, K, offset=1)
-                S = rdm[:, idx[0], idx[1]]  # [N, K*(K-1)/2]
-                
-                # Assemble Feature Matrix [N, K*dim + K*(K-1)/2]
-                X_all = torch.cat([X_base, S], dim=1)
-            else:
-                X_all = X_base
-
-            y_all = labels_tensor
-
-            # 4. Construct Data Splits
-            train_idx, val_idx, holdout_idx = _three_way_split(
-                total_examples, meta_split_cfg.fractions, meta_split_cfg.seed
-            )
-
-            ds_train = TensorDataset(X_all[train_idx], y_all[train_idx])
-            ds_val = TensorDataset(X_all[val_idx], y_all[val_idx])
-            ds_hold = TensorDataset(X_all[holdout_idx], y_all[holdout_idx])
-
-            train_loader = DataLoader(
-                ds_train, batch_size=adapter_batch_size, shuffle=True
-            )
-            val_loader = DataLoader(
-                ds_val, batch_size=adapter_batch_size, shuffle=False
-            )
-            hold_loader = DataLoader(
-                ds_hold, batch_size=adapter_batch_size, shuffle=False
-            )
-
-            # 5. Build and Train
-            num_classes = cfg.dataset.num_classes
-            input_dim = X_all.shape[1]
-
-            if meta_type == "meta_lr":
-                model = MetaLR(input_dim, num_classes, bias=adapter_bias)
-            elif meta_type == "meta_mlp":
-                model = MetaMLP(
-                    input_dim, hidden_dim, num_classes, adapter_dropout, adapter_bias
-                )
-            else:
-                raise ValueError(f"Unknown meta_type: {meta_type}")
-
-            print(
-                f"  Training {meta_type} (input_dim={input_dim}) for {adapter_epochs} epochs..."
-            )
-
-            model, history = _train_adapter(
-                model=model,
-                device=device,
-                train_loader=train_loader,
-                val_loader=val_loader,
-                epochs=adapter_epochs,
-                lr=adapter_lr,
-            )
-
-            hold_loss, hold_acc, hold_probs = _evaluate_holdout(
-                model, device, hold_loader, nn.CrossEntropyLoss()
-            )
-
-            # Determine Rho (unanimous or mixed)
-            rhos = set()
-            for rid in run_ids:
-                r = client.get_run(rid)
-                r_rho = r.data.tags.get("rho")
-                if r_rho is not None:
-                    rhos.add(r_rho)
-            rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
-
-            # 6. Logging
-            tags = behaviour_tags(
-                kind="metalearner",
-                behaviour=meta_type,
-                component_run_ids=run_ids,
-                behaviour_input_hash=bi_hash,
-                component_set_hash=cs_hash,
-                rho=rho_sum,
-                extra={
-                    "ensemble_name": ens_name,
-                    "split": split,
-                    "feature_type": feature_type,
-                    "similarity_metric": similarity_metric,
-                    "meta_split_seed": str(meta_split_cfg.seed),
-                },
-            )
-
             with mlflow.start_run(
                 run_name=f"{ens_name}_adapter_{meta_type}", tags=tags
             ) as run:
@@ -407,7 +309,144 @@ def _main(cfg: DictConfig) -> None:
                     }
                 )
 
-                # Log final holdout metrics directly
+                # 3. Secure Feature Extraction
+                base_tensors = []
+                profile_tensors = []
+
+                for run_id in run_ids:
+                    inf_runs = get_inference_run(
+                        cfg.mlflow.experiment_name, run_id, split
+                    )
+                    if inf_runs.empty:
+                        raise RuntimeError(f"Missing '{split}' inference for {run_id}")
+                    inf_run_id = inf_runs.iloc[0].run_id
+
+                    if use_profiles:
+                        prof_runs = get_profile_run(
+                            cfg.mlflow.experiment_name, run_id, similarity_metric, split
+                        )
+                        if prof_runs.empty:
+                            raise RuntimeError(
+                                f"Missing '{similarity_metric}' profile for {run_id}"
+                            )
+
+                        prof_run_id = prof_runs.iloc[0].run_id
+                        inf_prof_node = load_mlflow_artifact(
+                            prof_run_id,
+                            f"profiles/{split}_{similarity_metric}_profiles.pt",
+                            file_type="torch",
+                            strict=True,
+                        ).cpu()
+                        _assert_valid_feature_tensor(
+                            "profile_tensor", inf_prof_node, total_examples
+                        )
+                        profile_tensors.append(inf_prof_node)
+
+                    data = load_mlflow_artifact(
+                        inf_run_id,
+                        f"inference_data/{split}_tensors.npz",
+                        file_type="numpy",
+                        strict=True,
+                    )
+
+                    if "logits" in feature_type:
+                        if "logits" not in data:
+                            raise KeyError(
+                                f"Missing logits in inference_data/{split}_tensors.npz for run {inf_run_id}"
+                            )
+                        base_tensor = torch.from_numpy(data["logits"])
+                    elif "embeddings" in feature_type:
+                        if "embeddings" not in data:
+                            raise KeyError(
+                                f"Missing embeddings in inference_data/{split}_tensors.npz for run {inf_run_id}"
+                            )
+                        base_tensor = torch.from_numpy(data["embeddings"])
+                    else:
+                        raise ValueError(f"Unknown feature_type: {feature_type}")
+
+                    _assert_valid_feature_tensor(
+                        "base_tensor", base_tensor, total_examples
+                    )
+                    base_tensors.append(base_tensor)
+
+                X_base = torch.cat(base_tensors, dim=1)
+                _assert_valid_feature_tensor("X_base", X_base, total_examples)
+
+                if use_profiles:
+                    P = torch.stack(profile_tensors, dim=1)
+
+                    Pc = P - P.mean(dim=2, keepdim=True)
+                    P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
+                    P_n = Pc / P_norm
+
+                    corr = torch.bmm(P_n, P_n.transpose(1, 2))
+                    rdm = 1.0 - corr
+
+                    K = P_n.size(1)
+                    idx = torch.triu_indices(K, K, offset=1)
+                    S = rdm[:, idx[0], idx[1]]
+
+                    X_all = torch.cat([X_base, S], dim=1)
+                else:
+                    X_all = X_base
+
+                _assert_valid_feature_tensor("X_all", X_all, total_examples)
+                y_all = labels_tensor
+
+                # 4. Construct Data Splits
+                train_idx, val_idx, holdout_idx = _three_way_split(
+                    total_examples, meta_split_cfg.fractions, meta_split_cfg.seed
+                )
+
+                ds_train = TensorDataset(X_all[train_idx], y_all[train_idx])
+                ds_val = TensorDataset(X_all[val_idx], y_all[val_idx])
+                ds_hold = TensorDataset(X_all[holdout_idx], y_all[holdout_idx])
+
+                train_loader = DataLoader(
+                    ds_train, batch_size=adapter_batch_size, shuffle=True
+                )
+                val_loader = DataLoader(
+                    ds_val, batch_size=adapter_batch_size, shuffle=False
+                )
+                hold_loader = DataLoader(
+                    ds_hold, batch_size=adapter_batch_size, shuffle=False
+                )
+
+                # 5. Build and Train
+                num_classes = cfg.dataset.num_classes
+                input_dim = X_all.shape[1]
+
+                if meta_type == "meta_lr":
+                    model = MetaLR(input_dim, num_classes, bias=adapter_bias)
+                elif meta_type == "meta_mlp":
+                    model = MetaMLP(
+                        input_dim,
+                        hidden_dim,
+                        num_classes,
+                        adapter_dropout,
+                        adapter_bias,
+                    )
+                else:
+                    raise ValueError(f"Unknown meta_type: {meta_type}")
+
+                print(
+                    f"  Training {meta_type} (input_dim={input_dim}) for {adapter_epochs} epochs..."
+                )
+
+                model, history = _train_adapter(
+                    model=model,
+                    device=device,
+                    train_loader=train_loader,
+                    val_loader=val_loader,
+                    epochs=adapter_epochs,
+                    lr=adapter_lr,
+                )
+
+                hold_loss, hold_acc, hold_probs = _evaluate_holdout(
+                    model, device, hold_loader, nn.CrossEntropyLoss()
+                )
+
+                # 6. Logging
                 mlflow.log_metrics(
                     {
                         "holdout_loss": hold_loss,
@@ -417,7 +456,6 @@ def _main(cfg: DictConfig) -> None:
                     }
                 )
 
-                # Parquet / NPZ Logging (Same structure as 04_run_ensemble natively scoped just for holdout subset)
                 tabular_path = os.path.join(
                     cache_dir, f"adapter_holdout_{bi_hash}.parquet"
                 )
@@ -426,10 +464,14 @@ def _main(cfg: DictConfig) -> None:
                 df_hold = pd.DataFrame(
                     {
                         "example_id": [manifest.hashes[i] for i in holdout_idx],
-                        "original_index": safe_to_numpy_float64(manifest.original_indices[holdout_idx]),
+                        "original_index": safe_to_numpy_float64(
+                            manifest.original_indices[holdout_idx]
+                        ),
                         "label": safe_to_numpy_float64(manifest.labels[holdout_idx]),
                         "prediction": safe_to_numpy_float64(hold_probs.argmax(dim=1)),
-                        "confidence": safe_to_numpy_float64(hold_probs.max(dim=1).values),
+                        "confidence": safe_to_numpy_float64(
+                            hold_probs.max(dim=1).values
+                        ),
                     }
                 )
 
@@ -439,20 +481,25 @@ def _main(cfg: DictConfig) -> None:
                 mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
                 mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
 
-                # Dataset Schema Tracking
-                # Use standard manifest logging
-                log_manifest_lineage(manifest, "train", cfg.dataset.name, context="training")
-                log_manifest_lineage(manifest, "val", cfg.dataset.name, context="validation")
-                log_manifest_lineage(manifest, "test", cfg.dataset.name, context="testing")
+                log_manifest_lineage(
+                    manifest, "train", cfg.dataset.name, context="training"
+                )
+                log_manifest_lineage(
+                    manifest, "val", cfg.dataset.name, context="validation"
+                )
+                log_manifest_lineage(
+                    manifest, "test", cfg.dataset.name, context="testing"
+                )
 
-                # Infer signature and log the adapter model
                 input_example_np = X_all[val_idx][:5].numpy()
                 model.eval()
                 with torch.no_grad():
-                    output_example_np = model(X_all[val_idx][:5].to(device)).cpu().numpy()
-                
+                    output_example_np = (
+                        model(X_all[val_idx][:5].to(device)).cpu().numpy()
+                    )
+
                 signature = infer_signature(input_example_np, output_example_np)
-                
+
                 mlflow.pytorch.log_model(
                     model,
                     name="model",
@@ -463,7 +510,10 @@ def _main(cfg: DictConfig) -> None:
                 print(f"  Holdout Acc = {hold_acc:.4f}  run_id={run.info.run_id}")
 
         except Exception as e:
-            print(f"  FAIL: {e}")
+            active_run = mlflow.active_run()
+            if active_run is not None:
+                mlflow.end_run(status="FAILED")
+            raise RuntimeError(f"Adapter training failed for '{ens_name}': {e}") from e
 
 
 if __name__ == "__main__":
