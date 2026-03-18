@@ -14,6 +14,7 @@ models_pd = mlflow.search_runs(
 )
 # Convert to Polars and select columns
 training_runs = pl.from_pandas(models_pd).select(["run_id", "tags.rho"])
+print(f"Found {training_runs.height} training runs with 'rho' tag.")
 # %%
 inference_runs_pd = mlflow.search_runs(
     experiment_ids=[experiment.experiment_id], filter_string="tags.kind = 'inference'"
