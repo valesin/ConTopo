@@ -40,31 +40,7 @@ from src.mlflow_utils import (
 )
 
 # ─── MODELS ───
-
-
-class MetaLR(nn.Module):
-    def __init__(self, input_dim: int, num_classes: int, bias: bool = True):
-        super().__init__()
-        self.linear = nn.Linear(input_dim, num_classes, bias=bias)
-
-    def forward(self, x):
-        return self.linear(x)
-
-
-class AdapterMLP(nn.Module):
-
-    def __init__(self, input_dim: int, num_classes: int, bias: bool = True):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 128, bias=bias),
-            nn.ReLU(),
-            nn.Linear(128, 64, bias=bias),
-            nn.ReLU(),
-            nn.Linear(64, num_classes, bias=bias),
-        )
-
-    def forward(self, x):
-        return self.net(x)
+from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter, ThreeLayerMLPAdapter
 
 
 # ─── LOGIC ───
@@ -453,11 +429,19 @@ def _main(cfg: DictConfig) -> None:
                 input_dim = X_train.shape[1]
 
                 if meta_type == "meta_lr":
-                    model = MetaLR(input_dim, num_classes, bias=adapter_bias)
-                elif meta_type == "meta_mlp":
-                    model = AdapterMLP(
-                        input_dim,
-                        num_classes,
+                    model = LinearAdapter(input_dim, num_classes, bias=adapter_bias)
+                elif meta_type == "meta_mlp_2":
+                    model = TwoLayerMLPAdapter(
+                        in_dim=input_dim,
+                        hidden_dim=128,
+                        num_classes=num_classes,
+                        dropout=0.0,
+                        bias=adapter_bias,
+                    )
+                elif meta_type == "meta_mlp_3":
+                    model = ThreeLayerMLPAdapter(
+                        in_dim=input_dim,
+                        num_classes=num_classes,
                         bias=adapter_bias,
                     )
                 else:
