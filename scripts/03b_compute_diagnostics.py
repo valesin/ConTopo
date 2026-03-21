@@ -31,7 +31,6 @@ from omegaconf import DictConfig
 
 from src.config.paths import get_cache_dir
 from src.config.hash import cfg_hash
-from src.data.manifest import get_or_create_manifest
 from src.mlflow_utils import (
     log_resolved_config,
     setup_mlflow,
@@ -39,15 +38,13 @@ from src.mlflow_utils import (
     resolve_seed,
     get_inference_run,
     load_mlflow_artifact,
-    log_manifest_lineage,
     find_finished_diagnostic_run,
+    log_dataset_lineage,
 )
 from src.profiling.smoothness import morans_i
 from src.profiling.unit_analysis import weight_norms, unit_distance_correlation
 from src.networks.registry import unwrap
-
-
-
+from src.data.loaders import get_split_labels
 
 
 def _log_diagnostic_run(
@@ -58,7 +55,6 @@ def _log_diagnostic_run(
     metrics,
     artifact_dir,
     cfg,
-    manifest=None,
 ):
     """Create one MLflow run for a single diagnostic metric."""
     rho = model_tags.get("rho", "?")
@@ -93,9 +89,9 @@ def _log_diagnostic_run(
         for k, v in metrics.items():
             mlflow.log_metric(k, v)
 
-        # ── Log the dataset manifest to MLflow for lineage ──
-        if manifest is not None:
-            log_manifest_lineage(manifest, cfg.pipeline.split, cfg.dataset.name, context="diagnostics")
+        log_dataset_lineage(
+            get_split_labels(cfg, cfg.pipeline.split), cfg.pipeline.split, cfg.dataset.name, context="diagnostics"
+        )
 
         # Log applicable artifact files for this metric
         if artifact_dir and os.path.isdir(artifact_dir):
@@ -148,13 +144,7 @@ def main(cfg: DictConfig) -> None:
     artifacts_root = str(cache_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ── Manifest ──
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=artifacts_root,
-    )
+
 
     # Get parent model tags for logging
     model_run = mlflow.get_run(run_id)
@@ -201,7 +191,12 @@ def main(cfg: DictConfig) -> None:
 
     # ── Moran's I ──
     if "morans_i" in needed:
-        data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
+        data = load_mlflow_artifact(
+            inf_run_id,
+            f"inference_data/{split}_tensors.npz",
+            file_type="numpy",
+            strict=True,
+        )
         embs = torch.from_numpy(data["embeddings"])
 
         emb_dim = int(model_run.data.params.get("embedding_dim", 256))

@@ -1,8 +1,8 @@
 """
-Deterministic anchor / subset selection derived from dataset manifest.
+Deterministic anchor / subset selection from dataset labels.
 
 Anchors are NOT model-dependent — they are derived solely from:
-  - DatasetManifest (hashes, labels, indices)
+  - ground-truth labels (torch.Tensor)
   - AnchorSpec (source_split, per_class, strategy, order_by, num_classes)
 
 The ``AnchorSpec`` dataclass is the single source of truth for anchor
@@ -21,8 +21,6 @@ import os
 from typing import Any, Dict
 
 import torch
-
-from src.data.manifest import DatasetManifest
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,21 +61,20 @@ def anchor_spec_hash(spec: Dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
-def select_anchors_from_manifest(
-    manifest: DatasetManifest,
+def select_anchors(
+    labels: torch.Tensor,
     spec: AnchorSpec,
 ) -> Dict[str, Any]:
     """
-    Select anchor indices from a dataset manifest.
+    Select anchor indices from ground-truth labels.
 
     Args:
-        manifest: The DatasetManifest to select from.
+        labels: int64 tensor of ground-truth class labels.
         spec: Fully-populated ``AnchorSpec`` — no hidden defaults.
 
     Returns:
         Dict with keys:
-          - anchor_indices:   list[int]  — indices into the manifest
-          - anchor_example_ids: list[str]
+          - anchor_indices:   list[int]  — indices into the label tensor
           - anchor_labels:    torch.Tensor
           - spec: dict of the specification used
           - spec_hash: deterministic hash of the spec
@@ -85,15 +82,11 @@ def select_anchors_from_manifest(
     if spec.strategy != "per_class_first_n":
         raise NotImplementedError(f"Anchor strategy '{spec.strategy}' not implemented.")
 
-    # Build (sort_key, manifest_idx) pairs per class
+    # Build (sort_key, idx) pairs per class — sort_key is always the
+    # sequential dataset index now that manifest hashes are gone.
     class_indices: dict[int, list[tuple]] = {c: [] for c in range(spec.num_classes)}
-    for i, label in enumerate(manifest.labels.tolist()):
-        if spec.order_by == "example_id":
-            sort_key = manifest.hashes[i]
-        elif spec.order_by == "original_index":
-            sort_key = int(manifest.original_indices[i])
-        else:
-            raise ValueError(f"Unknown order_by: {spec.order_by}")
+    for i, label in enumerate(labels.tolist()):
+        sort_key = i  # original_index ordering
         class_indices[label].append((sort_key, i))
 
     # Sort each class and pick first N
@@ -104,13 +97,12 @@ def select_anchors_from_manifest(
             raise RuntimeError(
                 f"Class {c}: only {len(sorted_items)} examples, need {spec.per_class}"
             )
-        for _, manifest_idx in sorted_items[: spec.per_class]:
-            selected_indices.append(manifest_idx)
+        for _, idx in sorted_items[: spec.per_class]:
+            selected_indices.append(idx)
 
     return {
         "anchor_indices": selected_indices,
-        "anchor_example_ids": [manifest.hashes[i] for i in selected_indices],
-        "anchor_labels": manifest.labels[selected_indices],
+        "anchor_labels": labels[selected_indices],
         "spec": spec.to_dict(),
         "spec_hash": spec.hash,
     }
@@ -128,24 +120,26 @@ def load_anchors(path: str) -> Dict[str, Any]:
 
 
 def get_or_create_anchors(
-    manifest: DatasetManifest,
+    labels: torch.Tensor,
     spec: AnchorSpec,
     artifacts_root: str,
+    dataset_name: str = "cifar10",
 ) -> Dict[str, Any]:
     """
-    Get cached anchors or create them from manifest.
+    Get cached anchors or create them from labels.
 
     Args:
-        manifest: The DatasetManifest to select from.
+        labels: int64 tensor of ground-truth class labels.
         spec: Fully-populated ``AnchorSpec`` — no hidden defaults.
         artifacts_root: Root directory for cached artifacts.
+        dataset_name: Name of the dataset (used for cache path).
     """
     spec_h = spec.hash
     anchor_path = os.path.join(
         artifacts_root,
         "anchors",
-        manifest.dataset_name,
-        manifest.split,
+        dataset_name,
+        spec.source_split,
         spec_h,
         "anchors.pt",
     )
@@ -153,6 +147,6 @@ def get_or_create_anchors(
     if os.path.isfile(anchor_path):
         return load_anchors(anchor_path)
 
-    anchors = select_anchors_from_manifest(manifest, spec)
+    anchors = select_anchors(labels, spec)
     save_anchors(anchors, anchor_path)
     return anchors

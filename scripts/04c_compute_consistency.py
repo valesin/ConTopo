@@ -19,7 +19,6 @@ import hashlib
 import json
 import os
 import shutil
-import pandas as pd
 
 import hydra
 import mlflow
@@ -28,7 +27,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.anchors import AnchorSpec, get_or_create_anchors
-from src.data.manifest import get_or_create_manifest
+from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
@@ -37,8 +36,8 @@ from src.mlflow_utils import (
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
-    log_manifest_lineage,
     find_finished_consistency_run,
+    log_dataset_lineage,
 )
 from src.profiling.rdm import pearson_rdm, rsa_correlation
 
@@ -48,7 +47,6 @@ def _consistency_hash(cs_hash: str, anchor_spec_hash: str, split: str) -> str:
     parts = [cs_hash, anchor_spec_hash, split, "consistency"]
     canonical = json.dumps(parts, ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
 
 
 
@@ -66,13 +64,9 @@ def main(cfg: DictConfig) -> None:
     cache_dir = get_cache_dir(cfg)
     anchors_cfg = cfg.pipeline.anchors
 
-    # 1. Setup manifest for authoritative dataset tracking
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(cache_dir),
-    )
+    # 1. Get ground-truth labels
+    labels = get_split_labels(cfg, split)
+
     anchor_spec = AnchorSpec(
         source_split=split,
         per_class=anchors_cfg.per_class,
@@ -81,9 +75,10 @@ def main(cfg: DictConfig) -> None:
         num_classes=cfg.dataset.num_classes,
     )
     anchors = get_or_create_anchors(
-        manifest,
+        labels,
         spec=anchor_spec,
         artifacts_root=str(cache_dir),
+        dataset_name=cfg.dataset.name,
     )
     anchor_indices = anchors["anchor_indices"]
     a_spec_hash = anchors["spec_hash"]
@@ -119,7 +114,6 @@ def main(cfg: DictConfig) -> None:
 
         rdms = {}
         skip = False
-        client = mlflow.tracking.MlflowClient()
 
         for run_id in run_ids:
             # Find the corresponding inference run
@@ -133,15 +127,6 @@ def main(cfg: DictConfig) -> None:
                 break
 
             inf_run_id = inf_runs.iloc[0].run_id
-
-            # Enforce identical manifest alignment
-            run_hash = client.get_run(inf_run_id).data.tags.get(
-                "dataset_manifest_hash", ""
-            )
-            if run_hash and run_hash != manifest.manifest_hash:
-                raise ValueError(
-                    f"HARD FAIL: inference run {inf_run_id} dataset hash mismatch!"
-                )
 
             # 2. Download the tracked tensor artifact
             data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
@@ -192,7 +177,6 @@ def main(cfg: DictConfig) -> None:
             "component_set_hash": cs_hash,
             "consistency_hash": cons_hash,
             "anchor_spec_hash": a_spec_hash,
-            "dataset_manifest_hash": manifest.manifest_hash,
         }
 
         with mlflow.start_run(
@@ -216,20 +200,8 @@ def main(cfg: DictConfig) -> None:
                 if os.path.isfile(fpath):
                     mlflow.log_artifact(fpath, artifact_path="consistency")
 
-            # Link dataset lineage for consistency calculation subset
-            # We track the anchors subset logic using the standard helper but log explicitly
-            anchor_manifest = get_or_create_manifest(
-                dataset_name=cfg.dataset.name,
-                split=split,
-                data_root=cfg.runtime.data_root,
-                artifacts_root=str(cache_dir),
-            )
-            # Create a "view" of the anchors manifest 
-            anchor_manifest.hashes = [anchor_manifest.hashes[i] for i in anchor_indices]
-            anchor_manifest.original_indices = anchor_manifest.original_indices[anchor_indices]
-            anchor_manifest.labels = anchor_manifest.labels[anchor_indices]
-            
-            log_manifest_lineage(anchor_manifest, split, f"{cfg.dataset.name}_consistency_anchors", context="evaluation")
+            labels_subset = labels[anchor_indices]
+            log_dataset_lineage(labels_subset, split, f"{cfg.dataset.name}_consistency_anchors", context="evaluation")
 
             log_resolved_config(cfg)
 

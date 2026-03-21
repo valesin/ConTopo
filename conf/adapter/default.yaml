@@ -7,7 +7,7 @@ batch_size: 256
 bias: true
 
 # ── Meta-learner identity (sweepable via --multirun) ──
-meta_type: meta_lr            # meta_lr | meta_mlp
+meta_type: meta_lr            # meta_lr | meta_mlp_2 | meta_mlp_3
 feature_type: logits          # logits | embeddings | embeddings+profiles
 similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
 

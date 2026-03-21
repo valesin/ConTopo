@@ -22,7 +22,7 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.data.manifest import get_or_create_manifest
+from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
@@ -35,8 +35,8 @@ from src.mlflow_utils import (
     get_inference_run,
     get_profile_run,
     load_mlflow_artifact,
-    log_manifest_lineage,
     safe_to_numpy_float64,
+    log_dataset_lineage,
 )
 
 # ─── MODELS ───
@@ -200,14 +200,8 @@ def _main(cfg: DictConfig) -> None:
     meta_split_cfg = cfg.adapter.meta_split
     use_profiles = "profiles" in feature_type
 
-    # 1. Dataset Manifest Lock
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(cache_dir),
-    )
-    labels_tensor = manifest.labels
+    # 1. Get ground-truth labels
+    labels_tensor = get_split_labels(cfg, split)
     total_examples = len(labels_tensor)
 
     # 2. Discover Ensemble Components from MLflow
@@ -234,7 +228,6 @@ def _main(cfg: DictConfig) -> None:
         # Lock identity
         bi_hash = behaviour_input_hash(
             component_set_hash_val=cs_hash,
-            dataset_manifest_hash=manifest.manifest_hash,
             split=split,
             feature_type=feature_type,
             similarity_metric=similarity_metric if use_profiles else "",
@@ -329,8 +322,6 @@ def _main(cfg: DictConfig) -> None:
                             strict=True,
                         ).cpu()
 
-                        # Note: _assert_valid_feature_tensor expects 2D, but profiles are typically 3D [N, Classes]
-                        # We bypass the 2D assert here as P is expected to be stacked into 3D.
                         profile_tensors.append(inf_prof_node)
 
                     data = load_mlflow_artifact(
@@ -387,9 +378,11 @@ def _main(cfg: DictConfig) -> None:
                     K = P_n.size(1)
                     idx = torch.triu_indices(K, K, offset=1)
                     S = rdm[:, idx[0], idx[1]]
+                    profile_feature_dim = int(S.shape[1])
 
                     X_all = torch.cat([X_base, S], dim=1)
                 else:
+                    profile_feature_dim = 0
                     X_all = X_base
 
                 _assert_valid_feature_tensor("X_all", X_all, total_examples)
@@ -404,6 +397,10 @@ def _main(cfg: DictConfig) -> None:
                 X_train = X_all[train_idx]
                 X_val = X_all[val_idx]
                 X_holdout = X_all[holdout_idx]
+
+                # Capture standardization stats for traceability
+                standardize_mean = X_train.mean(dim=0, keepdim=True)
+                standardize_std = X_train.std(dim=0, keepdim=True)
 
                 # Apply Standardization (preventing data leakage)
                 X_train, X_val, X_holdout = _standardize_features(
@@ -478,14 +475,61 @@ def _main(cfg: DictConfig) -> None:
                     cache_dir, f"adapter_holdout_{bi_hash}.parquet"
                 )
                 tensors_path = os.path.join(cache_dir, f"adapter_holdout_{bi_hash}.npz")
+                inputs_path = os.path.join(cache_dir, f"adapter_inputs_{bi_hash}.npz")
+                split_trace_path = os.path.join(
+                    cache_dir, f"adapter_split_trace_{bi_hash}.parquet"
+                )
+
+                os.makedirs(cache_dir, exist_ok=True)
+
+                # Save exact regression-head inputs used in this run
+                np.savez_compressed(
+                    inputs_path,
+                    X_train=X_train.detach().cpu().numpy(),
+                    X_val=X_val.detach().cpu().numpy(),
+                    X_holdout=X_holdout.detach().cpu().numpy(),
+                    y_train=y_all[train_idx].detach().cpu().numpy(),
+                    y_val=y_all[val_idx].detach().cpu().numpy(),
+                    y_holdout=y_all[holdout_idx].detach().cpu().numpy(),
+                    train_idx=np.asarray(train_idx),
+                    val_idx=np.asarray(val_idx),
+                    holdout_idx=np.asarray(holdout_idx),
+                    standardize_mean=standardize_mean.detach().cpu().numpy(),
+                    standardize_std=standardize_std.detach().cpu().numpy(),
+                    x_base_dim=np.asarray([int(X_base.shape[1])], dtype=np.int64),
+                    profile_feature_dim=np.asarray(
+                        [profile_feature_dim], dtype=np.int64
+                    ),
+                    use_profiles=np.asarray([int(use_profiles)], dtype=np.int64),
+                )
+
+                split_trace = pd.DataFrame(
+                    {
+                        "original_index": np.concatenate(
+                            [train_idx, val_idx, holdout_idx]
+                        ),
+                        "split": (
+                            ["train"] * len(train_idx)
+                            + ["val"] * len(val_idx)
+                            + ["holdout"] * len(holdout_idx)
+                        ),
+                        "position_in_split": np.concatenate(
+                            [
+                                np.arange(len(train_idx)),
+                                np.arange(len(val_idx)),
+                                np.arange(len(holdout_idx)),
+                            ]
+                        ),
+                    }
+                )
+                split_trace.to_parquet(split_trace_path, index=False)
 
                 df_hold = pd.DataFrame(
                     {
-                        "example_id": [manifest.hashes[i] for i in holdout_idx],
                         "original_index": safe_to_numpy_float64(
-                            manifest.original_indices[holdout_idx]
+                            torch.tensor(holdout_idx)
                         ),
-                        "label": safe_to_numpy_float64(manifest.labels[holdout_idx]),
+                        "label": safe_to_numpy_float64(labels_tensor[holdout_idx]),
                         "prediction": safe_to_numpy_float64(hold_probs.argmax(dim=1)),
                         "confidence": safe_to_numpy_float64(
                             hold_probs.max(dim=1).values
@@ -496,17 +540,28 @@ def _main(cfg: DictConfig) -> None:
                 df_hold.to_parquet(tabular_path, index=False)
                 np.savez_compressed(tensors_path, probs=hold_probs.numpy())
 
+                mlflow.log_artifact(inputs_path, artifact_path="adapter_inputs")
+                mlflow.log_artifact(split_trace_path, artifact_path="adapter_inputs")
                 mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
                 mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
 
-                log_manifest_lineage(
-                    manifest, "train", cfg.dataset.name, context="training"
+                log_dataset_lineage(
+                    get_split_labels(cfg, "train"),
+                    "train",
+                    cfg.dataset.name,
+                    context="training",
                 )
-                log_manifest_lineage(
-                    manifest, "val", cfg.dataset.name, context="validation"
+                log_dataset_lineage(
+                    get_split_labels(cfg, "val"),
+                    "val",
+                    cfg.dataset.name,
+                    context="validation",
                 )
-                log_manifest_lineage(
-                    manifest, "test", cfg.dataset.name, context="testing"
+                log_dataset_lineage(
+                    get_split_labels(cfg, "test"),
+                    "test",
+                    cfg.dataset.name,
+                    context="testing",
                 )
 
                 input_example_np = X_val[:5].numpy()

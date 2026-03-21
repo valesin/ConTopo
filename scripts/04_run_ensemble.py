@@ -33,7 +33,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.ensemble.combine import combine_logits, METHODS
 from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
 from src.ensemble.selector import discover_ensembles
-from src.data.manifest import get_or_create_manifest
+from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
     behaviour_tags,
@@ -44,8 +44,8 @@ from src.mlflow_utils import (
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
-    log_manifest_lineage,
     safe_to_numpy_float64,
+    log_dataset_lineage,
 )
 
 
@@ -94,28 +94,12 @@ def _load_inference_artifacts(run_ids, exp_id, split="test"):
     return logits_list, composition_map
 
 
-def _verify_manifest_compat(run_ids, expected_hash):
-    """Verify all component runs share the same dataset_manifest_hash."""
-    client = mlflow.tracking.MlflowClient()
-    mismatched = []
-    for run_id in run_ids:
-        run = client.get_run(run_id)
-        run_hash = run.data.tags.get("dataset_manifest_hash", "")
-        if run_hash and run_hash != expected_hash:
-            mismatched.append((run_id, run_hash))
-    if mismatched:
-        raise ValueError(
-            f"Manifest hash mismatch! Expected {expected_hash}, but "
-            f"{len(mismatched)} runs differ: {mismatched[:3]}..."
-        )
-
-
 def _run_votes(
     cfg,
     ens_name,
     methods,
     logits_list,
-    manifest,
+    labels,
     composition_map,
     run_ids,
     cs_hash,
@@ -126,8 +110,6 @@ def _run_votes(
 ):
     """Run vote-based methods and log identical artifact structures to 02_cache_inference."""
     results = []
-
-    labels = manifest.labels
 
     for method in methods:
         if method not in METHODS:
@@ -162,7 +144,6 @@ def _run_votes(
                 "ensemble_name": ens_name,
                 "split": split_name,
                 "feature_type": "logits",
-                "dataset_manifest_hash": manifest.manifest_hash,
             },
         )
 
@@ -176,7 +157,6 @@ def _run_votes(
                     "num_components": len(run_ids),
                     "component_run_ids_csv": component_run_ids_csv,
                     "split": split_name,
-                    "dataset_manifest_hash": manifest.manifest_hash,
                 }
             )
             mlflow.set_tag("component_run_ids_csv", component_run_ids_csv)
@@ -197,9 +177,10 @@ def _run_votes(
             # ── Ensemble Inference Tracking Parity (Parquet/NPZ) ──
             eval_df = pd.DataFrame(
                 {
-                    "example_id": manifest.hashes,
-                    "original_index": safe_to_numpy_float64(manifest.original_indices),
-                    "label": safe_to_numpy_float64(manifest.labels),
+                    "original_index": safe_to_numpy_float64(
+                        torch.arange(len(labels))
+                    ),
+                    "label": safe_to_numpy_float64(labels),
                     "prediction": safe_to_numpy_float64(preds),
                     "confidence": safe_to_numpy_float64(
                         probs.numpy().max(axis=1)
@@ -207,14 +188,6 @@ def _run_votes(
                         else probs.max(axis=1)
                     ),
                 }
-            )
-
-            # Dataset tracking for data lineage
-            log_manifest_lineage(
-                manifest,
-                split_name,
-                cfg.dataset.name,
-                context="validation" if split_name == "val" else "testing",
             )
 
             # Local saves
@@ -234,6 +207,8 @@ def _run_votes(
             mlflow.log_artifact(tabular_path, artifact_path="ensemble_data")
             mlflow.log_artifact(tensors_path, artifact_path="ensemble_data")
 
+            log_dataset_lineage(labels, split_name, cfg.dataset.name, context="evaluation")
+
             log_resolved_config(cfg)
             print(
                 f"  vote/{method}: acc={acc:.4f} (comp_mean={comp['mean_acc']:.4f})  run_id={run.info.run_id}"
@@ -250,13 +225,7 @@ def main(cfg: DictConfig) -> None:
     split = cfg.pipeline.split
     cache_dir = get_cache_dir(cfg)
 
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(cache_dir),
-    )
-    manifest_hash = manifest.manifest_hash
+    labels = get_split_labels(cfg, split)
 
     # Get MLflow environment to fetch runs
     exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
@@ -297,9 +266,6 @@ def main(cfg: DictConfig) -> None:
         print(f"Executing Ensemble: {ens_name}")
         print(f"  Components matched: {len(run_ids)} runs")
 
-        # Verify manifest compatibility
-        _verify_manifest_compat(run_ids, manifest_hash)
-
         # Load logits matrices + composition tracking metadata
         logits_list, composition_map = _load_inference_artifacts(
             run_ids, exp.experiment_id, split
@@ -319,7 +285,6 @@ def main(cfg: DictConfig) -> None:
         cs_hash = component_set_hash(run_ids)
         bi_hash = behaviour_input_hash(
             component_set_hash_val=cs_hash,
-            dataset_manifest_hash=manifest_hash,
             split=split,
             feature_type="logits",
         )
@@ -331,7 +296,7 @@ def main(cfg: DictConfig) -> None:
                 ens_name,
                 vote_methods,
                 logits_list,
-                manifest,
+                labels,
                 composition_map,
                 run_ids,
                 cs_hash,

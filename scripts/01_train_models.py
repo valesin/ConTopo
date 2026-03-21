@@ -24,9 +24,7 @@ from omegaconf import DictConfig
 from torch.amp import GradScaler
 
 from src.config.hash import cfg_hash
-from src.config.paths import get_cache_dir
-from src.data.loaders import get_cifar10_loaders
-from src.data.manifest import get_or_create_manifest
+from src.data.loaders import get_cifar10_loaders, get_split_labels
 from src.losses.balancer import GradNormBalancer
 from src.losses.topographic import Global_Topographic_Loss, Local_WS_Loss
 from src.mlflow_utils import (
@@ -35,7 +33,7 @@ from src.mlflow_utils import (
     setup_mlflow,
     check_existing_model,
     resolve_seed,
-    log_manifest_lineage,
+    log_dataset_lineage,
 )
 from src.networks.registry import build_model, unwrap
 from src.training.train_ce import train_one_epoch, validate
@@ -74,8 +72,6 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    # cfg = apply_schema_defaults(cfg)
-
     # ── Seed ──
     seed = resolve_seed(cfg)
     cfg.seed = seed
@@ -95,15 +91,6 @@ def main(cfg: DictConfig) -> None:
 
     # ── Data ──
     train_loader, val_loader, test_loader = get_cifar10_loaders(cfg)
-
-    # ── Dataset manifest (test split) ──
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split="test",
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(get_cache_dir(cfg)),
-    )
-    manifest_hash = manifest.manifest_hash
 
     # ── Device ──
     dev_name = cfg.runtime.device
@@ -151,7 +138,7 @@ def main(cfg: DictConfig) -> None:
     save_freq = max(1, int(cfg.training.save_freq_epochs))
 
     # ── MLflow run ──
-    tags = model_tags(cfg, hash_val, dataset_manifest_hash=manifest_hash)
+    tags = model_tags(cfg, hash_val)
 
     with mlflow.start_run(
         run_name=f"CE_{topo_str}_rho{rho_str}/{trial_str}", tags=tags
@@ -184,27 +171,13 @@ def main(cfg: DictConfig) -> None:
                 "split_strategy": cfg.dataset.split.strategy,
                 "split_seed": cfg.dataset.split.seed,
                 "val_per_class": cfg.dataset.split.val_per_class,
-                "dataset_manifest_hash": manifest_hash,
             }
         )
         log_resolved_config(cfg)
 
-        # ── Log Dataset Splits to MLflow ──
-        # import pandas as pd # This import is no longer needed
-
-        def log_split_to_mlflow(split_name, ctx):
-            split_manifest = get_or_create_manifest(
-                dataset_name=cfg.dataset.name,
-                split=split_name,
-                data_root=cfg.runtime.data_root,
-                artifacts_root=str(get_cache_dir(cfg)),
-            )
-            # ── Log the dataset manifest to MLflow for lineage ──
-            log_manifest_lineage(split_manifest, split_name, cfg.dataset.name, context=ctx)
-
-        log_split_to_mlflow("train", "training")
-        log_split_to_mlflow("val", "validation")
-        log_split_to_mlflow("test", "testing")
+        log_dataset_lineage(get_split_labels(cfg, "train"), "train", cfg.dataset.name, context="training")
+        log_dataset_lineage(get_split_labels(cfg, "val"), "val", cfg.dataset.name, context="validation")
+        log_dataset_lineage(get_split_labels(cfg, "test"), "test", cfg.dataset.name, context="testing")
 
         # ── Create Signature and Input Example (Before Loop) ──
         # Grab one batch from the train_loader

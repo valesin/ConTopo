@@ -21,8 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from src.data.anchors import AnchorSpec, anchor_spec_hash, select_anchors_from_manifest
-from src.data.manifest import DatasetManifest
+from src.data.anchors import AnchorSpec, anchor_spec_hash, select_anchors
 from src.mlflow_utils import (
     behaviour_input_hash,
     category_similarity_profile_tags,
@@ -38,17 +37,8 @@ from src.profiling.category_similarity import (
 # ──────────── Fixtures ──────────────
 
 
-def _make_manifest(N=500, num_classes=10, split="test"):
-    labels = torch.tensor([i % num_classes for i in range(N)])
-    hashes = [f"img_{i:05d}" for i in range(N)]
-    original_indices = torch.arange(N)
-    return DatasetManifest(
-        hashes=hashes,
-        original_indices=original_indices,
-        labels=labels,
-        dataset_name="test",
-        split=split,
-    )
+def _make_labels(N=500, num_classes=10):
+    return torch.tensor([i % num_classes for i in range(N)])
 
 
 def _make_embeddings(N=500, D=256, seed=42):
@@ -200,7 +190,6 @@ class TestBehaviourInputHashIdempotency:
     def _base_args(self):
         return {
             "component_set_hash_val": component_set_hash(["run_a", "run_b"]),
-            "dataset_manifest_hash": "manifest_abc",
             "split": "test",
             "feature_type": "embeddings+profiles",
             "anchor_spec": "anchor_hash_AAAA",
@@ -380,9 +369,9 @@ class TestEndToEndFeatureAssembly:
     """Integration test: anchor selection → profile computation → feature assembly."""
 
     def test_full_pipeline_deterministic(self):
-        """Given fixed manifest + embeddings, the entire pipeline is deterministic."""
+        """Given fixed labels + embeddings, the entire pipeline is deterministic."""
         N, D, K_per_class, num_classes = 500, 64, 5, 10
-        manifest = _make_manifest(N=N, num_classes=num_classes)
+        labels = _make_labels(N=N, num_classes=num_classes)
         emb = _make_embeddings(N=N, D=D, seed=42)
 
         # Select anchors
@@ -390,10 +379,10 @@ class TestEndToEndFeatureAssembly:
             source_split="test",
             per_class=K_per_class,
             strategy="per_class_first_n",
-            order_by="example_id",
+            order_by="original_index",
             num_classes=num_classes,
         )
-        anchors = select_anchors_from_manifest(manifest, spec)
+        anchors = select_anchors(labels, spec)
         K = K_per_class * num_classes  # total anchors
         assert len(anchors["anchor_indices"]) == K
 
@@ -410,7 +399,7 @@ class TestEndToEndFeatureAssembly:
         assert combined.shape == (N, D + K)
 
         # Determinism: repeat and compare
-        anchors2 = select_anchors_from_manifest(manifest, spec)
+        anchors2 = select_anchors(labels, spec)
         anchor_emb2 = emb[anchors2["anchor_indices"]]
         profiles_cos2 = compute_similarity_profile(emb, anchor_emb2, metric="cosine")
         assert torch.equal(profiles_cos, profiles_cos2)

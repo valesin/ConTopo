@@ -7,7 +7,7 @@ Provides:
   - ``log_git_info``: logs git commit / dirty / diff as MLflow tags/artifacts
   - ``find_finished_run``: idempotency check
   - ``log_resolved_config``: log resolved Hydra config as artifact
-  - Tag builder functions for model / behaviour / manifest / profile runs
+  - Tag builder functions for model / behaviour / profile runs
 """
 
 from __future__ import annotations
@@ -133,19 +133,22 @@ def safe_to_numpy_float64(tensor_or_numpy):
     return arr.astype("float64")
 
 
-def log_manifest_lineage(manifest, split: str, dataset_name: str, context: str = "evaluation") -> None:
-    """Log the corresponding dataset manifest as an MLflow input dataset."""
+def log_dataset_lineage(labels: "torch.Tensor", split: str, dataset_name: str, context: str = "evaluation") -> None:
+    """Log the corresponding dataset split as an MLflow input dataset (without image hashes)."""
+    import pandas as pd
     dataset_df = pd.DataFrame(
         {
-            "example_id": manifest.hashes,
-            "original_index": safe_to_numpy_float64(manifest.original_indices),
-            "label": safe_to_numpy_float64(manifest.labels),
+            "original_index": safe_to_numpy_float64(torch.arange(len(labels))),
+            "label": safe_to_numpy_float64(labels),
         }
     )
     eval_dataset = mlflow.data.from_pandas(
-        dataset_df, targets="label", name=f"{dataset_name}_{split}_manifest"
+        dataset_df, targets="label", name=f"{dataset_name}_{split}"
     )
     mlflow.log_input(eval_dataset, context=context)
+
+
+
 
 # ───────────────── idempotency ─────────────────
 
@@ -245,10 +248,10 @@ def _format_rho(rho) -> str:
 
 
 def model_tags(
-    cfg: DictConfig, cfg_hash_value: str, dataset_manifest_hash: str = ""
+    cfg: DictConfig, cfg_hash_value: str,
 ) -> Dict[str, str]:
     """Standard tag dict for a *model* training run."""
-    tags = {
+    return {
         "kind": "model",
         "schema_version": str(cfg.schema_version),
         "loss_type": "cross_entropy",
@@ -262,9 +265,6 @@ def model_tags(
         "transforms_preset": str(cfg.dataset.transforms.preset),
         "cfg_hash": cfg_hash_value,
     }
-    if dataset_manifest_hash:
-        tags["dataset_manifest_hash"] = dataset_manifest_hash
-    return tags
 
 
 def behaviour_tags(
@@ -292,19 +292,7 @@ def behaviour_tags(
     return tags
 
 
-def dataset_manifest_tags(
-    dataset_name: str,
-    split: str,
-    manifest_hash: str = "",
-) -> Dict[str, str]:
-    tags = {
-        "kind": "dataset_manifest",
-        "dataset": dataset_name,
-        "split": split,
-    }
-    if manifest_hash:
-        tags["dataset_manifest_hash"] = manifest_hash
-    return tags
+
 
 
 def profiles_tags(cfg_hash_value: str, profile_type: str) -> Dict[str, str]:
@@ -323,7 +311,6 @@ def component_set_hash(run_ids: list[str]) -> str:
 
 def behaviour_input_hash(
     component_set_hash_val: str,
-    dataset_manifest_hash: str = "",
     split: str = "test",
     feature_type: str = "logits",
     anchor_spec: str = "",
@@ -342,7 +329,6 @@ def behaviour_input_hash(
     """
     parts = [
         component_set_hash_val,
-        dataset_manifest_hash,
         split,
         feature_type,
         anchor_spec,

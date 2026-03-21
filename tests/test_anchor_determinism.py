@@ -3,7 +3,7 @@ Tests for anchor selection determinism and specification hashing.
 
 Validates:
   - AnchorSpec dataclass and its hash property
-  - Anchor selection is deterministic given the same manifest + spec
+  - Anchor selection is deterministic given the same labels + spec
   - anchor_spec_hash is deterministic and sensitive to spec changes
   - Anchor identity (spec_hash) can be included in behaviour_input_hash
 """
@@ -16,24 +16,14 @@ import torch
 from src.data.anchors import (
     AnchorSpec,
     anchor_spec_hash,
-    select_anchors_from_manifest,
+    select_anchors,
 )
-from src.data.manifest import DatasetManifest
 from src.mlflow_utils import behaviour_input_hash, component_set_hash
 
 
-def _make_test_manifest(N=500, num_classes=10, split="test"):
-    """Create a synthetic DatasetManifest for testing."""
-    labels = torch.tensor([i % num_classes for i in range(N)])
-    hashes = [f"img_{i:05d}" for i in range(N)]
-    original_indices = torch.arange(N)
-    return DatasetManifest(
-        hashes=hashes,
-        original_indices=original_indices,
-        labels=labels,
-        dataset_name="test",
-        split=split,
-    )
+def _make_test_labels(N=500, num_classes=10):
+    """Create synthetic ground-truth labels for testing."""
+    return torch.tensor([i % num_classes for i in range(N)])
 
 
 def _make_spec(**overrides) -> AnchorSpec:
@@ -42,7 +32,7 @@ def _make_spec(**overrides) -> AnchorSpec:
         source_split="test",
         per_class=5,
         strategy="per_class_first_n",
-        order_by="example_id",
+        order_by="original_index",
         num_classes=10,
     )
     defaults.update(overrides)
@@ -89,7 +79,7 @@ class TestAnchorSpecHash:
         spec = {
             "per_class": 100,
             "strategy": "per_class_first_n",
-            "order_by": "example_id",
+            "order_by": "original_index",
         }
         h1 = anchor_spec_hash(spec)
         h2 = anchor_spec_hash(spec)
@@ -111,38 +101,37 @@ class TestAnchorSpecHash:
 
 
 class TestAnchorSelection:
-    """Test deterministic anchor selection from manifest."""
+    """Test deterministic anchor selection from labels."""
 
     def test_deterministic(self):
-        manifest = _make_test_manifest()
+        labels = _make_test_labels()
         spec = _make_spec(per_class=5)
-        a1 = select_anchors_from_manifest(manifest, spec)
-        a2 = select_anchors_from_manifest(manifest, spec)
+        a1 = select_anchors(labels, spec)
+        a2 = select_anchors(labels, spec)
         assert a1["anchor_indices"] == a2["anchor_indices"]
-        assert a1["anchor_example_ids"] == a2["anchor_example_ids"]
 
     def test_correct_count(self):
-        manifest = _make_test_manifest()
-        anchors = select_anchors_from_manifest(manifest, _make_spec(per_class=5))
+        labels = _make_test_labels()
+        anchors = select_anchors(labels, _make_spec(per_class=5))
         assert len(anchors["anchor_indices"]) == 50  # 5 * 10
 
     def test_spec_hash_in_result(self):
-        manifest = _make_test_manifest()
-        anchors = select_anchors_from_manifest(manifest, _make_spec(per_class=5))
+        labels = _make_test_labels()
+        anchors = select_anchors(labels, _make_spec(per_class=5))
         assert "spec_hash" in anchors
         assert len(anchors["spec_hash"]) == 16
 
     def test_different_per_class_different_result(self):
-        manifest = _make_test_manifest()
-        a1 = select_anchors_from_manifest(manifest, _make_spec(per_class=5))
-        a2 = select_anchors_from_manifest(manifest, _make_spec(per_class=3))
+        labels = _make_test_labels()
+        a1 = select_anchors(labels, _make_spec(per_class=5))
+        a2 = select_anchors(labels, _make_spec(per_class=3))
         assert a1["spec_hash"] != a2["spec_hash"]
         assert len(a2["anchor_indices"]) == 30
 
     def test_raises_on_insufficient_samples(self):
-        manifest = _make_test_manifest(N=50, num_classes=10)
+        labels = _make_test_labels(N=50, num_classes=10)
         with pytest.raises(RuntimeError, match="only .* examples"):
-            select_anchors_from_manifest(manifest, _make_spec(per_class=100))
+            select_anchors(labels, _make_spec(per_class=100))
 
 
 class TestAnchorIdentityInBehaviourHash:
