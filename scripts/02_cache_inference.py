@@ -3,9 +3,9 @@
 02_cache_inference.py — Hydra + MLflow inference caching.
 
 For each FINISHED model run in MLflow, run inference on the eval split,
-save artifacts (logits, preds, probs, embeddings, labels, hashes,
-original_indices) locally and as MLflow artifacts.  Each inference
-operation is tracked as its own MLflow run (kind=inference).
+save artifacts (logits, preds, probs, embeddings, labels) locally and
+as MLflow artifacts.  Each inference operation is tracked as its own
+MLflow run (kind=inference).
 
 Usage:
     python scripts/02_cache_inference.py
@@ -24,7 +24,6 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from src.data.loaders import get_cifar10_eval_loader
-from src.data.manifest import get_or_create_manifest
 from src.config.paths import get_cache_dir
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
@@ -32,10 +31,9 @@ from src.mlflow_utils import (
     setup_mlflow,
     get_existing_model,
     resolve_seed,
-    log_manifest_lineage,
-    find_finished_run,
     safe_to_numpy_float64,
     get_inference_run,
+    log_dataset_lineage,
 )
 from src.config.hash import cfg_hash
 
@@ -69,22 +67,12 @@ def main(cfg: DictConfig) -> None:
     cache_dir = get_cache_dir(cfg)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(cache_dir),
-    )
-    manifest_hash = manifest.manifest_hash
-
     # Check if this specific inference run already exists
     if not cfg.pipeline.force:
         inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
         if not inf_runs.empty:
-            existing_hash = inf_runs.iloc[0].get("tags.dataset_manifest_hash", "")
-            if existing_hash == manifest_hash:
-                print(f"Inference already cached for model {run_id} on split {split}. Skipping.")
-                return
+            print(f"Inference already cached for model {run_id} on split {split}. Skipping.")
+            return
 
     loader = get_cifar10_eval_loader(
         root=cfg.runtime.data_root,
@@ -96,15 +84,9 @@ def main(cfg: DictConfig) -> None:
     # Run inference
     results = run_combined_model_inference(model, loader, device)
 
-    # Merge the manifest tracking data
-    results["hashes"] = manifest.hashes
-    results["original_indices"] = manifest.original_indices
-    results["labels"] = manifest.labels
-
     tags = {
         "kind": "inference",
         "split": split,
-        "dataset_manifest_hash": manifest_hash,
         "trained_model_run_id": run_id,  # Link back to the trained model
         "parent_run_name": parent_run_name,
     }
@@ -116,7 +98,6 @@ def main(cfg: DictConfig) -> None:
             {
                 "dataset": cfg.dataset.name,
                 "split": split,
-                "dataset_manifest_hash": manifest_hash,
                 "transforms_preset": cfg.dataset.transforms.preset,
                 "trained_model_run_id": run_id,
                 "parent_run_name": parent_run_name,
@@ -125,13 +106,25 @@ def main(cfg: DictConfig) -> None:
             }
         )
 
-        # ─── 1. Save Tabular Data (IDs, Labels, Preds) ───
+        log_dataset_lineage(results["labels"], split, cfg.dataset.name, context="evaluation")
 
-        # Convert tensors to numpy upfront to avoid pandas broadcast errors natively and cast int to float64 to avoid MLflow schema warning
+        # ─── 1. Save Tabular Data (Labels, Preds) ───
+        preds_np = (
+            results["preds"].numpy()
+            if hasattr(results["preds"], "numpy")
+            else results["preds"]
+        )
+        labels_np = (
+            results["labels"].numpy()
+            if hasattr(results["labels"], "numpy")
+            else results["labels"]
+        )
+
         eval_df = pd.DataFrame(
             {
-                "example_id": results["hashes"],
-                "original_index": safe_to_numpy_float64(results["original_indices"]),
+                "original_index": safe_to_numpy_float64(
+                    torch.arange(len(labels_np))
+                ),
                 "label": safe_to_numpy_float64(results["labels"]),
                 "prediction": safe_to_numpy_float64(results["preds"]),
                 "confidence": safe_to_numpy_float64(
@@ -139,9 +132,6 @@ def main(cfg: DictConfig) -> None:
                 ),
             }
         )
-
-        # Log ONLY the inputs/targets to MLflow Dataset for lineage
-        log_manifest_lineage(manifest, split, cfg.dataset.name, context="evaluation")
 
         # Save and log the Parquet file (this contains the predictions -> artifacts)
         os.makedirs(cache_dir, exist_ok=True)
@@ -160,17 +150,6 @@ def main(cfg: DictConfig) -> None:
         mlflow.log_artifact(tensors_path, artifact_path="inference_data")
 
         # ─── 3. Quick Accuracy Logging ───
-        # Since we skipped evaluate(), let's manually log just the accuracy
-        preds_np = (
-            results["preds"].numpy()
-            if hasattr(results["preds"], "numpy")
-            else results["preds"]
-        )
-        labels_np = (
-            results["labels"].numpy()
-            if hasattr(results["labels"], "numpy")
-            else results["labels"]
-        )
         acc = float((preds_np == labels_np).mean())
         mlflow.log_metric("accuracy", acc)
 

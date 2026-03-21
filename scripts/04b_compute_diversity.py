@@ -22,7 +22,7 @@ import mlflow
 import torch
 from omegaconf import DictConfig
 
-from src.data.manifest import get_or_create_manifest
+from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
 from src.mlflow_utils import (
@@ -30,12 +30,11 @@ from src.mlflow_utils import (
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
-    log_manifest_lineage,
     component_set_hash,
     find_finished_diversity_run,
+    log_dataset_lineage,
 )
 from src.profiling.diversity import EvalContext, compute_metrics
-
 
 
 
@@ -57,14 +56,8 @@ def main(cfg: DictConfig) -> None:
         print("No diversity metrics specified. Nothing to do.")
         return
 
-    # 1. Setup manifest for authoritative dataset tracking
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(cache_dir),
-    )
-    labels = manifest.labels
+    # 1. Get ground-truth labels
+    labels = get_split_labels(cfg, split)
 
     # 2. Discover ensemble groups dynamically from the actual DB tracking
     groups = discover_ensembles(cfg.mlflow.experiment_name)
@@ -100,8 +93,6 @@ def main(cfg: DictConfig) -> None:
         logits_list = []
         has_logits = "iou_top_n" in needed
 
-        client = mlflow.tracking.MlflowClient()
-
         for i, run_id in enumerate(run_ids):
             # Find the corresponding inference run
             inf_runs = get_inference_run([mlflow.get_experiment_by_name(cfg.mlflow.experiment_name).experiment_id], run_id, split)
@@ -113,15 +104,6 @@ def main(cfg: DictConfig) -> None:
                 )
 
             inf_run_id = inf_runs.iloc[0].run_id
-
-            # Enforce identical manifest alignment
-            run_hash = client.get_run(inf_run_id).data.tags.get(
-                "dataset_manifest_hash", ""
-            )
-            if run_hash and run_hash != manifest.manifest_hash:
-                raise ValueError(
-                    f"HARD FAIL: inference run {inf_run_id} dataset hash mismatch!"
-                )
 
             # We can download predictions efficiently via tabular tracking
             df = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_inference_results.parquet", file_type="parquet", strict=True)
@@ -156,7 +138,6 @@ def main(cfg: DictConfig) -> None:
                 "component_set_hash": cs_hash,
                 "diversity_metric": metric_name,
                 "split": split,
-                "dataset_manifest_hash": manifest.manifest_hash,
             }
 
             with mlflow.start_run(
@@ -184,8 +165,7 @@ def main(cfg: DictConfig) -> None:
                     mlflow.log_artifact(f.name, artifact_path="diversity")
                     os.unlink(f.name)
 
-                # Link dataset lineage
-                log_manifest_lineage(manifest, split, cfg.dataset.name, context="evaluation")
+                log_dataset_lineage(labels, split, cfg.dataset.name, context="evaluation")
 
                 log_resolved_config(cfg)
 

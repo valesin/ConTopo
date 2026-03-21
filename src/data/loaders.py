@@ -76,6 +76,30 @@ def get_cifar10_loaders(cfg: DictConfig):
     return train_loader, val_loader, test_loader
 
 
+def get_split_labels(cfg: DictConfig, split: str) -> "torch.Tensor":
+    """Return ground-truth labels for a CIFAR-10 split as an int64 tensor.
+
+    This is the lightweight replacement for the old manifest.labels look-up.
+    """
+    root = cfg.runtime.data_root
+    if split == "test":
+        ds = datasets.CIFAR10(root=root, train=False, download=True, transform=None)
+        targets = ds.targets if hasattr(ds, "targets") else ds.test_labels
+        return torch.tensor(targets, dtype=torch.long)
+
+    val_per_class = cfg.dataset.split.val_per_class
+    train_idx, val_idx = _split_train_val_indices(root, val_per_class)
+    base = datasets.CIFAR10(root=root, train=True, download=True, transform=None)
+    targets = base.targets if hasattr(base, "targets") else base.train_labels
+
+    if split == "val":
+        return torch.tensor([targets[i] for i in val_idx], dtype=torch.long)
+    elif split == "train":
+        return torch.tensor([targets[i] for i in train_idx], dtype=torch.long)
+    else:
+        raise ValueError(f"Unknown split: {split}")
+
+
 def get_cifar10_eval_loader(
     root: str = "./dataset",
     batch_size: int = 256,

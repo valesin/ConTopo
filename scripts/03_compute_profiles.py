@@ -30,7 +30,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.anchors import AnchorSpec, get_or_create_anchors
-from src.data.manifest import get_or_create_manifest
+from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir
 from src.profiling.category_similarity import (
     compute_similarity_profile,
@@ -45,7 +45,7 @@ from src.mlflow_utils import (
     resolve_seed,
     get_inference_run,
     load_mlflow_artifact,
-    log_manifest_lineage,
+    log_dataset_lineage,
 )
 from src.config.hash import cfg_hash
 
@@ -77,7 +77,6 @@ def main(cfg: DictConfig) -> None:
     cache_dir = get_cache_dir(cfg)
 
     # ── Fetch corresponding Inference Run ──
-    # ── Fetch corresponding Inference Run ──
     inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
 
     if len(inf_runs) == 0:
@@ -88,13 +87,8 @@ def main(cfg: DictConfig) -> None:
 
     inf_run_id = inf_runs.iloc[0].run_id
 
-    # ── Manifest & Anchors ──
-    manifest = get_or_create_manifest(
-        dataset_name=cfg.dataset.name,
-        split=split,
-        data_root=cfg.runtime.data_root,
-        artifacts_root=str(cache_dir),
-    )
+    # ── Labels & Anchors ──
+    labels = get_split_labels(cfg, split)
 
     sel = cfg.pipeline.anchors
     anchor_spec = AnchorSpec(
@@ -106,9 +100,10 @@ def main(cfg: DictConfig) -> None:
     )
 
     anchors = get_or_create_anchors(
-        manifest,
+        labels,
         spec=anchor_spec,
         artifacts_root=str(cache_dir),
+        dataset_name=cfg.dataset.name,
     )
     a_spec_hash = anchors["spec_hash"]
     anchor_indices = anchors["anchor_indices"]
@@ -119,7 +114,9 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load Inference Embeddings from MLflow Artifact ──
     try:
-        data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy")
+        data = load_mlflow_artifact(
+            inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy"
+        )
         embeddings = torch.from_numpy(data["embeddings"])
     except Exception as e:
         print(
@@ -164,7 +161,10 @@ def main(cfg: DictConfig) -> None:
 
         print(f"  -> Computing profiles for metric '{similarity_metric}'...")
         profiles = compute_similarity_profile(
-            embeddings, anchor_embeddings, num_classes=cfg.dataset.num_classes, metric=similarity_metric
+            embeddings,
+            anchor_embeddings,
+            num_classes=cfg.dataset.num_classes,
+            metric=similarity_metric,
         )
 
         tags = category_similarity_profile_tags(
@@ -203,11 +203,12 @@ def main(cfg: DictConfig) -> None:
             )
             torch.save(profiles, profile_path)
 
-            # ── Log the dataset manifest to MLflow for lineage ──
-            log_manifest_lineage(manifest, split, cfg.dataset.name, context="profiling")
+
 
             # Upload as MLflow Artifact Tracking
             mlflow.log_artifact(profile_path, artifact_path="profiles")
+
+            log_dataset_lineage(labels, split, cfg.dataset.name, context="profiling")
 
             log_resolved_config(cfg)
 

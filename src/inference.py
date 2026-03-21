@@ -7,8 +7,7 @@ Inference runner + caching layer.
   3. Return loaded tensors
 
 Artifacts per run (logged to MLflow and saved locally):
-  - logits.pt, preds.pt, probs.pt, embeddings.pt
-  - labels.pt, hashes.pt, original_indices.pt
+  - logits.pt, preds.pt, probs.pt, embeddings.pt, labels.pt
   - accuracy is logged as an MLflow *metric*, not an artifact
 """
 
@@ -89,7 +88,7 @@ def run_combined_model_inference(
 
 # ───────────── artifact I/O ─────────────
 
-ARTIFACT_KEYS = ["logits", "preds", "probs", "embeddings", "labels", "hashes", "original_indices"]
+ARTIFACT_KEYS = ["logits", "preds", "probs", "embeddings", "labels"]
 
 
 def save_inference_artifacts(
@@ -142,7 +141,6 @@ def get_or_run_inference(
     loader: DataLoader | None = None,
     device: torch.device | None = None,
     artifact_dir: str,
-    manifest_data: Dict[str, Any] | None = None,
     backend_name: str = "pt",
     force: bool = False,
 ) -> Dict[str, Any]:
@@ -151,9 +149,6 @@ def get_or_run_inference(
 
     If cached artifacts exist in ``artifact_dir`` and ``force=False``, load and return.
     Otherwise, run inference using ``model`` + ``loader`` and save.
-
-    ``manifest_data`` should contain ``hashes`` and ``original_indices`` that
-    will be included in the saved artifacts.
     """
     backend = get_backend(backend_name)
 
@@ -170,14 +165,6 @@ def get_or_run_inference(
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     results = run_combined_model_inference(model, loader, device)
-
-    # Attach manifest alignment data if provided
-    if manifest_data is not None:
-        results["hashes"] = manifest_data.get("hashes")
-        results["original_indices"] = manifest_data.get("original_indices")
-        # labels from manifest take precedence (ground truth)
-        if "labels" in manifest_data:
-            results["labels"] = manifest_data["labels"]
 
     save_inference_artifacts(results, artifact_dir, backend)
     return results
