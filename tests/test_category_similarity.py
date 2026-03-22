@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from src.data.anchors import AnchorSpec, anchor_spec_hash, select_anchors
+from src.data.anchors import compute_anchor_spec_hash, select_anchors
 from src.mlflow_utils import (
     behaviour_input_hash,
     category_similarity_profile_tags,
@@ -32,7 +32,6 @@ from src.profiling.category_similarity import (
     compute_similarity_profile,
     similarity_profile_hash,
 )
-
 
 # ──────────── Fixtures ──────────────
 
@@ -46,37 +45,37 @@ def _make_embeddings(N=500, D=256, seed=42):
     return torch.randn(N, D, generator=gen)
 
 
-# ──────── anchor_spec_hash ────────
+# ──────── compute_anchor_spec_hash ────────
 
 
 class TestAnchorSpecHashStability:
-    """anchor_spec_hash must be stable and sensitive to spec changes."""
+    """compute_anchor_spec_hash must be stable and sensitive to spec changes."""
 
-    def test_stable_across_calls(self):
-        spec = {
+    def _base_kwargs(self):
+        return {
+            "source_split": "test",
             "per_class": 100,
             "strategy": "per_class_first_n",
             "order_by": "example_id",
+            "num_classes": 10,
         }
-        assert anchor_spec_hash(spec) == anchor_spec_hash(spec)
 
-    def test_order_invariant(self):
-        h1 = anchor_spec_hash({"a": 1, "b": 2, "c": 3})
-        h2 = anchor_spec_hash({"c": 3, "a": 1, "b": 2})
-        assert h1 == h2
+    def test_stable_across_calls(self):
+        kwargs = self._base_kwargs()
+        assert compute_anchor_spec_hash(**kwargs) == compute_anchor_spec_hash(**kwargs)
 
     def test_per_class_changes_hash(self):
-        base = {"per_class": 100, "strategy": "per_class_first_n"}
-        changed = {"per_class": 200, "strategy": "per_class_first_n"}
-        assert anchor_spec_hash(base) != anchor_spec_hash(changed)
+        base = self._base_kwargs()
+        changed = {**base, "per_class": 200}
+        assert compute_anchor_spec_hash(**base) != compute_anchor_spec_hash(**changed)
 
     def test_strategy_changes_hash(self):
-        h1 = anchor_spec_hash({"per_class": 100, "strategy": "per_class_first_n"})
-        h2 = anchor_spec_hash({"per_class": 100, "strategy": "per_class_random"})
-        assert h1 != h2
+        base = self._base_kwargs()
+        changed = {**base, "strategy": "per_class_random"}
+        assert compute_anchor_spec_hash(**base) != compute_anchor_spec_hash(**changed)
 
     def test_hash_length_16(self):
-        h = anchor_spec_hash({"per_class": 50})
+        h = compute_anchor_spec_hash(**self._base_kwargs())
         assert len(h) == 16
         assert all(c in "0123456789abcdef" for c in h)
 
@@ -375,14 +374,14 @@ class TestEndToEndFeatureAssembly:
         emb = _make_embeddings(N=N, D=D, seed=42)
 
         # Select anchors
-        spec = AnchorSpec(
-            source_split="test",
-            per_class=K_per_class,
-            strategy="per_class_first_n",
-            order_by="original_index",
-            num_classes=num_classes,
-        )
-        anchors = select_anchors(labels, spec)
+        spec = {
+            "source_split": "test",
+            "per_class": K_per_class,
+            "strategy": "per_class_first_n",
+            "order_by": "original_index",
+            "num_classes": num_classes,
+        }
+        anchors = select_anchors(labels, **spec)
         K = K_per_class * num_classes  # total anchors
         assert len(anchors["anchor_indices"]) == K
 
@@ -399,7 +398,7 @@ class TestEndToEndFeatureAssembly:
         assert combined.shape == (N, D + K)
 
         # Determinism: repeat and compare
-        anchors2 = select_anchors(labels, spec)
+        anchors2 = select_anchors(labels, **spec)
         anchor_emb2 = emb[anchors2["anchor_indices"]]
         profiles_cos2 = compute_similarity_profile(emb, anchor_emb2, metric="cosine")
         assert torch.equal(profiles_cos, profiles_cos2)

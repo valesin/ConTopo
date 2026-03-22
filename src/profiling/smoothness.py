@@ -38,7 +38,7 @@ def morans_i(activations: torch.Tensor, emb_dim: int) -> float:
                     W_sum += 1.0
                     numerator += z[i, j] * z[ni, nj]
 
-    denom = float((z ** 2).sum())
+    denom = float((z**2).sum())
     if denom == 0 or W_sum == 0:
         return 0.0
     return float(n / W_sum * numerator / denom)

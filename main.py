@@ -28,16 +28,15 @@ import os
 import subprocess
 import sys
 
-
 SCRIPTS = [
-    ("01_train_models.py",     "Training CE models"),
-    ("02_cache_inference.py",  "Caching inference artifacts"),
+    ("01_train_models.py", "Training CE models"),
+    ("02_cache_inference.py", "Caching inference artifacts"),
     ("03_compute_profiles.py", "Computing category similarity profiles"),
     ("03b_compute_diagnostics.py", "Computing per-model diagnostics (optional)"),
-    ("04_run_ensemble.py",     "Building ensembles"),
+    ("04_run_ensemble.py", "Building ensembles"),
     ("04b_compute_diversity.py", "Computing ensemble diversity metrics (optional)"),
     ("04c_compute_consistency.py", "Computing ensemble RDM/RSA consistency (optional)"),
-    ("05_train_adapters.py",   "Training adapters"),
+    ("05_train_adapters.py", "Training adapters"),
 ]
 
 
@@ -63,10 +62,16 @@ def main():
         description="ConTopo full-pipeline orchestrator.",
         epilog="All scripts use Hydra. Extra overrides are forwarded to each step.",
     )
-    parser.add_argument("--from-step", type=int, default=1, help="Start from this step (1-5)")
-    parser.add_argument("--skip-training", action="store_true", help="Skip step 1 (training)")
     parser.add_argument(
-        "overrides", nargs="*", default=[],
+        "--from-step", type=int, default=1, help="Start from this step (1-5)"
+    )
+    parser.add_argument(
+        "--skip-training", action="store_true", help="Skip step 1 (training)"
+    )
+    parser.add_argument(
+        "overrides",
+        nargs="*",
+        default=[],
         help="Hydra overrides forwarded to every step (e.g. mlflow.tracking_uri=...)",
     )
     args = parser.parse_args()

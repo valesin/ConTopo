@@ -78,5 +78,7 @@ def get_backend(name: str = "pt") -> StorageBackend:
     """Factory — returns a backend instance by name."""
     cls = _BACKENDS.get(name)
     if cls is None:
-        raise ValueError(f"Unknown storage backend '{name}'. Available: {list(_BACKENDS)}")
+        raise ValueError(
+            f"Unknown storage backend '{name}'. Available: {list(_BACKENDS)}"
+        )
     return cls()

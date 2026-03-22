@@ -24,31 +24,39 @@ _CIFAR10_STD = (0.2023, 0.1994, 0.2010)
 
 def _cifar10_default_v1():
     """Standard CIFAR-10 augmentation: RandomCrop + HFlip."""
-    train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
-    ])
-    eval_ = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
-    ])
+    train = transforms.Compose(
+        [
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
+        ]
+    )
+    eval_ = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
+        ]
+    )
     return train, eval_
 
 
 def _cifar10_resizedcrop_v1():
     """RandomResizedCrop variant matching legacy main_ce.py behaviour."""
-    train = transforms.Compose([
-        transforms.RandomResizedCrop(size=32, scale=(0.2, 1.0)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
-    ])
-    eval_ = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
-    ])
+    train = transforms.Compose(
+        [
+            transforms.RandomResizedCrop(size=32, scale=(0.2, 1.0)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
+        ]
+    )
+    eval_ = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(_CIFAR10_MEAN, _CIFAR10_STD),
+        ]
+    )
     return train, eval_
 
 

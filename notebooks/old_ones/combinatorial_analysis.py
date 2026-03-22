@@ -69,13 +69,18 @@ print(f"Diversity columns: {div_cols}")
 
 # %%
 # Show full table sorted by acc_soft descending
-df.select(["hash", "subset_size"] + acc_cols + div_cols).sort("acc_soft", descending=True)
+df.select(["hash", "subset_size"] + acc_cols + div_cols).sort(
+    "acc_soft", descending=True
+)
 
 # %% [markdown]
 # ## 3. Correlation matrix (Pearson & Spearman)
 
+
 # %%
-def compute_correlations(df: pl.DataFrame, acc_cols: list, div_cols: list) -> pl.DataFrame:
+def compute_correlations(
+    df: pl.DataFrame, acc_cols: list, div_cols: list
+) -> pl.DataFrame:
     """Compute Pearson and Spearman correlations between every (acc, div) pair."""
     records = []
     for acc in acc_cols:
@@ -89,15 +94,17 @@ def compute_correlations(df: pl.DataFrame, acc_cols: list, div_cols: list) -> pl
 
             pr, p_p = stats.pearsonr(a, d)
             sr, p_s = stats.spearmanr(a, d)
-            records.append({
-                "accuracy": acc,
-                "diversity": div,
-                "pearson_r": round(pr, 4),
-                "pearson_p": round(p_p, 4),
-                "spearman_r": round(sr, 4),
-                "spearman_p": round(p_s, 4),
-                "n": len(sub),
-            })
+            records.append(
+                {
+                    "accuracy": acc,
+                    "diversity": div,
+                    "pearson_r": round(pr, 4),
+                    "pearson_p": round(p_p, 4),
+                    "spearman_r": round(sr, 4),
+                    "spearman_p": round(p_s, 4),
+                    "n": len(sub),
+                }
+            )
     return pl.DataFrame(records)
 
 
@@ -113,7 +120,9 @@ acc_labels = pivot["accuracy"].to_list()
 div_labels = [c for c in pivot.columns if c != "accuracy"]
 mat = pivot.select(div_labels).to_numpy().astype(float)
 
-fig, ax = plt.subplots(figsize=(max(8, len(div_labels) * 1.2), max(4, len(acc_labels) * 0.8)))
+fig, ax = plt.subplots(
+    figsize=(max(8, len(div_labels) * 1.2), max(4, len(acc_labels) * 0.8))
+)
 im = ax.imshow(mat, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
 ax.set_xticks(range(len(div_labels)))
 ax.set_xticklabels([d.replace("div_", "") for d in div_labels], rotation=45, ha="right")
@@ -184,13 +193,14 @@ plt.show()
 
 # %%
 summary = (
-    corr_df
-    .group_by("diversity")
-    .agg([
-        pl.col("pearson_r").mean().alias("avg_pearson_r"),
-        pl.col("spearman_r").mean().alias("avg_spearman_r"),
-        pl.col("pearson_r").abs().mean().alias("avg_abs_pearson"),
-    ])
+    corr_df.group_by("diversity")
+    .agg(
+        [
+            pl.col("pearson_r").mean().alias("avg_pearson_r"),
+            pl.col("spearman_r").mean().alias("avg_spearman_r"),
+            pl.col("pearson_r").abs().mean().alias("avg_abs_pearson"),
+        ]
+    )
     .sort("avg_abs_pearson", descending=True)
 )
 print("Metrics ranked by average |Pearson r| across all accuracy measures:\n")

@@ -23,54 +23,60 @@ from typing import Any, Dict
 import torch
 
 
-@dataclasses.dataclass(frozen=True)
-class AnchorSpec:
-    """Immutable specification for anchor selection.
-
-    All fields are required — no hidden defaults.  Defaults live in
-    Hydra structured configs (``AnchorSelectionConfig``).
-    """
-
-    source_split: str
-    per_class: int
-    strategy: str
-    order_by: str
-    num_classes: int
-
-    @property
-    def hash(self) -> str:
-        """Deterministic 16-char hex hash of this spec."""
-        canonical = json.dumps(
-            dataclasses.asdict(self), sort_keys=True, ensure_ascii=True
-        )
-        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to a plain dictionary (e.g. for logging / serialisation)."""
-        return dataclasses.asdict(self)
-
-
-def anchor_spec_hash(spec: Dict[str, Any]) -> str:
-    """Deterministic hash of an anchor specification dictionary.
-
-    Kept for backward compatibility with code that already has a plain
-    dict spec (e.g. cached artifacts).  New call-sites should use
-    ``AnchorSpec.hash`` instead.
-    """
-    canonical = json.dumps(spec, sort_keys=True, ensure_ascii=True)
+def compute_anchor_spec_hash(
+    source_split: str,
+    per_class: int,
+    strategy: str,
+    order_by: str,
+    num_classes: int,
+) -> str:
+    """Deterministic 16-char hex hash of an anchor specification."""
+    spec_dict = {
+        "source_split": source_split,
+        "per_class": per_class,
+        "strategy": strategy,
+        "order_by": order_by,
+        "num_classes": num_classes,
+    }
+    canonical = json.dumps(spec_dict, sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def get_anchor_spec_dict(
+    source_split: str,
+    per_class: int,
+    strategy: str,
+    order_by: str,
+    num_classes: int,
+) -> Dict[str, Any]:
+    """Return the plain dictionary representation of an anchor specification."""
+    return {
+        "source_split": source_split,
+        "per_class": per_class,
+        "strategy": strategy,
+        "order_by": order_by,
+        "num_classes": num_classes,
+    }
 
 
 def select_anchors(
     labels: torch.Tensor,
-    spec: AnchorSpec,
+    source_split: str,
+    per_class: int,
+    strategy: str,
+    order_by: str,
+    num_classes: int,
 ) -> Dict[str, Any]:
     """
     Select anchor indices from ground-truth labels.
 
     Args:
         labels: int64 tensor of ground-truth class labels.
-        spec: Fully-populated ``AnchorSpec`` — no hidden defaults.
+        source_split: Which data split anchors are sourced from.
+        per_class: Number of anchors per class.
+        strategy: Anchor selection strategy.
+        order_by: Ordering strategy.
+        num_classes: Total number of classes.
 
     Returns:
         Dict with keys:
@@ -79,32 +85,39 @@ def select_anchors(
           - spec: dict of the specification used
           - spec_hash: deterministic hash of the spec
     """
-    if spec.strategy != "per_class_first_n":
-        raise NotImplementedError(f"Anchor strategy '{spec.strategy}' not implemented.")
+    if strategy != "per_class_first_n":
+        raise NotImplementedError(f"Anchor strategy '{strategy}' not implemented.")
 
     # Build (sort_key, idx) pairs per class — sort_key is always the
     # sequential dataset index now that manifest hashes are gone.
-    class_indices: dict[int, list[tuple]] = {c: [] for c in range(spec.num_classes)}
+    class_indices: dict[int, list[tuple]] = {c: [] for c in range(num_classes)}
     for i, label in enumerate(labels.tolist()):
         sort_key = i  # original_index ordering
         class_indices[label].append((sort_key, i))
 
     # Sort each class and pick first N
     selected_indices: list[int] = []
-    for c in range(spec.num_classes):
+    for c in range(num_classes):
         sorted_items = sorted(class_indices[c], key=lambda x: x[0])
-        if len(sorted_items) < spec.per_class:
+        if len(sorted_items) < per_class:
             raise RuntimeError(
-                f"Class {c}: only {len(sorted_items)} examples, need {spec.per_class}"
+                f"Class {c}: only {len(sorted_items)} examples, need {per_class}"
             )
-        for _, idx in sorted_items[: spec.per_class]:
+        for _, idx in sorted_items[:per_class]:
             selected_indices.append(idx)
+
+    spec_dict = get_anchor_spec_dict(
+        source_split, per_class, strategy, order_by, num_classes
+    )
+    spec_hash = compute_anchor_spec_hash(
+        source_split, per_class, strategy, order_by, num_classes
+    )
 
     return {
         "anchor_indices": selected_indices,
         "anchor_labels": labels[selected_indices],
-        "spec": spec.to_dict(),
-        "spec_hash": spec.hash,
+        "spec": spec_dict,
+        "spec_hash": spec_hash,
     }
 
 
@@ -121,7 +134,11 @@ def load_anchors(path: str) -> Dict[str, Any]:
 
 def get_or_create_anchors(
     labels: torch.Tensor,
-    spec: AnchorSpec,
+    source_split: str,
+    per_class: int,
+    strategy: str,
+    order_by: str,
+    num_classes: int,
     artifacts_root: str,
     dataset_name: str = "cifar10",
 ) -> Dict[str, Any]:
@@ -130,16 +147,22 @@ def get_or_create_anchors(
 
     Args:
         labels: int64 tensor of ground-truth class labels.
-        spec: Fully-populated ``AnchorSpec`` — no hidden defaults.
+        source_split: Which data split anchors are sourced from.
+        per_class: Number of anchors per class.
+        strategy: Anchor selection strategy.
+        order_by: Ordering strategy.
+        num_classes: Total number of classes.
         artifacts_root: Root directory for cached artifacts.
         dataset_name: Name of the dataset (used for cache path).
     """
-    spec_h = spec.hash
+    spec_h = compute_anchor_spec_hash(
+        source_split, per_class, strategy, order_by, num_classes
+    )
     anchor_path = os.path.join(
         artifacts_root,
         "anchors",
         dataset_name,
-        spec.source_split,
+        source_split,
         spec_h,
         "anchors.pt",
     )
@@ -147,6 +170,8 @@ def get_or_create_anchors(
     if os.path.isfile(anchor_path):
         return load_anchors(anchor_path)
 
-    anchors = select_anchors(labels, spec)
+    anchors = select_anchors(
+        labels, source_split, per_class, strategy, order_by, num_classes
+    )
     save_anchors(anchors, anchor_path)
     return anchors

@@ -56,17 +56,15 @@ def compute_similarity_profile(
     elif metric == "l2":
         # Negative pairwise L2 distance → [N, K]
         # ||e - a||^2 = ||e||^2 + ||a||^2 - 2 e·a
-        e_sq = (embeddings ** 2).sum(dim=1, keepdim=True)   # [N, 1]
-        a_sq = (anchor_embeddings ** 2).sum(dim=1).unsqueeze(0)  # [1, K]
+        e_sq = (embeddings**2).sum(dim=1, keepdim=True)  # [N, 1]
+        a_sq = (anchor_embeddings**2).sum(dim=1).unsqueeze(0)  # [1, K]
         dist_sq = e_sq + a_sq - 2.0 * embeddings @ anchor_embeddings.t()
         dist_sq = dist_sq.clamp_min(0.0)
         sims = -dist_sq.sqrt()  # negate so higher = more similar
 
     else:
-        raise ValueError(
-            f"Unknown similarity metric '{metric}'. Supported: cosine, l2"
-        )
-        
+        raise ValueError(f"Unknown similarity metric '{metric}'. Supported: cosine, l2")
+
     N = sims.shape[0]
     A = sims.shape[1] // num_classes
     return sims.view(N, num_classes, A).mean(dim=2)

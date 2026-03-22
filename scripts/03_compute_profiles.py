@@ -29,7 +29,7 @@ import mlflow.artifacts
 import torch
 from omegaconf import DictConfig
 
-from src.data.anchors import AnchorSpec, get_or_create_anchors
+from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir
 from src.profiling.category_similarity import (
@@ -48,6 +48,10 @@ from src.mlflow_utils import (
     log_dataset_lineage,
 )
 from src.config.hash import cfg_hash
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+)
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -91,17 +95,13 @@ def main(cfg: DictConfig) -> None:
     labels = get_split_labels(cfg, split)
 
     sel = cfg.pipeline.anchors
-    anchor_spec = AnchorSpec(
+    anchors = get_or_create_anchors(
+        labels=labels,
         source_split=sel.source_split,
         per_class=sel.per_class,
         strategy=sel.strategy,
         order_by=sel.order_by,
         num_classes=cfg.dataset.num_classes,
-    )
-
-    anchors = get_or_create_anchors(
-        labels,
-        spec=anchor_spec,
         artifacts_root=str(cache_dir),
         dataset_name=cfg.dataset.name,
     )
@@ -128,9 +128,9 @@ def main(cfg: DictConfig) -> None:
 
     # Get parent model tags for logging
     model_run = mlflow.get_run(run_id)
-    rho = model_run.data.tags.get("rho", "?")
-    trial = model_run.data.tags.get("trial", "?")
-    topology = model_run.data.tags.get("topology", "?")
+    rho = model_run.data.params.get("rho", "?")
+    trial = model_run.data.tags.get("trial", model_run.data.params.get("trial", "?"))
+    topology = model_run.data.params.get("topology", "?")
 
     computed = 0
     skipped = 0
@@ -170,30 +170,28 @@ def main(cfg: DictConfig) -> None:
         tags = category_similarity_profile_tags(
             parent_run_id=run_id,
             anchor_spec_hash=a_spec_hash,
-            similarity_metric=similarity_metric,
-            split=split,
-            profile_hash=prof_hash,
         )
+        run_name = f"csp_{similarity_metric}_{topology}_rho{rho}_t{trial}"
         tags["inference_run_id"] = inf_run_id
+        tags["profile_dim"] = int(profiles.shape[1])
+        tags["run_name"] = run_name
 
         # Profile run instance logging
-        run_name = f"csp_{similarity_metric}_{topology}_rho{rho}_t{trial}"
-        with mlflow.start_run(run_name=run_name, tags=tags):
-            mlflow.log_params(
+        with schema_start_run(
+            kind="category_similarity_profile", run_name=run_name, tags=tags
+        ):
+            schema_log_params(
+                "category_similarity_profile",
                 {
-                    "parent_run_id": run_id,
-                    "inference_run_id": inf_run_id,
-                    "anchor_spec_hash": a_spec_hash,
                     "similarity_metric": similarity_metric,
                     "split": split,
                     "profile_hash": prof_hash,
                     "num_anchors": len(anchor_indices),
                     "num_samples": int(profiles.shape[0]),
-                    "profile_dim": int(profiles.shape[1]),
                     "rho": rho,
                     "trial": trial,
                     "topology": topology,
-                }
+                },
             )
 
             # Save strictly inside the global cache, exactly like 02_cache_inference
@@ -202,8 +200,6 @@ def main(cfg: DictConfig) -> None:
                 cache_dir, f"{split}_{similarity_metric}_profiles.pt"
             )
             torch.save(profiles, profile_path)
-
-
 
             # Upload as MLflow Artifact Tracking
             mlflow.log_artifact(profile_path, artifact_path="profiles")

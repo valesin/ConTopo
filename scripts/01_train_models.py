@@ -37,6 +37,10 @@ from src.mlflow_utils import (
 )
 from src.networks.registry import build_model, unwrap
 from src.training.train_ce import train_one_epoch, validate
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+)
 
 
 def _build_optimiser(cfg: DictConfig, model):
@@ -66,8 +70,6 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
         return Global_Topographic_Loss(weight=1.0, emb_dim=emb_dim)
     else:
         raise ValueError(f"Unknown topography_type: {topo_type}")
-
-
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -140,15 +142,14 @@ def main(cfg: DictConfig) -> None:
     # ── MLflow run ──
     tags = model_tags(cfg, hash_val)
 
-    with mlflow.start_run(
-        run_name=f"CE_{topo_str}_rho{rho_str}/{trial_str}", tags=tags
+    with schema_start_run(
+        kind="model", run_name=f"CE_{topo_str}_rho{rho_str}/{trial_str}", tags=tags
     ) as run:
         # Log experiment-semantic params
-        mlflow.log_params(
+        schema_log_params(
+            "model",
             {
-                "schema_version": cfg.schema_version,
                 "rho": float(cfg.loss.rho),
-                "trial": cfg.trial,
                 "seed": seed,
                 "epochs": cfg.training.epochs,
                 "batch_size": cfg.training.batch_size,
@@ -171,13 +172,22 @@ def main(cfg: DictConfig) -> None:
                 "split_strategy": cfg.dataset.split.strategy,
                 "split_seed": cfg.dataset.split.seed,
                 "val_per_class": cfg.dataset.split.val_per_class,
-            }
+            },
         )
         log_resolved_config(cfg)
 
-        log_dataset_lineage(get_split_labels(cfg, "train"), "train", cfg.dataset.name, context="training")
-        log_dataset_lineage(get_split_labels(cfg, "val"), "val", cfg.dataset.name, context="validation")
-        log_dataset_lineage(get_split_labels(cfg, "test"), "test", cfg.dataset.name, context="testing")
+        log_dataset_lineage(
+            get_split_labels(cfg, "train"),
+            "train",
+            cfg.dataset.name,
+            context="training",
+        )
+        log_dataset_lineage(
+            get_split_labels(cfg, "val"), "val", cfg.dataset.name, context="validation"
+        )
+        log_dataset_lineage(
+            get_split_labels(cfg, "test"), "test", cfg.dataset.name, context="testing"
+        )
 
         # ── Create Signature and Input Example (Before Loop) ──
         # Grab one batch from the train_loader

@@ -15,7 +15,18 @@ import json
 
 from omegaconf import DictConfig, OmegaConf
 
-EXCLUDED_KEYS = frozenset({"runtime", "mlflow", "storage", "hydra", "pipeline", "ensemble", "adapter", "migration"})
+EXCLUDED_KEYS = frozenset(
+    {
+        "runtime",
+        "mlflow",
+        "storage",
+        "hydra",
+        "pipeline",
+        "ensemble",
+        "adapter",
+        "migration",
+    }
+)
 
 
 def _deep_sort(obj):

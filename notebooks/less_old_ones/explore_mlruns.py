@@ -16,24 +16,20 @@ def _():
     import mlflow
     import json
 
-    # Setup the environment strictly leveraging the provided utility 
+    # Setup the environment strictly leveraging the provided utility
     # to fix Hydra pathing and tracking variables seamlessly.
     from src.config.notebook import setup_environment
-    cfg, experiment = setup_environment(
-        overrides=["mlflow.experiment_name=Morning"]
-    )
+
+    cfg, experiment = setup_environment(overrides=["mlflow.experiment_name=Morning"])
     return cfg, experiment, mlflow
 
 
 @app.cell
 def _(experiment, mlflow):
-    filter_string_models = (
-        "tags.kind = 'model'"
-    )
+    filter_string_models = "tags.kind = 'model'"
 
     models = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id], 
-        filter_string=filter_string_models
+        experiment_ids=[experiment.experiment_id], filter_string=filter_string_models
     )
 
     models
@@ -42,13 +38,10 @@ def _(experiment, mlflow):
 
 @app.cell
 def _(experiment, mlflow):
-    filter_string_inference = (
-        "tags.kind = 'inference'"
-    )
+    filter_string_inference = "tags.kind = 'inference'"
 
     inferences = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id], 
-        filter_string=filter_string_inference
+        experiment_ids=[experiment.experiment_id], filter_string=filter_string_inference
     )
 
     inferences
@@ -59,12 +52,13 @@ def _(experiment, mlflow):
 @app.cell
 def _(inferences, models):
     import pandas as pd
+
     merged = pd.merge(
         inferences,
         models,
-        left_on='params.trained_model_run_id',
-        right_on='run_id',
-        how='inner' # Or 'left', 'outer' as needed
+        left_on="params.trained_model_run_id",
+        right_on="run_id",
+        how="inner",  # Or 'left', 'outer' as needed
     )
     merged
     return
@@ -72,13 +66,10 @@ def _(inferences, models):
 
 @app.cell
 def _(experiment, mlflow):
-    filter_string_profiles = (
-        "tags.kind = 'category_similarity_profile'"
-    )
+    filter_string_profiles = "tags.kind = 'category_similarity_profile'"
 
     profiles = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id], 
-        filter_string=filter_string_profiles
+        experiment_ids=[experiment.experiment_id], filter_string=filter_string_profiles
     )
 
     profiles
@@ -90,7 +81,6 @@ def _(cfg):
     from src.data.anchors import AnchorSpec, get_or_create_anchors
     from src.data.manifest import get_or_create_manifest
     from src.config.paths import get_cache_dir
-
 
     split = cfg.pipeline.split
     force = cfg.pipeline.force

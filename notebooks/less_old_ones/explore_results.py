@@ -14,17 +14,19 @@ with app.setup:
     import matplotlib
     import os
 
-    matplotlib.rcParams.update({
-        "font.family": "sans-serif",
-        "font.size": 12,
-        "axes.titlesize": 14,
-        "axes.labelsize": 12,
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
-        "legend.fontsize": 10,
-        "figure.dpi": 120,
-        "savefig.dpi": 200,
-    })
+    matplotlib.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.size": 12,
+            "axes.titlesize": 14,
+            "axes.labelsize": 12,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+            "legend.fontsize": 10,
+            "figure.dpi": 120,
+            "savefig.dpi": 200,
+        }
+    )
 
     # ── MLflow connection ──
     TRACKING_URI = "sqlite:///mlflow.db"
@@ -52,8 +54,9 @@ def query_model_runs():
         filter_string="tags.kind = 'model' and attributes.status = 'FINISHED'",
     )
 
-    model_df = _runs[["run_id", "tags.rho", "tags.trial", "tags.topology",
-                       "tags.cfg_hash"]].copy()
+    model_df = _runs[
+        ["run_id", "tags.rho", "tags.trial", "tags.topology", "tags.cfg_hash"]
+    ].copy()
     model_df.columns = ["run_id", "rho", "trial", "topology", "cfg_hash"]
     model_df["rho"] = model_df["rho"].astype(float)
     model_df["trial"] = model_df["trial"].astype(int)
@@ -77,8 +80,9 @@ def query_inference_runs():
         filter_string="tags.kind = 'inference' and attributes.status = 'FINISHED'",
     )
 
-    inf_df = _runs[["run_id", "tags.parent_run_id", "tags.rho",
-                     "tags.trial", "tags.topology"]].copy()
+    inf_df = _runs[
+        ["run_id", "tags.parent_run_id", "tags.rho", "tags.trial", "tags.topology"]
+    ].copy()
     inf_df.columns = ["inf_run_id", "model_run_id", "rho", "trial", "topology"]
     inf_df["rho"] = inf_df["rho"].astype(float)
     inf_df["trial"] = inf_df["trial"].astype(int)
@@ -109,15 +113,30 @@ def plot_accuracy_vs_rho(inf_df):
 
     # Plot individual trials as scatter
     for _, _row in inf_df.iterrows():
-        _ax.scatter(_row["rho"], _row["test_accuracy"],
-                    color="steelblue", alpha=0.5, s=60, zorder=3,
-                    label="Individual trials" if _ == inf_df.index[0] else "")
+        _ax.scatter(
+            _row["rho"],
+            _row["test_accuracy"],
+            color="steelblue",
+            alpha=0.5,
+            s=60,
+            zorder=3,
+            label="Individual trials" if _ == inf_df.index[0] else "",
+        )
 
     # Plot mean ± std as line
-    _ax.errorbar(_rho_vals, _means[_rho_vals], yerr=_stds[_rho_vals],
-                 fmt="o-", color="navy", linewidth=2.5, markersize=9,
-                 capsize=5, capthick=2, zorder=4,
-                 label="Mean ± Std")
+    _ax.errorbar(
+        _rho_vals,
+        _means[_rho_vals],
+        yerr=_stds[_rho_vals],
+        fmt="o-",
+        color="navy",
+        linewidth=2.5,
+        markersize=9,
+        capsize=5,
+        capthick=2,
+        zorder=4,
+        label="Mean ± Std",
+    )
 
     _ax.set_xlabel("ρ (Topographic Loss Weight)")
     _ax.set_ylabel("Test Accuracy")
@@ -128,10 +147,16 @@ def plot_accuracy_vs_rho(inf_df):
     _ax.legend()
 
     for _r in _rho_vals:
-        _ax.annotate(f"{_means[_r]:.4f}",
-                     xy=(_r, _means[_r]),
-                     xytext=(0, 14), textcoords="offset points",
-                     ha="center", fontsize=10, color="navy", fontweight="bold")
+        _ax.annotate(
+            f"{_means[_r]:.4f}",
+            xy=(_r, _means[_r]),
+            xytext=(0, 14),
+            textcoords="offset points",
+            ha="center",
+            fontsize=10,
+            color="navy",
+            fontweight="bold",
+        )
 
     _fig.tight_layout()
     mo.md("## 3. Accuracy vs ρ")
@@ -152,10 +177,16 @@ def query_profile_runs():
 
     if _runs.empty:
         prof_df = pd.DataFrame()
-        mo.stop(True, mo.md("⚠️ **No diagnostics runs found.** Run `python scripts/03b_compute_diagnostics.py` first."))
+        mo.stop(
+            True,
+            mo.md(
+                "⚠️ **No diagnostics runs found.** Run `python scripts/03b_compute_diagnostics.py` first."
+            ),
+        )
 
-    prof_df = _runs[["run_id", "tags.parent_run_id", "tags.rho",
-                      "tags.trial", "tags.topology"]].copy()
+    prof_df = _runs[
+        ["run_id", "tags.parent_run_id", "tags.rho", "tags.trial", "tags.topology"]
+    ].copy()
     prof_df.columns = ["prof_run_id", "model_run_id", "rho", "trial", "topology"]
     prof_df["rho"] = prof_df["rho"].astype(float)
     prof_df["trial"] = prof_df["trial"].astype(int)
@@ -188,28 +219,51 @@ def plot_morans_i(prof_df):
     _stds = _grouped.std().fillna(0)
 
     for _, _row in prof_df.iterrows():
-        _ax.scatter(_row["rho"], _row["morans_i"],
-                    color="coral", alpha=0.5, s=60, zorder=3,
-                    label="Individual trials" if _ == prof_df.index[0] else "")
+        _ax.scatter(
+            _row["rho"],
+            _row["morans_i"],
+            color="coral",
+            alpha=0.5,
+            s=60,
+            zorder=3,
+            label="Individual trials" if _ == prof_df.index[0] else "",
+        )
 
-    _ax.errorbar(_rho_vals, _means[_rho_vals], yerr=_stds[_rho_vals],
-                 fmt="s-", color="darkred", linewidth=2.5, markersize=9,
-                 capsize=5, capthick=2, zorder=4,
-                 label="Mean ± Std")
+    _ax.errorbar(
+        _rho_vals,
+        _means[_rho_vals],
+        yerr=_stds[_rho_vals],
+        fmt="s-",
+        color="darkred",
+        linewidth=2.5,
+        markersize=9,
+        capsize=5,
+        capthick=2,
+        zorder=4,
+        label="Mean ± Std",
+    )
 
     _ax.set_xlabel("ρ (Topographic Loss Weight)")
     _ax.set_ylabel("Moran's I (Spatial Autocorrelation)")
-    _ax.set_title("Moran's I vs ρ — Effect of Topographic Loss on Representation Smoothness")
+    _ax.set_title(
+        "Moran's I vs ρ — Effect of Topographic Loss on Representation Smoothness"
+    )
     _ax.set_xticks(_rho_vals)
     _ax.set_xticklabels([str(r) for r in _rho_vals])
     _ax.grid(True, alpha=0.3, linestyle="--")
     _ax.legend()
 
     for _r in _rho_vals:
-        _ax.annotate(f"{_means[_r]:.4f}",
-                     xy=(_r, _means[_r]),
-                     xytext=(0, 14), textcoords="offset points",
-                     ha="center", fontsize=10, color="darkred", fontweight="bold")
+        _ax.annotate(
+            f"{_means[_r]:.4f}",
+            xy=(_r, _means[_r]),
+            xytext=(0, 14),
+            textcoords="offset points",
+            ha="center",
+            fontsize=10,
+            color="darkred",
+            fontweight="bold",
+        )
 
     _fig.tight_layout()
     mo.md("## 5. Spatial Smoothness (Moran's I) vs ρ")
@@ -222,7 +276,9 @@ def load_embeddings(inf_df):
     embeddings_by_run = {}
     for _, _row in inf_df.iterrows():
         _run_id = _row["model_run_id"]
-        _emb_path = os.path.join(ARTIFACTS_ROOT, "inference", _run_id, "test", "embeddings.pt")
+        _emb_path = os.path.join(
+            ARTIFACTS_ROOT, "inference", _run_id, "test", "embeddings.pt"
+        )
         if os.path.isfile(_emb_path):
             _emb = torch.load(_emb_path, weights_only=True)
             embeddings_by_run[_run_id] = {
@@ -273,9 +329,15 @@ def embedding_similarity_heatmaps(embeddings_by_run):
 
     for _i in range(_n):
         for _j in range(_n):
-            _ax.text(_j, _i, f"{_cos_sim[_i, _j]:.3f}",
-                     ha="center", va="center", fontsize=9,
-                     color="white" if _cos_sim[_i, _j] < 0.95 else "black")
+            _ax.text(
+                _j,
+                _i,
+                f"{_cos_sim[_i, _j]:.3f}",
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="white" if _cos_sim[_i, _j] < 0.95 else "black",
+            )
 
     _fig.colorbar(_im, ax=_ax, label="Cosine Similarity")
     _fig.tight_layout()
@@ -294,8 +356,9 @@ def prediction_agreement(inf_df):
 
         _preds_list = []
         for _, _row in _rho_runs.iterrows():
-            _preds_path = os.path.join(ARTIFACTS_ROOT, "inference",
-                                       _row["model_run_id"], "test", "preds.pt")
+            _preds_path = os.path.join(
+                ARTIFACTS_ROOT, "inference", _row["model_run_id"], "test", "preds.pt"
+            )
             if os.path.isfile(_preds_path):
                 _preds_list.append(torch.load(_preds_path, weights_only=True))
 
@@ -311,12 +374,14 @@ def prediction_agreement(inf_df):
                 _pair_agrees.append((_preds[_i] == _preds[_j]).float().mean().item())
         _mean_pair = np.mean(_pair_agrees)
 
-        _agreement_stats.append({
-            "rho": _rho,
-            "unanimous_agreement": _all_agree,
-            "mean_pairwise_agreement": _mean_pair,
-            "num_trials": _n_trials,
-        })
+        _agreement_stats.append(
+            {
+                "rho": _rho,
+                "unanimous_agreement": _all_agree,
+                "mean_pairwise_agreement": _mean_pair,
+                "num_trials": _n_trials,
+            }
+        )
 
     if not _agreement_stats:
         mo.stop(True, mo.md("*Need at least 2 trials per rho for agreement analysis.*"))
@@ -327,10 +392,22 @@ def prediction_agreement(inf_df):
     _x = range(len(_agree_df))
     _width = 0.35
 
-    _bars1 = _ax.bar([xi - _width/2 for xi in _x], _agree_df["unanimous_agreement"],
-                     _width, label="Unanimous Agreement", color="steelblue", alpha=0.8)
-    _bars2 = _ax.bar([xi + _width/2 for xi in _x], _agree_df["mean_pairwise_agreement"],
-                     _width, label="Mean Pairwise Agreement", color="coral", alpha=0.8)
+    _bars1 = _ax.bar(
+        [xi - _width / 2 for xi in _x],
+        _agree_df["unanimous_agreement"],
+        _width,
+        label="Unanimous Agreement",
+        color="steelblue",
+        alpha=0.8,
+    )
+    _bars2 = _ax.bar(
+        [xi + _width / 2 for xi in _x],
+        _agree_df["mean_pairwise_agreement"],
+        _width,
+        label="Mean Pairwise Agreement",
+        color="coral",
+        alpha=0.8,
+    )
 
     _ax.set_xlabel("ρ (Topographic Loss Weight)")
     _ax.set_ylabel("Agreement Rate")
@@ -342,15 +419,23 @@ def prediction_agreement(inf_df):
     _ax.set_ylim(0.8, 1.0)
 
     for _bar in _bars1:
-        _ax.annotate(f"{_bar.get_height():.3f}",
-                     xy=(_bar.get_x() + _bar.get_width()/2, _bar.get_height()),
-                     xytext=(0, 5), textcoords="offset points",
-                     ha="center", fontsize=9)
+        _ax.annotate(
+            f"{_bar.get_height():.3f}",
+            xy=(_bar.get_x() + _bar.get_width() / 2, _bar.get_height()),
+            xytext=(0, 5),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9,
+        )
     for _bar in _bars2:
-        _ax.annotate(f"{_bar.get_height():.3f}",
-                     xy=(_bar.get_x() + _bar.get_width()/2, _bar.get_height()),
-                     xytext=(0, 5), textcoords="offset points",
-                     ha="center", fontsize=9)
+        _ax.annotate(
+            f"{_bar.get_height():.3f}",
+            xy=(_bar.get_x() + _bar.get_width() / 2, _bar.get_height()),
+            xytext=(0, 5),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9,
+        )
 
     _fig.tight_layout()
     mo.md(f"""
@@ -366,10 +451,12 @@ def load_logits_and_confidence(inf_df):
     """Confidence analysis: how does rho affect model confidence?"""
     _conf_stats = []
     for _, _row in inf_df.iterrows():
-        _probs_path = os.path.join(ARTIFACTS_ROOT, "inference",
-                                    _row["model_run_id"], "test", "probs.pt")
-        _labels_path = os.path.join(ARTIFACTS_ROOT, "inference",
-                                     _row["model_run_id"], "test", "labels.pt")
+        _probs_path = os.path.join(
+            ARTIFACTS_ROOT, "inference", _row["model_run_id"], "test", "probs.pt"
+        )
+        _labels_path = os.path.join(
+            ARTIFACTS_ROOT, "inference", _row["model_run_id"], "test", "labels.pt"
+        )
         if not os.path.isfile(_probs_path) or not os.path.isfile(_labels_path):
             continue
 
@@ -378,17 +465,26 @@ def load_logits_and_confidence(inf_df):
         _preds = _probs.argmax(dim=1)
 
         _max_conf = _probs.max(dim=1).values
-        _correct = (_preds == _labels)
+        _correct = _preds == _labels
 
-        _conf_stats.append({
-            "rho": _row["rho"],
-            "trial": _row["trial"],
-            "mean_confidence": _max_conf.mean().item(),
-            "median_confidence": _max_conf.median().item(),
-            "confidence_correct": _max_conf[_correct].mean().item(),
-            "confidence_incorrect": _max_conf[~_correct].mean().item() if (~_correct).sum() > 0 else float("nan"),
-            "entropy_mean": (-_probs * _probs.clamp_min(1e-8).log()).sum(dim=1).mean().item(),
-        })
+        _conf_stats.append(
+            {
+                "rho": _row["rho"],
+                "trial": _row["trial"],
+                "mean_confidence": _max_conf.mean().item(),
+                "median_confidence": _max_conf.median().item(),
+                "confidence_correct": _max_conf[_correct].mean().item(),
+                "confidence_incorrect": (
+                    _max_conf[~_correct].mean().item()
+                    if (~_correct).sum() > 0
+                    else float("nan")
+                ),
+                "entropy_mean": (-_probs * _probs.clamp_min(1e-8).log())
+                .sum(dim=1)
+                .mean()
+                .item(),
+            }
+        )
 
     if not _conf_stats:
         mo.stop(True, mo.md("*No probability data available.*"))
@@ -403,10 +499,24 @@ def load_logits_and_confidence(inf_df):
     _ax = _axes[0]
     _means_correct = _grouped["confidence_correct"].mean()
     _means_incorrect = _grouped["confidence_incorrect"].mean()
-    _ax.plot(_rho_vals, _means_correct[_rho_vals], "o-", color="forestgreen",
-             linewidth=2.5, markersize=8, label="Correct predictions")
-    _ax.plot(_rho_vals, _means_incorrect[_rho_vals], "s-", color="crimson",
-             linewidth=2.5, markersize=8, label="Incorrect predictions")
+    _ax.plot(
+        _rho_vals,
+        _means_correct[_rho_vals],
+        "o-",
+        color="forestgreen",
+        linewidth=2.5,
+        markersize=8,
+        label="Correct predictions",
+    )
+    _ax.plot(
+        _rho_vals,
+        _means_incorrect[_rho_vals],
+        "s-",
+        color="crimson",
+        linewidth=2.5,
+        markersize=8,
+        label="Incorrect predictions",
+    )
     _ax.set_xlabel("ρ")
     _ax.set_ylabel("Mean Max Probability")
     _ax.set_title("Confidence by Correctness")
@@ -417,9 +527,17 @@ def load_logits_and_confidence(inf_df):
     _ax = _axes[1]
     _means_entropy = _grouped["entropy_mean"].mean()
     _stds_entropy = _grouped["entropy_mean"].std().fillna(0)
-    _ax.errorbar(_rho_vals, _means_entropy[_rho_vals], yerr=_stds_entropy[_rho_vals],
-                 fmt="D-", color="purple", linewidth=2.5, markersize=8,
-                 capsize=5, capthick=2)
+    _ax.errorbar(
+        _rho_vals,
+        _means_entropy[_rho_vals],
+        yerr=_stds_entropy[_rho_vals],
+        fmt="D-",
+        color="purple",
+        linewidth=2.5,
+        markersize=8,
+        capsize=5,
+        capthick=2,
+    )
     _ax.set_xlabel("ρ")
     _ax.set_ylabel("Mean Prediction Entropy (nats)")
     _ax.set_title("Prediction Uncertainty")
@@ -431,13 +549,15 @@ def load_logits_and_confidence(inf_df):
     _table_data = []
     for _rho in _rho_vals:
         _rho_data = _conf_df[_conf_df["rho"] == _rho]
-        _table_data.append([
-            f"{_rho}",
-            f"{_rho_data['mean_confidence'].mean():.4f}",
-            f"{_rho_data['confidence_correct'].mean():.4f}",
-            f"{_rho_data['confidence_incorrect'].mean():.4f}",
-            f"{_rho_data['entropy_mean'].mean():.4f}",
-        ])
+        _table_data.append(
+            [
+                f"{_rho}",
+                f"{_rho_data['mean_confidence'].mean():.4f}",
+                f"{_rho_data['confidence_correct'].mean():.4f}",
+                f"{_rho_data['confidence_incorrect'].mean():.4f}",
+                f"{_rho_data['entropy_mean'].mean():.4f}",
+            ]
+        )
     _table = _ax.table(
         cellText=_table_data,
         colLabels=["ρ", "Mean Conf", "Conf (✓)", "Conf (✗)", "Entropy"],
@@ -466,7 +586,9 @@ def summary(inf_df, prof_df):
             "ρ": _rho,
             "Num Trials": len(_rho_inf),
             "Mean Accuracy": f"{_rho_inf['test_accuracy'].mean():.4f}",
-            "Std Accuracy": f"{_rho_inf['test_accuracy'].std():.4f}" if len(_rho_inf) > 1 else "—",
+            "Std Accuracy": (
+                f"{_rho_inf['test_accuracy'].std():.4f}" if len(_rho_inf) > 1 else "—"
+            ),
         }
         if not prof_df.empty and "morans_i" in prof_df.columns:
             _rho_prof = prof_df[prof_df["rho"] == _rho]

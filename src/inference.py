@@ -22,7 +22,6 @@ from torch.utils.data import DataLoader
 
 from src.data.cache import StorageBackend, get_backend
 
-
 # ───────────── inference runner ─────────────
 
 
@@ -121,7 +120,9 @@ def load_inference_artifacts(
     return result
 
 
-def artifacts_complete(artifact_dir: str, backend: StorageBackend | None = None) -> bool:
+def artifacts_complete(
+    artifact_dir: str, backend: StorageBackend | None = None
+) -> bool:
     """Check that the minimum required artifacts exist."""
     if backend is None:
         backend = get_backend("pt")
