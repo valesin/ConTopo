@@ -67,6 +67,15 @@ def _parse_args() -> argparse.Namespace:
         help="Run kind to migrate (default: model)",
     )
     parser.add_argument(
+        "--mode",
+        default="schema",
+        choices=["schema", "type"],
+        help=(
+            "Migration strategy: 'schema' uses ALLOWED_TAGS/ALLOWED_PARAMS, "
+            "'type' moves values by inferred type (numeric/bool -> param, other -> tag)."
+        ),
+    )
+    parser.add_argument(
         "--max-runs",
         type=int,
         default=0,
@@ -89,6 +98,11 @@ def _parse_args() -> argparse.Namespace:
         "--skip-finished-only",
         action="store_true",
         help="If set, process all run statuses; otherwise only FINISHED runs.",
+    )
+    parser.add_argument(
+        "--include-mlflow-system-tags",
+        action="store_true",
+        help="Include system tags starting with 'mlflow.' when mode=type.",
     )
     return parser.parse_args()
 
@@ -208,6 +222,104 @@ def _plan_run_migration(run: Run, kind: str) -> tuple[list[MovePlan], list[Confl
     return plans, conflicts
 
 
+def _looks_numeric_or_bool(value: Any) -> bool:
+    if isinstance(value, (bool, int, float)):
+        return True
+    if value is None:
+        return False
+
+    s = str(value).strip()
+    if s == "":
+        return False
+
+    lower = s.lower()
+    if lower in {"true", "false"}:
+        return True
+
+    try:
+        if "." not in s and "e" not in lower:
+            int(s)
+            return True
+    except ValueError:
+        pass
+
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _plan_run_migration_by_type(
+    run: Run, *, include_mlflow_system_tags: bool
+) -> tuple[list[MovePlan], list[Conflict]]:
+    params = dict(run.data.params)
+    tags = dict(run.data.tags)
+
+    plans: list[MovePlan] = []
+    conflicts: list[Conflict] = []
+
+    keys = set(params.keys()) | set(tags.keys())
+    for key in keys:
+        if not include_mlflow_system_tags and key.startswith("mlflow."):
+            continue
+
+        in_param = key in params
+        in_tag = key in tags
+
+        source_value = params[key] if in_param else tags[key]
+        wants_param = _looks_numeric_or_bool(source_value)
+
+        if wants_param:
+            if in_tag and not in_param:
+                plans.append(
+                    MovePlan(
+                        run_id=run.info.run_id,
+                        key=key,
+                        source_slot="tag",
+                        destination_slot="param",
+                        value=tags[key],
+                        reason="type_numeric_or_bool",
+                    )
+                )
+            elif in_tag and in_param and str(tags[key]) != str(params[key]):
+                conflicts.append(
+                    Conflict(
+                        run_id=run.info.run_id,
+                        key=key,
+                        source_slot="tag",
+                        destination_slot="param",
+                        source_value=tags[key],
+                        destination_value=params[key],
+                    )
+                )
+        else:
+            if in_param and not in_tag:
+                plans.append(
+                    MovePlan(
+                        run_id=run.info.run_id,
+                        key=key,
+                        source_slot="param",
+                        destination_slot="tag",
+                        value=params[key],
+                        reason="type_textual",
+                    )
+                )
+            elif in_param and in_tag and str(params[key]) != str(tags[key]):
+                conflicts.append(
+                    Conflict(
+                        run_id=run.info.run_id,
+                        key=key,
+                        source_slot="param",
+                        destination_slot="tag",
+                        source_value=params[key],
+                        destination_value=tags[key],
+                    )
+                )
+
+    return plans, conflicts
+
+
 def _apply_plan(client: mlflow.tracking.MlflowClient, plan: MovePlan) -> None:
     if plan.destination_slot == "tag":
         client.set_tag(plan.run_id, plan.key, str(plan.value))
@@ -254,9 +366,16 @@ def main() -> None:
         f"Found {len(runs)} run(s) for kind='{args.kind}' in experiment='{args.experiment_name}'."
     )
     print(f"Mode: {'APPLY' if args.apply else 'DRY-RUN'}")
+    print(f"Strategy: {args.mode}")
 
     for run in runs:
-        plans, conflicts = _plan_run_migration(run, kind=args.kind)
+        if args.mode == "schema":
+            plans, conflicts = _plan_run_migration(run, kind=args.kind)
+        else:
+            plans, conflicts = _plan_run_migration_by_type(
+                run,
+                include_mlflow_system_tags=args.include_mlflow_system_tags,
+            )
         total_plans += len(plans)
         total_conflicts += len(conflicts)
 
