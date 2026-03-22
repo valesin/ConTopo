@@ -1,4 +1,5 @@
 # @package _global_
+# @package _global_
 hydra:
   mode: MULTIRUN
   sweeper:

@@ -11,7 +11,6 @@ from omegaconf import DictConfig
 from src.networks.resnet18 import LinearResNet18
 from src.networks.simple_cnn import LinearSimpleCNN
 
-
 _MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "LinearResNet18": LinearResNet18,
     "LinearSimpleCNN": LinearSimpleCNN,

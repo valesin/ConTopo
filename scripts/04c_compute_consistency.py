@@ -26,7 +26,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 
-from src.data.anchors import AnchorSpec, get_or_create_anchors
+from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
@@ -40,6 +40,10 @@ from src.mlflow_utils import (
     log_dataset_lineage,
 )
 from src.profiling.rdm import pearson_rdm, rsa_correlation
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+)
 
 
 def _consistency_hash(cs_hash: str, anchor_spec_hash: str, split: str) -> str:
@@ -47,8 +51,6 @@ def _consistency_hash(cs_hash: str, anchor_spec_hash: str, split: str) -> str:
     parts = [cs_hash, anchor_spec_hash, split, "consistency"]
     canonical = json.dumps(parts, ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
-
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -67,16 +69,13 @@ def main(cfg: DictConfig) -> None:
     # 1. Get ground-truth labels
     labels = get_split_labels(cfg, split)
 
-    anchor_spec = AnchorSpec(
+    anchors = get_or_create_anchors(
+        labels=labels,
         source_split=split,
         per_class=anchors_cfg.per_class,
         strategy=anchors_cfg.strategy,
         order_by=anchors_cfg.order_by,
         num_classes=cfg.dataset.num_classes,
-    )
-    anchors = get_or_create_anchors(
-        labels,
-        spec=anchor_spec,
         artifacts_root=str(cache_dir),
         dataset_name=cfg.dataset.name,
     )
@@ -129,7 +128,12 @@ def main(cfg: DictConfig) -> None:
             inf_run_id = inf_runs.iloc[0].run_id
 
             # 2. Download the tracked tensor artifact
-            data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
+            data = load_mlflow_artifact(
+                inf_run_id,
+                f"inference_data/{split}_tensors.npz",
+                file_type="numpy",
+                strict=True,
+            )
             embeddings = torch.from_numpy(data["embeddings"])
 
             anchor_embs = embeddings[anchor_indices]  # [K, D]
@@ -172,25 +176,25 @@ def main(cfg: DictConfig) -> None:
 
         # Log MLflow run
         tags = {
-            "kind": "consistency",
             "ensemble_name": ens_name,
             "component_set_hash": cs_hash,
             "consistency_hash": cons_hash,
             "anchor_spec_hash": a_spec_hash,
+            "run_name": f"cons_{ens_name}",
         }
 
-        with mlflow.start_run(
+        with schema_start_run(
+            kind="consistency",
             run_name=f"cons_{ens_name}",
             tags=tags,
         ) as cons_run:
-            mlflow.log_params(
+            schema_log_params(
+                "consistency",
                 {
-                    "ensemble_name": ens_name,
                     "num_components": n_models,
                     "split": split,
-                    "anchor_spec_hash": a_spec_hash,
                     "anchors_per_class": anchors_cfg.per_class,
-                }
+                },
             )
             mlflow.log_metric("mean_rsa_correlation", mean_rsa)
 
@@ -201,7 +205,12 @@ def main(cfg: DictConfig) -> None:
                     mlflow.log_artifact(fpath, artifact_path="consistency")
 
             labels_subset = labels[anchor_indices]
-            log_dataset_lineage(labels_subset, split, f"{cfg.dataset.name}_consistency_anchors", context="evaluation")
+            log_dataset_lineage(
+                labels_subset,
+                split,
+                f"{cfg.dataset.name}_consistency_anchors",
+                context="evaluation",
+            )
 
             log_resolved_config(cfg)
 

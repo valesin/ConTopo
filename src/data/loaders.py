@@ -48,9 +48,15 @@ def get_cifar10_loaders(cfg: DictConfig):
     val_per_class = cfg.dataset.split.val_per_class
     train_indices, val_indices = _split_train_val_indices(root, val_per_class)
 
-    train_ds = datasets.CIFAR10(root=root, train=True, transform=train_transform, download=True)
-    val_ds = datasets.CIFAR10(root=root, train=True, transform=eval_transform, download=True)
-    test_ds = datasets.CIFAR10(root=root, train=False, transform=eval_transform, download=True)
+    train_ds = datasets.CIFAR10(
+        root=root, train=True, transform=train_transform, download=True
+    )
+    val_ds = datasets.CIFAR10(
+        root=root, train=True, transform=eval_transform, download=True
+    )
+    test_ds = datasets.CIFAR10(
+        root=root, train=False, transform=eval_transform, download=True
+    )
 
     bs = cfg.training.batch_size
     nw = cfg.runtime.num_workers
@@ -59,18 +65,27 @@ def get_cifar10_loaders(cfg: DictConfig):
 
     train_loader = DataLoader(
         Subset(train_ds, train_indices),
-        batch_size=bs, shuffle=True, num_workers=nw,
-        pin_memory=pin, persistent_workers=persistent,
+        batch_size=bs,
+        shuffle=True,
+        num_workers=nw,
+        pin_memory=pin,
+        persistent_workers=persistent,
     )
     val_loader = DataLoader(
         Subset(val_ds, val_indices),
-        batch_size=bs, shuffle=False, num_workers=nw,
-        pin_memory=pin, persistent_workers=persistent,
+        batch_size=bs,
+        shuffle=False,
+        num_workers=nw,
+        pin_memory=pin,
+        persistent_workers=persistent,
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=bs, shuffle=False, num_workers=nw,
-        pin_memory=pin, persistent_workers=persistent,
+        batch_size=bs,
+        shuffle=False,
+        num_workers=nw,
+        pin_memory=pin,
+        persistent_workers=persistent,
     )
 
     return train_loader, val_loader, test_loader
@@ -111,5 +126,13 @@ def get_cifar10_eval_loader(
     if pin_memory is None:
         pin_memory = torch.cuda.is_available()
     _, eval_transform = get_transforms(preset)
-    ds = datasets.CIFAR10(root=root, train=False, download=True, transform=eval_transform)
-    return DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
+    ds = datasets.CIFAR10(
+        root=root, train=False, download=True, transform=eval_transform
+    )
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )

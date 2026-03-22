@@ -29,7 +29,9 @@ def pearson_rdm(X: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     return rdm
 
 
-def upper_triangle_vector(M: torch.Tensor, include_diagonal: bool = True) -> torch.Tensor:
+def upper_triangle_vector(
+    M: torch.Tensor, include_diagonal: bool = True
+) -> torch.Tensor:
     """Upper-triangular values of a square matrix as a 1-D vector."""
     n = M.size(0)
     offset = 0 if include_diagonal else 1

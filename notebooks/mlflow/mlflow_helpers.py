@@ -200,3 +200,96 @@ def setup_connection(
     raise ValueError(
         "Either root_path or port must be provided to connect to MLflow database"
     )
+
+
+def download_adapter_inputs(
+    run_id: str,
+    behaviour_input_hash: str | None = None,
+    artifact_path: str = "adapter_inputs",
+    dst_path: str | None = None,
+) -> dict:
+    """Download adapter inputs for a run and return local paths.
+
+    If `behaviour_input_hash` is not provided, it will be retrieved from
+    the run's tags `tags.behaviour_input_hash`.
+
+    Returns a dict with `local_dir` and optional `npz` key for
+    `adapter_inputs_<behaviour_input_hash>.npz` when present.
+    """
+    if behaviour_input_hash is None:
+        run = mlflow.get_run(run_id)
+        behaviour_input_hash = run.data.tags.get("behaviour_input_hash")
+        if not behaviour_input_hash:
+            raise ValueError(
+                f"Run {run_id} is missing the 'behaviour_input_hash' tag. "
+                "Please provide it manually."
+            )
+
+    local_dir = mlflow.artifacts.download_artifacts(
+        run_id=run_id, artifact_path=artifact_path, dst_path=dst_path
+    )
+    p = Path(local_dir)
+    result = {"local_dir": str(local_dir)}
+    inputs_npz = p / f"adapter_inputs_{behaviour_input_hash}.npz"
+    if inputs_npz.exists():
+        result["npz"] = str(inputs_npz)
+    return result
+
+
+def load_adapter_inputs(
+    run_id: str,
+    behaviour_input_hash: str | None = None,
+    artifact_path: str = "adapter_inputs",
+) -> tuple[dict, dict]:
+    """Download and load adapter inputs artifacts.
+
+    If `behaviour_input_hash` is not provided, it will be automatically
+    inferred from the run's tags.
+
+    Returns `(paths_dict, inputs_dict)` where:
+      - `paths_dict` is returned by `download_adapter_inputs`
+      - `inputs_dict` is loaded from `adapter_inputs_<behaviour_input_hash>.npz`
+        or empty dict if missing.
+    """
+    import numpy as _np
+
+    paths = download_adapter_inputs(
+        run_id=run_id,
+        behaviour_input_hash=behaviour_input_hash,
+        artifact_path=artifact_path,
+    )
+    inputs_dict = {}
+    if "npz" in paths:
+        with _np.load(paths["npz"]) as d:
+            inputs_dict = {k: d[k] for k in d.files}
+    return paths, inputs_dict
+
+
+def load_inference_results_from_model_run_id(
+    experiment: mlflow.entities.Experiment,
+    trained_model_run_id: str,
+    split: str = "test",
+    artifact_path: str = "inference_data",
+) -> tuple[pl.DataFrame, dict]:
+    """Finds the FINISHED inference run for a given model run and loads its data.
+
+    Returns `(results_df, tensors_dict)` exactly as `load_inference_results`.
+    """
+    filter_string = (
+        f"tags.kind = 'inference' and "
+        f"tags.trained_model_run_id = '{trained_model_run_id}' and "
+        f"tags.split = '{split}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    runs_pd = mlflow.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=filter_string,
+    )
+    if runs_pd.empty:
+        raise ValueError(
+            f"No FINISHED inference run found for model {trained_model_run_id} "
+            f"on split '{split}'."
+        )
+
+    inference_run_id = runs_pd.iloc[0].run_id
+    return load_inference_results(run_id=inference_run_id, artifact_path=artifact_path)

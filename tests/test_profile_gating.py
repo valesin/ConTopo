@@ -39,7 +39,9 @@ import importlib.util
 _step03_path = os.path.join(
     os.path.dirname(__file__), os.pardir, "scripts", "03_compute_profiles.py"
 )
-_step03_spec = importlib.util.spec_from_file_location("step03", os.path.abspath(_step03_path))
+_step03_spec = importlib.util.spec_from_file_location(
+    "step03", os.path.abspath(_step03_path)
+)
 _step03 = importlib.util.module_from_spec(_step03_spec)
 _step03_spec.loader.exec_module(_step03)
 
@@ -102,6 +104,7 @@ class TestProfileSpecContent:
 
     def test_spec_has_anchor_spec(self, cfg):
         from src.data.anchors import AnchorSpec
+
         specs = _collect_profile_specs(cfg)
         assert "anchor_spec" in specs[0]
         assert isinstance(specs[0]["anchor_spec"], AnchorSpec)
@@ -115,7 +118,9 @@ class TestProfileSpecContent:
         """Spec must use the adapter config values."""
         specs = _collect_profile_specs(cfg)
         assert specs[0]["similarity_metric"] == cfg.adapter.similarity_metric
-        assert specs[0]["anchor_spec"].per_class == cfg.adapter.anchor_selection.per_class
+        assert (
+            specs[0]["anchor_spec"].per_class == cfg.adapter.anchor_selection.per_class
+        )
 
 
 class TestPipelineProfilesSkipFlag:

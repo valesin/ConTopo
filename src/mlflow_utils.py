@@ -30,7 +30,6 @@ from omegaconf import DictConfig, OmegaConf
 from src.config.hash import cfg_hash  # noqa: F401
 from src.config.paths import ensure_output_dirs
 
-
 # ───────────────── setup ─────────────────
 
 
@@ -87,7 +86,9 @@ def log_resolved_config(cfg: DictConfig) -> None:
         os.unlink(f.name)
 
 
-def load_mlflow_artifact(run_id: str, artifact_path: str, file_type: str = "auto", strict: bool = False) -> Any:
+def load_mlflow_artifact(
+    run_id: str, artifact_path: str, file_type: str = "auto", strict: bool = False
+) -> Any:
     """
     Download and load a specific artifact from an MLflow run.
     Supported types: 'auto', 'numpy', 'torch', 'parquet'.
@@ -95,7 +96,7 @@ def load_mlflow_artifact(run_id: str, artifact_path: str, file_type: str = "auto
     """
     artifact_uri = f"runs:/{run_id}/{artifact_path}"
     local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri)
-    
+
     if file_type == "auto":
         if artifact_path.endswith(".npz") or artifact_path.endswith(".npy"):
             file_type = "numpy"
@@ -104,21 +105,27 @@ def load_mlflow_artifact(run_id: str, artifact_path: str, file_type: str = "auto
         elif artifact_path.endswith(".parquet"):
             file_type = "parquet"
         else:
-            return local_path # Return the downloaded path if type is unknown
-            
+            return local_path  # Return the downloaded path if type is unknown
+
     if file_type == "numpy":
         return np.load(local_path)
     if file_type == "torch":
         try:
             return torch.load(local_path, weights_only=False)
         except Exception as e:
-            if strict: raise RuntimeError(f"Failed to load torch artifact {artifact_path} for run {run_id}. {e}")
+            if strict:
+                raise RuntimeError(
+                    f"Failed to load torch artifact {artifact_path} for run {run_id}. {e}"
+                )
             raise
     elif file_type == "parquet":
         try:
             return pd.read_parquet(local_path)
         except Exception as e:
-            if strict: raise RuntimeError(f"Failed to load parquet artifact {artifact_path} for run {run_id}. {e}")
+            if strict:
+                raise RuntimeError(
+                    f"Failed to load parquet artifact {artifact_path} for run {run_id}. {e}"
+                )
             raise
     else:
         raise ValueError(f"Unsupported file_type: {file_type}")
@@ -126,16 +133,23 @@ def load_mlflow_artifact(run_id: str, artifact_path: str, file_type: str = "auto
 
 def safe_to_numpy_float64(tensor_or_numpy):
     """
-    Helper function to safely convert a PyTorch tensor (or already numpy array) 
+    Helper function to safely convert a PyTorch tensor (or already numpy array)
     to a numpy float64 array, standardizing inputs to MLflow data schema tracing.
     """
-    arr = tensor_or_numpy.numpy() if hasattr(tensor_or_numpy, "numpy") else tensor_or_numpy
+    arr = (
+        tensor_or_numpy.numpy()
+        if hasattr(tensor_or_numpy, "numpy")
+        else tensor_or_numpy
+    )
     return arr.astype("float64")
 
 
-def log_dataset_lineage(labels: "torch.Tensor", split: str, dataset_name: str, context: str = "evaluation") -> None:
+def log_dataset_lineage(
+    labels: "torch.Tensor", split: str, dataset_name: str, context: str = "evaluation"
+) -> None:
     """Log the corresponding dataset split as an MLflow input dataset (without image hashes)."""
     import pandas as pd
+
     dataset_df = pd.DataFrame(
         {
             "original_index": safe_to_numpy_float64(torch.arange(len(labels))),
@@ -146,8 +160,6 @@ def log_dataset_lineage(labels: "torch.Tensor", split: str, dataset_name: str, c
         dataset_df, targets="label", name=f"{dataset_name}_{split}"
     )
     mlflow.log_input(eval_dataset, context=context)
-
-
 
 
 # ───────────────── idempotency ─────────────────
@@ -248,22 +260,15 @@ def _format_rho(rho) -> str:
 
 
 def model_tags(
-    cfg: DictConfig, cfg_hash_value: str,
+    cfg: DictConfig,
+    cfg_hash_value: str,
 ) -> Dict[str, str]:
     """Standard tag dict for a *model* training run."""
     return {
         "kind": "model",
         "schema_version": str(cfg.schema_version),
-        "loss_type": "cross_entropy",
-        "rho": _format_rho(cfg.loss.rho),
-        "trial": str(cfg.trial),
-        "seed": str(cfg.seed),
-        "topography_type": str(cfg.loss.topography_type),
-        "topology": str(cfg.loss.topology),
-        "dataset": str(cfg.dataset.name),
-        "model_arch": str(cfg.model.arch),
-        "transforms_preset": str(cfg.dataset.transforms.preset),
         "cfg_hash": cfg_hash_value,
+        "trial": str(cfg.trial),
     }
 
 
@@ -280,19 +285,12 @@ def behaviour_tags(
     """Standard tag dict for a *behaviour* (ensemble / meta-learner) run."""
     tags = {
         "kind": kind,
-        "behaviour": behaviour,
         "component_set_hash": component_set_hash,
         "behaviour_input_hash": behaviour_input_hash,
-        "num_components": str(len(component_run_ids)),
     }
-    if rho:
-        tags["rho"] = rho
     if extra:
         tags.update(extra)
     return tags
-
-
-
 
 
 def profiles_tags(cfg_hash_value: str, profile_type: str) -> Dict[str, str]:
@@ -317,15 +315,18 @@ def behaviour_input_hash(
     meta_split_spec: str = "",
     similarity_metric: str = "",
     init_seed: str = "",
+    profile_mask: str = "",
 ) -> str:
     """Derived hash summarising everything that changes behaviour input data.
 
     The ``similarity_metric`` field is included so that switching from e.g.
     cosine to L2 produces a different hash (and therefore a new run).
-    Default is ``""`` for backward-compatibility with logits-only runs.
+    Default is ``""`` for compatibility with logits-only runs.
 
     The ``init_seed`` field is included so that different adapter init seeds
     produce different hashes (and therefore separate runs).
+
+    The ``profile_mask`` field controls how the profile features are masked.
     """
     parts = [
         component_set_hash_val,
@@ -335,6 +336,7 @@ def behaviour_input_hash(
         meta_split_spec,
         similarity_metric,
         init_seed,
+        profile_mask,
     ]
     canonical = json.dumps(parts, ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
@@ -364,7 +366,7 @@ def get_inference_run(
     filter_str = (
         f"tags.kind = 'inference' and "
         f"tags.trained_model_run_id = '{trained_model_run_id}' and "
-        f"tags.split = '{split}' and "
+        f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
     return mlflow.search_runs(
@@ -379,12 +381,7 @@ def find_finished_ensemble_run(
     ensemble_method: str = "",
 ) -> Optional[mlflow.entities.Run]:
     """Check if an ensemble run already exists."""
-    tags = {
-        "kind": "ensemble",
-        "behaviour_input_hash": behaviour_input_hash_val
-    }
-    if ensemble_method:
-        tags["behaviour"] = ensemble_method
+    tags = {"kind": "ensemble", "behaviour_input_hash": behaviour_input_hash_val}
     return find_run_by_tags(experiment_name, tags)
 
 
@@ -394,12 +391,7 @@ def find_finished_metalearner_run(
     meta_type: str = "",
 ) -> Optional[mlflow.entities.Run]:
     """Check if a metalearner run already exists."""
-    tags = {
-        "kind": "metalearner",
-        "behaviour_input_hash": behaviour_input_hash_val
-    }
-    if meta_type:
-        tags["behaviour"] = meta_type
+    tags = {"kind": "metalearner", "behaviour_input_hash": behaviour_input_hash_val}
     return find_run_by_tags(experiment_name, tags)
 
 
@@ -407,12 +399,22 @@ def find_finished_diagnostic_run(
     experiment_name: str, parent_run_id: str, metric_name: str
 ) -> Optional[mlflow.entities.Run]:
     """Check if a diagnostic run already exists for this (model, metric)."""
-    tags = {
-        "kind": "diagnostics",
-        "parent_run_id": parent_run_id,
-        "diagnostic_metric": metric_name,
-    }
-    return find_run_by_tags(experiment_name, tags)
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+    filter_str = (
+        f"tags.kind = 'diagnostics' and "
+        f"tags.parent_run_id = '{parent_run_id}' and "
+        f"params.diagnostic_metric = '{metric_name}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    runs = mlflow.search_runs(
+        experiment_ids=[exp.experiment_id],
+        filter_string=filter_str,
+        max_results=1,
+        output_format="list",
+    )
+    return runs[0] if runs else None
 
 
 def find_finished_diversity_run(
@@ -422,13 +424,23 @@ def find_finished_diversity_run(
     split: str,
 ) -> Optional[mlflow.entities.Run]:
     """Check if a diversity run already exists for this (ensemble, metric)."""
-    tags = {
-        "kind": "diversity",
-        "component_set_hash": cs_hash,
-        "diversity_metric": metric_name,
-        "split": split,
-    }
-    return find_run_by_tags(experiment_name, tags)
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+    filter_str = (
+        f"tags.kind = 'diversity' and "
+        f"tags.component_set_hash = '{cs_hash}' and "
+        f"params.diversity_metric = '{metric_name}' and "
+        f"params.split = '{split}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    runs = mlflow.search_runs(
+        experiment_ids=[exp.experiment_id],
+        filter_string=filter_str,
+        max_results=1,
+        output_format="list",
+    )
+    return runs[0] if runs else None
 
 
 def find_finished_consistency_run(
@@ -448,9 +460,6 @@ def find_finished_consistency_run(
 def category_similarity_profile_tags(
     parent_run_id: str,
     anchor_spec_hash: str,
-    similarity_metric: str,
-    split: str,
-    profile_hash: str,
     extra: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Standard tag dict for a *category_similarity_profile* run."""
@@ -458,9 +467,6 @@ def category_similarity_profile_tags(
         "kind": "category_similarity_profile",
         "parent_run_id": parent_run_id,
         "anchor_spec_hash": anchor_spec_hash,
-        "similarity_metric": similarity_metric,
-        "split": split,
-        "profile_hash": profile_hash,
     }
     if extra:
         tags.update(extra)
@@ -475,14 +481,24 @@ def find_finished_similarity_profile_run(
     split: str = "test",
 ) -> Optional[mlflow.entities.Run]:
     """Check if a category_similarity_profile run already exists."""
-    tags = {
-        "kind": "category_similarity_profile",
-        "parent_run_id": parent_run_id,
-        "anchor_spec_hash": anchor_spec_hash,
-        "similarity_metric": similarity_metric,
-        "split": split
-    }
-    return find_run_by_tags(experiment_name, tags)
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+    filter_str = (
+        f"tags.kind = 'category_similarity_profile' and "
+        f"tags.parent_run_id = '{parent_run_id}' and "
+        f"tags.anchor_spec_hash = '{anchor_spec_hash}' and "
+        f"params.similarity_metric = '{similarity_metric}' and "
+        f"params.split = '{split}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    runs = mlflow.search_runs(
+        experiment_ids=[exp.experiment_id],
+        filter_string=filter_str,
+        max_results=1,
+        output_format="list",
+    )
+    return runs[0] if runs else None
 
 
 def get_profile_run(
@@ -507,8 +523,8 @@ def get_profile_run(
     filter_str = (
         f"tags.kind = 'category_similarity_profile' and "
         f"tags.parent_run_id = '{trained_model_run_id}' and "
-        f"tags.similarity_metric = '{similarity_metric}' and "
-        f"tags.split = '{split}' and "
+        f"params.similarity_metric = '{similarity_metric}' and "
+        f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
     return mlflow.search_runs(
@@ -523,8 +539,8 @@ def get_ensemble_results(
 ) -> pd.DataFrame:
     """
     Retrieves all ensemble evaluation runs for the given split.
-    
-    Returns a DataFrame with columns: 
+
+    Returns a DataFrame with columns:
     [rho, cs_hash, behaviour, ensemble_name, accuracy, rho_numeric]
     """
     exp = mlflow.get_experiment_by_name(experiment_name)
@@ -533,7 +549,7 @@ def get_ensemble_results(
 
     filter_str = (
         f"tags.kind = 'ensemble' and "
-        f"tags.split = '{split}' and "
+        f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
     runs = mlflow.search_runs(
@@ -547,21 +563,21 @@ def get_ensemble_results(
     # Define columns to extract
     cols = {
         "run_id": "run_id",
-        "tags.rho": "rho",
+        "params.rho": "rho",
         "tags.component_set_hash": "cs_hash",
-        "tags.behaviour": "behaviour", # vote method
+        "params.method": "behaviour",  # vote method
         "tags.ensemble_name": "ensemble_name",
         "metrics.ensemble_accuracy": "accuracy",
     }
-    
+
     df = runs.rename(columns=cols)
     keep = [c for c in cols.values() if c in df.columns]
     result = df[keep].copy()
-    
+
     if "rho" in result.columns:
         result["rho_numeric"] = pd.to_numeric(result["rho"], errors="coerce")
         result = result.sort_values(["rho_numeric", "behaviour"])
-        
+
     return result
 
 
@@ -571,8 +587,8 @@ def get_metalearner_results(
 ) -> pd.DataFrame:
     """
     Retrieves all metalearner (adapter) training runs for the given split.
-    
-    Returns a DataFrame with columns: 
+
+    Returns a DataFrame with columns:
     [rho, cs_hash, behaviour, feature_type, similarity_metric, split_seed, accuracy, rho_numeric]
     """
     exp = mlflow.get_experiment_by_name(experiment_name)
@@ -581,7 +597,7 @@ def get_metalearner_results(
 
     filter_str = (
         f"tags.kind = 'metalearner' and "
-        f"tags.split = '{split}' and "
+        f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
     runs = mlflow.search_runs(
@@ -595,21 +611,21 @@ def get_metalearner_results(
     # Define columns to extract
     cols = {
         "run_id": "run_id",
-        "tags.rho": "rho",
+        "params.rho": "rho",
         "tags.component_set_hash": "cs_hash",
-        "tags.behaviour": "behaviour", # meta_type
-        "tags.feature_type": "feature_type",
-        "tags.similarity_metric": "similarity_metric",
-        "tags.meta_split_seed": "split_seed",
+        "params.meta_type": "behaviour",  # meta_type
+        "params.feature_type": "feature_type",
+        "params.similarity_metric": "similarity_metric",
+        "params.meta_split_seed": "split_seed",
         "metrics.holdout_acc": "accuracy",
     }
-    
+
     df = runs.rename(columns=cols)
     keep = [c for c in cols.values() if c in df.columns]
     result = df[keep].copy()
-    
+
     if "rho" in result.columns:
         result["rho_numeric"] = pd.to_numeric(result["rho"], errors="coerce")
         result = result.sort_values(["rho_numeric", "behaviour", "feature_type"])
-        
+
     return result

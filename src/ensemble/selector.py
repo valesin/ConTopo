@@ -7,14 +7,15 @@ from __future__ import annotations
 from typing import Any, Dict, List
 import mlflow
 
+
 def discover_ensembles(
     experiment_name: str,
-    group_by: List[str] = ["loss_type", "topology", "rho"],
+    group_by: List[str] = ["topology", "rho"],
     min_components: int = 2,
-    base_filter: Dict[str, Any] = None
+    base_filter: Dict[str, Any] = None,
 ) -> Dict[str, List[str]]:
     """
-    Auto-discovers ensemble groupings entirely based on tags.
+    Auto-discovers ensemble groupings based on model params.
 
     Returns:
        Dictionary of { 'ensemble_name': ['run_id_1', 'run_id_2', ...], ... }
@@ -27,7 +28,7 @@ def discover_ensembles(
     filter_string = "attributes.status = 'FINISHED' and tags.kind = 'model'"
     if base_filter:
         for k, v in base_filter.items():
-            filter_string += f" and tags.{k} = '{v}'"
+            filter_string += f" and params.{k} = '{v}'"
 
     runs = mlflow.search_runs(
         experiment_ids=[exp.experiment_id],
@@ -40,21 +41,21 @@ def discover_ensembles(
 
     # 2. Form groups based on distinct keys
     groups: Dict[str, List[str]] = {}
-    
+
     for r in runs:
-        tags = r.data.tags
+        params = r.data.params
         # Ensure model has all the necessary group_by tags
-        if not all(k in tags for k in group_by):
+        if not all(k in params for k in group_by):
             continue
 
         # Create a unique group name based on the grouping keys
         # e.g., "topology_torus_rho_0.0"
-        sig_parts = [f"{k}_{tags[k]}" for k in group_by]
+        sig_parts = [f"{k}_{params[k]}" for k in group_by]
         group_name = "ens_" + "_".join(sig_parts)
 
         if group_name not in groups:
             groups[group_name] = []
-            
+
         groups[group_name].append(r.info.run_id)
 
     # 3. Filter minimum component clusters and sort ID sequences perfectly

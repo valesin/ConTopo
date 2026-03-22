@@ -14,7 +14,9 @@ class Block(nn.Module):
 
     def __init__(self, in_channels: int, channels: int, stride: int = 1):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, channels, 3, stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels, channels, 3, stride=stride, padding=1, bias=False
+        )
         self.bn1 = nn.BatchNorm2d(channels)
         self.conv2 = nn.Conv2d(channels, channels, 3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(channels)

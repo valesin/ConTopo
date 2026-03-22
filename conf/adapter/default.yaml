@@ -11,6 +11,9 @@ meta_type: meta_lr            # meta_lr | meta_mlp_2 | meta_mlp_3
 feature_type: logits          # logits | embeddings | embeddings+profiles
 similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
 
+# ── Profile Masking ──
+profile_mask: true_class      # true_class | argmax_similarity | argmax_logits | none
+
 # ── Reproducibility seed for adapter weight init + training ──
 init_seed: 42                 # seeds torch.manual_seed() before adapter training
 

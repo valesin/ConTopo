@@ -20,7 +20,6 @@ from torch.amp import autocast, GradScaler
 from src.losses.balancer import GradNormBalancer
 from src.networks.registry import unwrap
 
-
 # ───────────── helpers ─────────────
 
 
@@ -158,6 +157,7 @@ def train_one_epoch(
 
 
 # ───────────── validation ─────────────
+
 
 class _LogitsOnly(nn.Module):
     """Adapter to make a (embeddings, logits) model return logits only."""

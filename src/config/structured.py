@@ -16,8 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-
-
 # ─────────── model ───────────
 
 
@@ -125,6 +123,7 @@ class StorageConfig:
 @dataclass
 class PathsConfig:
     """Centralized output paths, all relative to outputs_root."""
+
     models: str = "models"
     cache: str = "cache"
     analysis: str = "analysis"
@@ -159,6 +158,7 @@ class AnchorsConfig:
 @dataclass
 class DiagnosticsConfig:
     """Per-model diagnostic metrics (step 03b)."""
+
     morans_i: bool = True
     weight_norms: bool = True
     unit_distance_correlation: bool = True
@@ -167,22 +167,30 @@ class DiagnosticsConfig:
 @dataclass
 class DiversityConfig:
     """Post-ensemble diversity metrics (step 04b)."""
+
     enabled: bool = True
-    metrics: List[str] = field(default_factory=lambda: [
-        "q_statistic", "disagreement", "double_fault",
-        "correlation", "interrater_agreement",
-    ])
+    metrics: List[str] = field(
+        default_factory=lambda: [
+            "q_statistic",
+            "disagreement",
+            "double_fault",
+            "correlation",
+            "interrater_agreement",
+        ]
+    )
 
 
 @dataclass
 class ConsistencyConfig:
     """Post-ensemble RDM/RSA consistency (step 04c)."""
+
     enabled: bool = True
 
 
 @dataclass
 class ProfilesConfig:
     """Category similarity profile computation (step 03)."""
+
     skip: bool = False
 
 
@@ -221,12 +229,15 @@ class MetaSplitFractionsConfig:
 class MetaSplitConfig:
     seed: int = 42
     strategy: str = "random"
-    fractions: MetaSplitFractionsConfig = field(default_factory=MetaSplitFractionsConfig)
+    fractions: MetaSplitFractionsConfig = field(
+        default_factory=MetaSplitFractionsConfig
+    )
 
 
 @dataclass
 class AnchorSelectionConfig:
     """Anchor selection used by meta-learners."""
+
     per_class: int = 100
     strategy: str = "per_class_first_n"
     order_by: str = "example_id"
@@ -245,7 +256,9 @@ class AdapterConfig:
     hidden_dim: int = 128
     init_seed: int = 42
     meta_split: MetaSplitConfig = field(default_factory=MetaSplitConfig)
-    anchor_selection: AnchorSelectionConfig = field(default_factory=AnchorSelectionConfig)
+    anchor_selection: AnchorSelectionConfig = field(
+        default_factory=AnchorSelectionConfig
+    )
 
 
 # ─────────── ensemble ───────────
@@ -254,6 +267,7 @@ class AdapterConfig:
 @dataclass
 class EnsembleConfig:
     """Top-level ensemble config.  ``ensembles`` is a list of dicts (dynamic)."""
+
     ensembles: List[Any] = field(default_factory=list)
 
 

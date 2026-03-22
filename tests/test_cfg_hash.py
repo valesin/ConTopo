@@ -15,7 +15,11 @@ def _make_cfg(**overrides):
         "schema_version": 1,
         "trial": 0,
         "seed": 100,
-        "model": {"arch": "LinearResNet18", "embedding_dim": 256, "head": {"bias": True}},
+        "model": {
+            "arch": "LinearResNet18",
+            "embedding_dim": 256,
+            "head": {"bias": True},
+        },
         "loss": {
             "type": "cross_entropy",
             "topography_type": "ws",
@@ -133,13 +137,15 @@ class TestCfgHash:
         c1 = _make_cfg()
         c2 = OmegaConf.merge(
             _make_cfg(),
-            OmegaConf.create({
-                "runtime": {"device": "cuda:1"},
-                "mlflow": {"experiment_name": "other"},
-                "storage": {"backend": "zarr"},
-                "hydra": {"verbose": True},
-                "pipeline": {"anchors": {"per_class": 50}},
-            }),
+            OmegaConf.create(
+                {
+                    "runtime": {"device": "cuda:1"},
+                    "mlflow": {"experiment_name": "other"},
+                    "storage": {"backend": "zarr"},
+                    "hydra": {"verbose": True},
+                    "pipeline": {"anchors": {"per_class": 50}},
+                }
+            ),
         )
         assert cfg_hash(c1) == cfg_hash(c2)
 

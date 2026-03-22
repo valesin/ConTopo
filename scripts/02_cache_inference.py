@@ -13,7 +13,6 @@ Usage:
     python scripts/02_cache_inference.py pipeline.force=true
 """
 
-
 from __future__ import annotations
 import os
 import hydra
@@ -36,6 +35,10 @@ from src.mlflow_utils import (
     log_dataset_lineage,
 )
 from src.config.hash import cfg_hash
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+)
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -71,7 +74,9 @@ def main(cfg: DictConfig) -> None:
     if not cfg.pipeline.force:
         inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
         if not inf_runs.empty:
-            print(f"Inference already cached for model {run_id} on split {split}. Skipping.")
+            print(
+                f"Inference already cached for model {run_id} on split {split}. Skipping."
+            )
             return
 
     loader = get_cifar10_eval_loader(
@@ -85,28 +90,27 @@ def main(cfg: DictConfig) -> None:
     results = run_combined_model_inference(model, loader, device)
 
     tags = {
-        "kind": "inference",
-        "split": split,
         "trained_model_run_id": run_id,  # Link back to the trained model
         "parent_run_name": parent_run_name,
+        "cfg_hash": hash_val,
     }
 
-    with mlflow.start_run(
-        run_name=f"inf_{split}_{parent_run_name}", tags=tags
+    with schema_start_run(
+        kind="inference", run_name=f"inf_{split}_{parent_run_name}", tags=tags
     ) as inf_run:
-        mlflow.log_params(
+        schema_log_params(
+            "inference",
             {
                 "dataset": cfg.dataset.name,
                 "split": split,
                 "transforms_preset": cfg.dataset.transforms.preset,
-                "trained_model_run_id": run_id,
-                "parent_run_name": parent_run_name,
                 "rho": rho,
-                "cfg_hash": hash_val,
-            }
+            },
         )
 
-        log_dataset_lineage(results["labels"], split, cfg.dataset.name, context="evaluation")
+        log_dataset_lineage(
+            results["labels"], split, cfg.dataset.name, context="evaluation"
+        )
 
         # ─── 1. Save Tabular Data (Labels, Preds) ───
         preds_np = (
@@ -122,13 +126,13 @@ def main(cfg: DictConfig) -> None:
 
         eval_df = pd.DataFrame(
             {
-                "original_index": safe_to_numpy_float64(
-                    torch.arange(len(labels_np))
-                ),
+                "original_index": safe_to_numpy_float64(torch.arange(len(labels_np))),
                 "label": safe_to_numpy_float64(results["labels"]),
                 "prediction": safe_to_numpy_float64(results["preds"]),
                 "confidence": safe_to_numpy_float64(
-                    results["probs"].numpy().max(axis=1) if hasattr(results["probs"], "numpy") else results["probs"].max(axis=1)
+                    results["probs"].numpy().max(axis=1)
+                    if hasattr(results["probs"], "numpy")
+                    else results["probs"].max(axis=1)
                 ),
             }
         )

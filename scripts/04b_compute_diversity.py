@@ -35,8 +35,10 @@ from src.mlflow_utils import (
     log_dataset_lineage,
 )
 from src.profiling.diversity import EvalContext, compute_metrics
-
-
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+)
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -95,7 +97,15 @@ def main(cfg: DictConfig) -> None:
 
         for i, run_id in enumerate(run_ids):
             # Find the corresponding inference run
-            inf_runs = get_inference_run([mlflow.get_experiment_by_name(cfg.mlflow.experiment_name).experiment_id], run_id, split)
+            inf_runs = get_inference_run(
+                [
+                    mlflow.get_experiment_by_name(
+                        cfg.mlflow.experiment_name
+                    ).experiment_id
+                ],
+                run_id,
+                split,
+            )
 
             if inf_runs.empty:
                 raise RuntimeError(
@@ -106,11 +116,21 @@ def main(cfg: DictConfig) -> None:
             inf_run_id = inf_runs.iloc[0].run_id
 
             # We can download predictions efficiently via tabular tracking
-            df = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_inference_results.parquet", file_type="parquet", strict=True)
+            df = load_mlflow_artifact(
+                inf_run_id,
+                f"inference_data/{split}_inference_results.parquet",
+                file_type="parquet",
+                strict=True,
+            )
             preds_list.append(torch.tensor(df["prediction"].values))
 
             if has_logits:
-                data = load_mlflow_artifact(inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy", strict=True)
+                data = load_mlflow_artifact(
+                    inf_run_id,
+                    f"inference_data/{split}_tensors.npz",
+                    file_type="numpy",
+                    strict=True,
+                )
                 logits_list.append(torch.from_numpy(data["logits"]))
 
         # Compute all needed metrics at once (they share the EvalContext)
@@ -133,24 +153,23 @@ def main(cfg: DictConfig) -> None:
                 json.dump({metric_name: float(value)}, f, indent=2)
 
             tags = {
-                "kind": "diversity",
                 "ensemble_name": ens_name,
                 "component_set_hash": cs_hash,
-                "diversity_metric": metric_name,
-                "split": split,
+                "run_name": f"{ens_name}_{metric_name}",
             }
 
-            with mlflow.start_run(
+            with schema_start_run(
+                kind="diversity",
                 run_name=f"{ens_name}_{metric_name}",
                 tags=tags,
             ) as div_run:
-                mlflow.log_params(
+                schema_log_params(
+                    "diversity",
                     {
-                        "ensemble_name": ens_name,
                         "num_components": len(run_ids),
                         "split": split,
                         "diversity_metric": metric_name,
-                    }
+                    },
                 )
                 mlflow.log_metric(metric_name, float(value))
 
@@ -165,7 +184,9 @@ def main(cfg: DictConfig) -> None:
                     mlflow.log_artifact(f.name, artifact_path="diversity")
                     os.unlink(f.name)
 
-                log_dataset_lineage(labels, split, cfg.dataset.name, context="evaluation")
+                log_dataset_lineage(
+                    labels, split, cfg.dataset.name, context="evaluation"
+                )
 
                 log_resolved_config(cfg)
 

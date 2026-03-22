@@ -47,6 +47,11 @@ from src.mlflow_utils import (
     safe_to_numpy_float64,
     log_dataset_lineage,
 )
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+    log_tags as schema_log_tags,
+)
 
 
 def _load_inference_artifacts(run_ids, exp_id, split="test"):
@@ -142,24 +147,28 @@ def _run_votes(
             rho=rho_val,
             extra={
                 "ensemble_name": ens_name,
-                "split": split_name,
                 "feature_type": "logits",
             },
         )
+        tags["component_run_ids_csv"] = component_run_ids_csv
 
-        with mlflow.start_run(run_name=f"{ens_name}_{method}", tags=tags) as run:
+        with schema_start_run(
+            kind="ensemble", run_name=f"{ens_name}_{method}", tags=tags
+        ) as run:
 
-            mlflow.log_params(
+            schema_log_params(
+                "ensemble",
                 {
-                    "ensemble_name": ens_name,
                     "method": method,
                     "method_type": "vote",
                     "num_components": len(run_ids),
-                    "component_run_ids_csv": component_run_ids_csv,
                     "split": split_name,
-                }
+                    "rho": rho_val,
+                },
             )
-            mlflow.set_tag("component_run_ids_csv", component_run_ids_csv)
+            schema_log_tags(
+                "ensemble", {"component_run_ids_csv": component_run_ids_csv}
+            )
 
             mlflow.log_metric("ensemble_accuracy", acc)
 
@@ -177,9 +186,7 @@ def _run_votes(
             # ── Ensemble Inference Tracking Parity (Parquet/NPZ) ──
             eval_df = pd.DataFrame(
                 {
-                    "original_index": safe_to_numpy_float64(
-                        torch.arange(len(labels))
-                    ),
+                    "original_index": safe_to_numpy_float64(torch.arange(len(labels))),
                     "label": safe_to_numpy_float64(labels),
                     "prediction": safe_to_numpy_float64(preds),
                     "confidence": safe_to_numpy_float64(
@@ -207,7 +214,9 @@ def _run_votes(
             mlflow.log_artifact(tabular_path, artifact_path="ensemble_data")
             mlflow.log_artifact(tensors_path, artifact_path="ensemble_data")
 
-            log_dataset_lineage(labels, split_name, cfg.dataset.name, context="evaluation")
+            log_dataset_lineage(
+                labels, split_name, cfg.dataset.name, context="evaluation"
+            )
 
             log_resolved_config(cfg)
             print(
@@ -233,7 +242,7 @@ def main(cfg: DictConfig) -> None:
         raise ValueError(f"Experiment '{cfg.mlflow.experiment_name}' not found.")
 
     ensemble_config = OmegaConf.to_container(cfg.ensemble, resolve=True)
-    group_by_keys = ensemble_config.get("group_by", ["loss_type", "topology", "rho"])
+    group_by_keys = ensemble_config.get("group_by", ["topology", "rho"])
     min_components = ensemble_config.get("min_components", 2)
     vote_methods = ensemble_config.get(
         "votes", ["soft", "hard", "max_confidence", "conf_weighted"]
@@ -276,7 +285,7 @@ def main(cfg: DictConfig) -> None:
         client = mlflow.tracking.MlflowClient()
         for rid in run_ids:
             r = client.get_run(rid)
-            r_rho = r.data.tags.get("rho")
+            r_rho = r.data.params.get("rho")
             if r_rho is not None:
                 rhos.add(r_rho)
         rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None

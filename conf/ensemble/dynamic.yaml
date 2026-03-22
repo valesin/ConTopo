@@ -1,5 +1,5 @@
 # Auto-discovery ensemble configuration.
-# Groups FINISHED model runs together into ensembles based on shared tags.
+# Groups FINISHED model runs together into ensembles based on shared params.
 
 name: dynamic_ensembles
 
@@ -9,7 +9,6 @@ filter: {}
 
 # Grouping mechanism: creates exactly one ensemble bucket for every unique combination of these variables.
 group_by:
-  - loss_type
   - topology
   - rho
 

@@ -45,10 +45,15 @@ from src.profiling.smoothness import morans_i
 from src.profiling.unit_analysis import weight_norms, unit_distance_correlation
 from src.networks.registry import unwrap
 from src.data.loaders import get_split_labels
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+)
 
 
 def _log_diagnostic_run(
     run_id,
+    model_params,
     model_tags,
     inf_run_id,
     metric_name,
@@ -57,40 +62,37 @@ def _log_diagnostic_run(
     cfg,
 ):
     """Create one MLflow run for a single diagnostic metric."""
-    rho = model_tags.get("rho", "?")
-    trial = model_tags.get("trial", "?")
-    topology = model_tags.get("topology", "?")
+    rho = model_params.get("rho", "?")
+    trial = model_tags.get("trial", model_params.get("trial", "?"))
+    topology = model_params.get("topology", "?")
 
     tags = {
-        "kind": "diagnostics",
         "parent_run_id": run_id,
-        "diagnostic_metric": metric_name,
-        "rho": rho,
-        "trial": trial,
-        "topology": topology,
+        "run_name": f"diag_{metric_name}_{topology}_rho{rho}_t{trial}",
     }
     if inf_run_id:
         tags["inference_run_id"] = inf_run_id
 
-    with mlflow.start_run(
+    with schema_start_run(
+        kind="diagnostics",
         run_name=f"diag_{metric_name}_{topology}_rho{rho}_t{trial}",
         tags=tags,
     ) as diag_run:
         params = {
-            "parent_run_id": run_id,
             "diagnostic_metric": metric_name,
             "split": cfg.pipeline.split,
         }
-        if inf_run_id:
-            params["inference_run_id"] = inf_run_id
 
-        mlflow.log_params(params)
+        schema_log_params("diagnostics", params)
 
         for k, v in metrics.items():
             mlflow.log_metric(k, v)
 
         log_dataset_lineage(
-            get_split_labels(cfg, cfg.pipeline.split), cfg.pipeline.split, cfg.dataset.name, context="diagnostics"
+            get_split_labels(cfg, cfg.pipeline.split),
+            cfg.pipeline.split,
+            cfg.dataset.name,
+            context="diagnostics",
         )
 
         # Log applicable artifact files for this metric
@@ -144,13 +146,12 @@ def main(cfg: DictConfig) -> None:
     artifacts_root = str(cache_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-
-    # Get parent model tags for logging
+    # Get parent model params for logging
     model_run = mlflow.get_run(run_id)
+    model_params = model_run.data.params
     model_tags = model_run.data.tags
-    rho = model_tags.get("rho", "?")
-    trial = model_tags.get("trial", "?")
+    rho = model_params.get("rho", "?")
+    trial = model_tags.get("trial", model_params.get("trial", "?"))
 
     print(f"Found target model Run ID: {run_id}, rho={rho} trial={trial}")
     print(f"Enabled diagnostics: {enabled}")
@@ -204,6 +205,7 @@ def main(cfg: DictConfig) -> None:
 
         _log_diagnostic_run(
             run_id,
+            model_params,
             model_tags,
             inf_run_id,
             "morans_i",
@@ -231,6 +233,7 @@ def main(cfg: DictConfig) -> None:
                 torch.save(wnorms, os.path.join(diag_dir, "weight_norms.pt"))
                 _log_diagnostic_run(
                     run_id,
+                    model_params,
                     model_tags,
                     None,
                     "weight_norms",
@@ -253,6 +256,7 @@ def main(cfg: DictConfig) -> None:
                     metrics["unit_dist_cos_correlation"] = r
                 _log_diagnostic_run(
                     run_id,
+                    model_params,
                     model_tags,
                     None,
                     "unit_distance_correlation",

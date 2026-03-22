@@ -11,7 +11,9 @@ import torch
 METHODS = ["soft", "hard", "max_confidence", "conf_weighted"]
 
 
-def combine_logits(logits_list: List[torch.Tensor], method: str = "soft") -> torch.Tensor:
+def combine_logits(
+    logits_list: List[torch.Tensor], method: str = "soft"
+) -> torch.Tensor:
     """
     Combine logits from multiple models.
 

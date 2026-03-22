@@ -41,7 +41,11 @@ from src.mlflow_utils import (
 
 # ─── MODELS ───
 from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter, ThreeLayerMLPAdapter
-
+from src.mlflow_schema_logger import (
+    log_params as schema_log_params,
+    start_run as schema_start_run,
+    log_tags as schema_log_tags,
+)
 
 # ─── LOGIC ───
 
@@ -173,12 +177,8 @@ def _assert_valid_feature_tensor(
 # ─── MAIN ───
 
 
-def main():
-    _main()
-
-
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
-def _main(cfg: DictConfig) -> None:
+def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
     split = cfg.pipeline.split
@@ -199,6 +199,7 @@ def _main(cfg: DictConfig) -> None:
     similarity_metric = cfg.adapter.similarity_metric
     meta_split_cfg = cfg.adapter.meta_split
     use_profiles = "profiles" in feature_type
+    profile_mask = cfg.adapter.get("profile_mask", "true_class")
 
     # 1. Get ground-truth labels
     labels_tensor = get_split_labels(cfg, split)
@@ -234,6 +235,7 @@ def _main(cfg: DictConfig) -> None:
             init_seed=str(init_seed)
             + str(meta_split_cfg.seed)
             + str(meta_split_cfg.fractions),
+            profile_mask=profile_mask if use_profiles else "",
         )
 
         existing = find_finished_metalearner_run(
@@ -249,7 +251,7 @@ def _main(cfg: DictConfig) -> None:
         rhos = set()
         for rid in run_ids:
             r = client.get_run(rid)
-            r_rho = r.data.tags.get("rho")
+            r_rho = r.data.params.get("rho")
             if r_rho is not None:
                 rhos.add(r_rho)
         rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
@@ -264,20 +266,27 @@ def _main(cfg: DictConfig) -> None:
             rho=rho_sum,
             extra={
                 "ensemble_name": ens_name,
-                "split": split,
-                "feature_type": feature_type,
-                "similarity_metric": similarity_metric,
-                "meta_split_seed": str(meta_split_cfg.seed),
+                "run_name": f"{ens_name}_adapter_{meta_type}",
             },
         )
 
         run = None
+        component_run_ids_csv = ",".join(run_ids)
+        tags["component_run_ids_csv"] = component_run_ids_csv
         try:
-            with mlflow.start_run(
-                run_name=f"{ens_name}_adapter_{meta_type}", tags=tags
+            with schema_start_run(
+                kind="metalearner",
+                run_name=f"{ens_name}_adapter_{meta_type}",
+                tags=tags,
             ) as run:
-                mlflow.log_params(
+                schema_log_params(
+                    "metalearner",
                     {
+                        "meta_type": meta_type,
+                        "feature_type": feature_type,
+                        "similarity_metric": (
+                            similarity_metric if use_profiles else "none"
+                        ),
                         "adapter_epochs": adapter_epochs,
                         "adapter_lr": adapter_lr,
                         "adapter_batch_size": adapter_batch_size,
@@ -290,12 +299,18 @@ def _main(cfg: DictConfig) -> None:
                             else "Linear"
                         ),
                         "standardization_applied": True,
-                    }
+                        "num_components": len(run_ids),
+                        "profile_mask": profile_mask if use_profiles else "N/A",
+                    },
+                )
+                schema_log_tags(
+                    "metalearner", {"component_run_ids_csv": component_run_ids_csv}
                 )
 
                 # 3. Secure Feature Extraction
                 base_tensors = []
                 profile_tensors = []
+                component_logit_preds = []
 
                 for run_id in run_ids:
                     inf_runs = get_inference_run(
@@ -331,6 +346,13 @@ def _main(cfg: DictConfig) -> None:
                         strict=True,
                     )
 
+                    if "logits" in data:
+                        component_logit_preds.append(
+                            torch.from_numpy(data["logits"]).argmax(dim=1)
+                        )
+                    else:
+                        component_logit_preds.append(None)
+
                     if "logits" in feature_type:
                         if "logits" not in data:
                             raise KeyError(
@@ -359,13 +381,38 @@ def _main(cfg: DictConfig) -> None:
                     P = torch.stack(profile_tensors, dim=1)
                     N, M, C = P.shape
 
-                    # Dynamically mask out the true class for each example (equivalent to remove_correct_label=True)
-                    mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
-                    mask[torch.arange(N), labels_tensor] = False
-
-                    # Apply mask and reshape to form profiles purely of off-target predictions
-                    mask_3d = mask.unsqueeze(1).expand(N, M, C)
-                    P_masked = P[mask_3d].view(N, M, C - 1)
+                    if profile_mask == "true_class":
+                        # Dynamically mask out the true class for each example
+                        mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
+                        mask[torch.arange(N), labels_tensor] = False
+                        mask_3d = mask.unsqueeze(1).expand(N, M, C)
+                        P_masked = P[mask_3d].view(N, M, C - 1)
+                    elif profile_mask == "argmax_similarity":
+                        preds = P.argmax(dim=2)
+                        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
+                        mask[
+                            torch.arange(N).unsqueeze(1),
+                            torch.arange(M).unsqueeze(0),
+                            preds,
+                        ] = False
+                        P_masked = P[mask].view(N, M, C - 1)
+                    elif profile_mask == "argmax_logits":
+                        if any(p is None for p in component_logit_preds):
+                            raise ValueError(
+                                "Cannot use argmax_logits profile mask because not all components have cached logits."
+                            )
+                        preds = torch.stack(component_logit_preds, dim=1).to(P.device)
+                        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
+                        mask[
+                            torch.arange(N).unsqueeze(1),
+                            torch.arange(M).unsqueeze(0),
+                            preds,
+                        ] = False
+                        P_masked = P[mask].view(N, M, C - 1)
+                    elif profile_mask == "none":
+                        P_masked = P
+                    else:
+                        raise ValueError(f"Unknown profile_mask: {profile_mask}")
 
                     # Compute RDM on masked profiles
                     Pc = P_masked - P_masked.mean(dim=2, keepdim=True)
@@ -501,6 +548,7 @@ def _main(cfg: DictConfig) -> None:
                         [profile_feature_dim], dtype=np.int64
                     ),
                     use_profiles=np.asarray([int(use_profiles)], dtype=np.int64),
+                    profile_mask=np.asarray([profile_mask]),
                 )
 
                 split_trace = pd.DataFrame(
@@ -546,20 +594,20 @@ def _main(cfg: DictConfig) -> None:
                 mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
 
                 log_dataset_lineage(
-                    get_split_labels(cfg, "train"),
-                    "train",
+                    y_all[train_idx],
+                    f"meta_train_from_{split}",
                     cfg.dataset.name,
                     context="training",
                 )
                 log_dataset_lineage(
-                    get_split_labels(cfg, "val"),
-                    "val",
+                    y_all[val_idx],
+                    f"meta_val_from_{split}",
                     cfg.dataset.name,
                     context="validation",
                 )
                 log_dataset_lineage(
-                    get_split_labels(cfg, "test"),
-                    "test",
+                    y_all[holdout_idx],
+                    f"meta_holdout_from_{split}",
                     cfg.dataset.name,
                     context="testing",
                 )

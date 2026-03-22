@@ -15,7 +15,6 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Union
 import numpy as np
 import torch
 
-
 # ─────────── data structures ───────────
 
 
@@ -86,6 +85,7 @@ def register_metric(name: str, strategy: Strategy, context_key: str):
     def decorator(fn):
         METRIC_REGISTRY[name] = MetricSpec(fn, strategy, context_key)
         return fn
+
     return decorator
 
 
@@ -156,7 +156,7 @@ def _iou_top_n(la: torch.Tensor, lb: torch.Tensor, n: int = 5) -> float:
         return 1.0
     ia = la.topk(n, dim=1).indices
     ib = lb.topk(n, dim=1).indices
-    match = (ia.unsqueeze(2) == ib.unsqueeze(1))
+    match = ia.unsqueeze(2) == ib.unsqueeze(1)
     inter = match.sum(dim=(1, 2)).float()
     union = 2 * n - inter
     return float((inter / union).mean().item())
@@ -183,7 +183,14 @@ def _apply_counts(stack, fn):
     mat = np.full((R, R), np.nan)
     for i in range(R):
         for j in range(R):
-            mat[i, j] = fn(AgreementCounts(int(stack[0,i,j]), int(stack[1,i,j]), int(stack[2,i,j]), int(stack[3,i,j])))
+            mat[i, j] = fn(
+                AgreementCounts(
+                    int(stack[0, i, j]),
+                    int(stack[1, i, j]),
+                    int(stack[2, i, j]),
+                    int(stack[3, i, j]),
+                )
+            )
     return mat
 
 
