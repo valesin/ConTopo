@@ -63,7 +63,8 @@ def _base_fields(kind: str) -> dict[str, str]:
 
 
 def test_registry_covers_all_schema_kinds():
-    assert set(ALLOWED_TAGS).issubset(set(IDEMPOTENCY_REGISTRY))
+    assert set(ALLOWED_TAGS.keys()).issubset(set(IDEMPOTENCY_REGISTRY.keys()))
+    assert set(IDEMPOTENCY_REGISTRY.keys()).issubset(set(ALLOWED_TAGS.keys()))
 
 
 @pytest.mark.parametrize("kind", sorted(IDEMPOTENCY_REGISTRY.keys()))
