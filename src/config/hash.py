@@ -105,6 +105,7 @@ def cfg_hash(cfg: DictConfig) -> str:
 
 
 def _field_allowed(field_name: str, allowed_patterns: tuple[str, ...]) -> bool:
+    """Return True if ``field_name`` matches one of the allowed exact/wildcard patterns."""
     for pattern in allowed_patterns:
         if pattern.endswith("*"):
             prefix = pattern[:-1]
@@ -127,7 +128,7 @@ def identity_hash(kind: str, **fields: Any) -> str:
     if unknown:
         raise ValueError(
             f"Unknown identity field(s) for kind='{kind}': {unknown}. "
-            f"Allowed patterns: {list(allowed)}"
+            f"Allowed patterns: {', '.join(allowed)}"
         )
 
     required_exact = {f for f in allowed if not f.endswith("*")}
@@ -135,7 +136,7 @@ def identity_hash(kind: str, **fields: Any) -> str:
     if missing:
         raise ValueError(
             f"Missing identity field(s) for kind='{kind}': {missing}. "
-            f"Required exact fields: {sorted(required_exact)}"
+            f"Required exact fields: {', '.join(sorted(required_exact))}"
         )
 
     wildcard_patterns = [f for f in allowed if f.endswith("*")]
@@ -146,7 +147,7 @@ def identity_hash(kind: str, **fields: Any) -> str:
             missing_wildcards.append(pattern)
     if missing_wildcards:
         raise ValueError(
-            f"Missing identity field groups for kind='{kind}': {missing_wildcards}. "
+            f"Missing identity field groups for kind='{kind}': {', '.join(missing_wildcards)}. "
             "At least one field must match each wildcard group."
         )
 
@@ -183,6 +184,7 @@ def similarity_profile_hash(
     similarity_metric: str,
     split: str = "test",
 ) -> str:
+    """Compatibility wrapper for category similarity profile identity hashing."""
     return identity_hash(
         "category_similarity_profile",
         parent_run_id=parent_run_id,
@@ -228,6 +230,7 @@ def behaviour_input_hash(
 
 
 def consistency_hash(cs_hash: str, anchor_spec_hash: str, split: str) -> str:
+    """Compatibility wrapper for consistency-step identity hashing."""
     return identity_hash(
         "consistency",
         component_set_hash=cs_hash,

@@ -74,6 +74,10 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
 
 
 def _flatten_identity_section(prefix: str, section: DictConfig) -> dict[str, str]:
+    """Flatten a config section to dot-path string fields for model identity hashing.
+
+    ``None`` values are stringified as ``"None"`` to preserve deterministic identity input.
+    """
     out: dict[str, str] = {}
 
     def _walk(node: object, path: str) -> None:
