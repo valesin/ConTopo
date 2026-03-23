@@ -25,6 +25,7 @@ from omegaconf import DictConfig
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
+from src.config.hash import identity_hash
 from src.mlflow_utils import (
     log_resolved_config,
     setup_mlflow,
@@ -76,8 +77,14 @@ def main(cfg: DictConfig) -> None:
         needed = []
         for metric_name in metrics_list:
             if not force:
+                step_identity_hash = identity_hash(
+                    "diversity",
+                    component_set_hash=cs_hash,
+                    diversity_metric=metric_name,
+                    split=split,
+                )
                 existing = find_finished_diversity_run(
-                    cfg.mlflow.experiment_name, cs_hash, metric_name, split
+                    cfg.mlflow.experiment_name, step_identity_hash
                 )
                 if existing is not None:
                     continue
@@ -147,6 +154,12 @@ def main(cfg: DictConfig) -> None:
 
         # Log one MLflow run per metric
         for metric_name, value in results.items():
+            step_identity_hash = identity_hash(
+                "diversity",
+                component_set_hash=cs_hash,
+                diversity_metric=metric_name,
+                split=split,
+            )
             # Save individual metric file
             metric_path = os.path.join(div_dir, f"{metric_name}.json")
             with open(metric_path, "w") as f:
@@ -155,6 +168,7 @@ def main(cfg: DictConfig) -> None:
             tags = {
                 "ensemble_name": ens_name,
                 "component_set_hash": cs_hash,
+                "identity_hash": step_identity_hash,
                 "run_name": f"{ens_name}_{metric_name}",
             }
 

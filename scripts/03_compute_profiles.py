@@ -34,7 +34,6 @@ from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir
 from src.profiling.category_similarity import (
     compute_similarity_profile,
-    similarity_profile_hash,
 )
 from src.mlflow_utils import (
     category_similarity_profile_tags,
@@ -47,7 +46,7 @@ from src.mlflow_utils import (
     load_mlflow_artifact,
     log_dataset_lineage,
 )
-from src.config.hash import cfg_hash
+from src.config.hash import cfg_hash, identity_hash, similarity_profile_hash
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -142,15 +141,19 @@ def main(cfg: DictConfig) -> None:
         prof_hash = similarity_profile_hash(
             run_id, a_spec_hash, similarity_metric, split
         )
+        step_identity_hash = identity_hash(
+            "category_similarity_profile",
+            parent_run_id=run_id,
+            anchor_spec_hash=a_spec_hash,
+            similarity_metric=similarity_metric,
+            split=split,
+        )
 
         # Idempotency check check across MLflow backend
         if not force:
             existing = find_finished_similarity_profile_run(
                 cfg.mlflow.experiment_name,
-                run_id,
-                a_spec_hash,
-                similarity_metric,
-                split,
+                step_identity_hash,
             )
             if existing is not None:
                 print(
@@ -170,6 +173,10 @@ def main(cfg: DictConfig) -> None:
         tags = category_similarity_profile_tags(
             parent_run_id=run_id,
             anchor_spec_hash=a_spec_hash,
+            identity_hash=step_identity_hash,
+            similarity_metric=similarity_metric,
+            split=split,
+            profile_hash=prof_hash,
         )
         run_name = f"csp_{similarity_metric}_{topology}_rho{rho}_t{trial}"
         tags["inference_run_id"] = inf_run_id

@@ -18,7 +18,7 @@ from src.data.anchors import (
     get_anchor_spec_dict,
     select_anchors,
 )
-from src.mlflow_utils import behaviour_input_hash, component_set_hash
+from src.config.hash import behaviour_input_hash, component_set_hash
 
 
 def _make_test_labels(N=500, num_classes=10):

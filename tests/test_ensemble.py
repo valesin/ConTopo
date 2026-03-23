@@ -6,7 +6,7 @@ import torch
 import pytest
 
 from src.ensemble.combine import combine_logits, METHODS
-from src.mlflow_utils import component_set_hash
+from src.config.hash import component_set_hash
 
 
 class TestCombineLogits:

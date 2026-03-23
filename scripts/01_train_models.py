@@ -14,16 +14,17 @@ Usage:
 from __future__ import annotations
 
 import copy
+import json
 
 import hydra
 import mlflow
 from mlflow.models.signature import infer_signature
 import torch
 import torch.backends.cudnn as cudnn
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.amp import GradScaler
 
-from src.config.hash import cfg_hash
+from src.config.hash import cfg_hash, identity_hash
 from src.data.loaders import get_cifar10_loaders, get_split_labels
 from src.losses.balancer import GradNormBalancer
 from src.losses.topographic import Global_Topographic_Loss, Local_WS_Loss
@@ -72,6 +73,23 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
         raise ValueError(f"Unknown topography_type: {topo_type}")
 
 
+def _flatten_identity_section(prefix: str, section: DictConfig) -> dict[str, str]:
+    out: dict[str, str] = {}
+
+    def _walk(node: object, path: str) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                _walk(v, f"{path}.{k}")
+            return
+        if isinstance(node, list):
+            out[path] = json.dumps(node, sort_keys=True)
+            return
+        out[path] = str(node)
+
+    _walk(OmegaConf.to_container(section, resolve=True), prefix)
+    return out
+
+
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     # ── Seed ──
@@ -84,6 +102,16 @@ def main(cfg: DictConfig) -> None:
 
     # ── Idempotency ──
     hash_val = cfg_hash(cfg)
+    model_identity_hash = identity_hash(
+        "model",
+        schema_version=str(cfg.schema_version),
+        trial=str(cfg.trial),
+        seed=str(seed),
+        **_flatten_identity_section("model", cfg.model),
+        **_flatten_identity_section("loss", cfg.loss),
+        **_flatten_identity_section("dataset", cfg.dataset),
+        **_flatten_identity_section("training", cfg.training),
+    )
     setup_mlflow(cfg)
 
     exists = check_existing_model(cfg.mlflow.experiment_name, hash_val, kind="model")
@@ -141,6 +169,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── MLflow run ──
     tags = model_tags(cfg, hash_val)
+    tags["identity_hash"] = model_identity_hash
 
     with schema_start_run(
         kind="model", run_name=f"CE_{topo_str}_rho{rho_str}/{trial_str}", tags=tags
