@@ -1,17 +1,5 @@
-# Auto-discovery ensemble configuration.
-# Groups FINISHED model runs together into ensembles based on shared params.
+# ── Ensemble voting methods ──
+# Discovery controls (group_by, min_components, filter) are in conf/groups/default.yaml.
 
 name: dynamic_ensembles
-
-# Filter for the base component pool. (Optional)
-# If empty, grabs literally all 'FINISHED' models in the experiment.
-filter: {}
-
-# Grouping mechanism: creates exactly one ensemble bucket for every unique combination of these variables.
-group_by:
-  - topology
-  - rho
-
-# Rules for computation
-min_components: 2 # Skip processing if a group only has 1 trial downloaded
 votes: [soft, hard, max_confidence, conf_weighted]

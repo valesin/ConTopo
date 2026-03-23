@@ -13,7 +13,7 @@ HARD FAIL on missing inference artifacts — run 02_cache_inference.py first.
 Usage:
     python scripts/04_run_ensemble.py
     python scripts/04_run_ensemble.py ensemble=ce_ensembles
-    python scripts/04_run_ensemble.py pipeline.split=val
+    python scripts/04_run_ensemble.py execution.split=val
 """
 
 from __future__ import annotations
@@ -28,11 +28,11 @@ import mlflow.artifacts
 import torch
 import numpy as np
 import pandas as pd
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from src.ensemble.combine import combine_logits, METHODS
 from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
-from src.ensemble.selector import discover_ensembles
+from src.ensemble.selector import discover_ensembles_from_cfg
 from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir
 from src.config.hash import identity_hash
@@ -239,7 +239,7 @@ def _run_votes(
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
-    split = cfg.pipeline.split
+    split = cfg.execution.split
     cache_dir = get_cache_dir(cfg)
 
     labels = get_split_labels(cfg, split)
@@ -249,26 +249,15 @@ def main(cfg: DictConfig) -> None:
     if exp == None:
         raise ValueError(f"Experiment '{cfg.mlflow.experiment_name}' not found.")
 
-    ensemble_config = OmegaConf.to_container(cfg.ensemble, resolve=True)
-    group_by_keys = ensemble_config.get("group_by", ["topology", "rho"])
-    min_components = ensemble_config.get("min_components", 2)
-    vote_methods = ensemble_config.get(
-        "votes", ["soft", "hard", "max_confidence", "conf_weighted"]
-    )
-    base_filter = ensemble_config.get("filter", {})
+    vote_methods = list(cfg.ensemble.votes)
 
     print(f"\n{'='*60}")
     print("Discovering Ensembles...")
-    print(f"Grouping keys: {group_by_keys}")
+    print(f"Grouping keys: {list(cfg.groups.group_by)}")
 
     # Resolve component run IDs dynamically
     try:
-        discovered_ensembles = discover_ensembles(
-            cfg.mlflow.experiment_name,
-            group_by=group_by_keys,
-            min_components=min_components,
-            base_filter=base_filter,
-        )
+        discovered_ensembles = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
     except ValueError as e:
         raise RuntimeError(f"HARD FAIL discovering ensembles: {e}")
 

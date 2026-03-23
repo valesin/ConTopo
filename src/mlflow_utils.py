@@ -27,7 +27,6 @@ from omegaconf import DictConfig, OmegaConf
 # ── Re-export cfg_hash from canonical location ──
 from src.config.hash import (  # noqa: F401
     cfg_hash,
-    behaviour_input_hash as _behaviour_input_hash,
     component_set_hash as _component_set_hash,
 )
 from src.config.paths import ensure_output_dirs
@@ -319,38 +318,8 @@ def behaviour_tags(
     return tags
 
 
-def profiles_tags(cfg_hash_value: str, profile_type: str) -> Dict[str, str]:
-    return {
-        "kind": "profiles",
-        "cfg_hash": cfg_hash_value,
-        "profile_type": profile_type,
-    }
-
-
 def component_set_hash(run_ids: list[str]) -> str:
     return _component_set_hash(run_ids)
-
-
-def behaviour_input_hash(
-    component_set_hash_val: str,
-    split: str = "test",
-    feature_type: str = "logits",
-    anchor_spec: str = "",
-    meta_split_spec: str = "",
-    similarity_metric: str = "",
-    init_seed: str = "",
-    profile_mask: str = "",
-) -> str:
-    return _behaviour_input_hash(
-        component_set_hash_val=component_set_hash_val,
-        split=split,
-        feature_type=feature_type,
-        anchor_spec=anchor_spec,
-        meta_split_spec=meta_split_spec,
-        similarity_metric=similarity_metric,
-        init_seed=init_seed,
-        profile_mask=profile_mask,
-    )
 
 
 # ───────────────── per-step idempotency ─────────────────

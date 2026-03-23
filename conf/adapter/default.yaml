@@ -20,7 +20,6 @@ init_seed: 42                 # seeds torch.manual_seed() before adapter trainin
 # ── Three-way data split for meta-learner training ──
 meta_split:
   seed: 42
-  strategy: random               # random | stratified (future)
   fractions:
     train: 0.6
     val: 0.2

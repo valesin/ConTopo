@@ -144,11 +144,23 @@ class RuntimeConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
 
 
-# ─────────── pipeline ───────────
+# ─────────── groups ───────────
 
 
 @dataclass
-class AnchorsConfig:
+class GroupsConfig:
+    """Ensemble component discovery controls (used by steps 04/04b/04c/05)."""
+
+    group_by: List[str] = field(default_factory=lambda: ["topology", "rho"])
+    min_components: int = 2
+    filter: Any = field(default_factory=dict)
+
+
+# ─────────── profiling ───────────
+
+
+@dataclass
+class ProfilingAnchorsConfig:
     per_class: int = 100
     strategy: str = "per_class_first_n"
     order_by: str = "example_id"
@@ -156,12 +168,32 @@ class AnchorsConfig:
 
 
 @dataclass
-class DiagnosticsConfig:
+class ProfilingProfilesConfig:
+    """Category similarity profile computation (step 03)."""
+
+    skip: bool = False
+    metrics: List[str] = field(default_factory=lambda: ["cosine", "l2"])
+
+
+@dataclass
+class ProfilingDiagnosticsConfig:
     """Per-model diagnostic metrics (step 03b)."""
 
     morans_i: bool = True
     weight_norms: bool = True
     unit_distance_correlation: bool = True
+
+
+@dataclass
+class ProfilingConfig:
+    anchors: ProfilingAnchorsConfig = field(default_factory=ProfilingAnchorsConfig)
+    profiles: ProfilingProfilesConfig = field(default_factory=ProfilingProfilesConfig)
+    diagnostics: ProfilingDiagnosticsConfig = field(
+        default_factory=ProfilingDiagnosticsConfig
+    )
+
+
+# ─────────── analysis ───────────
 
 
 @dataclass
@@ -188,21 +220,20 @@ class ConsistencyConfig:
 
 
 @dataclass
-class ProfilesConfig:
-    """Category similarity profile computation (step 03)."""
+class AnalysisConfig:
+    diversity: DiversityConfig = field(default_factory=DiversityConfig)
+    consistency: ConsistencyConfig = field(default_factory=ConsistencyConfig)
 
-    skip: bool = False
+
+# ─────────── execution ───────────
 
 
 @dataclass
-class PipelineConfig:
-    anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
+class ExecutionConfig:
+    """Common execution knobs shared across post-training pipeline steps."""
+
     split: str = "test"
     force: bool = False
-    profiles: ProfilesConfig = field(default_factory=ProfilesConfig)
-    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
-    diversity: DiversityConfig = field(default_factory=DiversityConfig)
-    consistency: ConsistencyConfig = field(default_factory=ConsistencyConfig)
 
 
 # ─────────── mlflow ───────────
@@ -213,6 +244,19 @@ class MLflowConfig:
     tracking_uri: str = "sqlite:///outputs/mlflow.db"
     experiment_name: str = "contopo"
     enable_system_metrics: bool = True
+
+
+# ─────────── ensemble ───────────
+
+
+@dataclass
+class EnsembleConfig:
+    """Ensemble voting configuration. Discovery controls live in GroupsConfig."""
+
+    name: str = "dynamic_ensembles"
+    votes: List[str] = field(
+        default_factory=lambda: ["soft", "hard", "max_confidence", "conf_weighted"]
+    )
 
 
 # ─────────── adapter ───────────
@@ -228,7 +272,6 @@ class MetaSplitFractionsConfig:
 @dataclass
 class MetaSplitConfig:
     seed: int = 42
-    strategy: str = "random"
     fractions: MetaSplitFractionsConfig = field(
         default_factory=MetaSplitFractionsConfig
     )
@@ -261,16 +304,6 @@ class AdapterConfig:
     )
 
 
-# ─────────── ensemble ───────────
-
-
-@dataclass
-class EnsembleConfig:
-    """Top-level ensemble config.  ``ensembles`` is a list of dicts (dynamic)."""
-
-    ensembles: List[Any] = field(default_factory=list)
-
-
 # ─────────── migration ───────────
 
 
@@ -293,7 +326,10 @@ class ConTopoConfig:
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
-    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
+    groups: GroupsConfig = field(default_factory=GroupsConfig)
+    profiling: ProfilingConfig = field(default_factory=ProfilingConfig)
+    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     mlflow: MLflowConfig = field(default_factory=MLflowConfig)
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     adapter: AdapterConfig = field(default_factory=AdapterConfig)
@@ -318,7 +354,10 @@ def register_configs() -> None:
     cs.store(group="dataset", name="base_cifar10", node=DatasetConfig)
     cs.store(group="training", name="base_default", node=TrainingConfig)
     cs.store(group="runtime", name="base_default", node=RuntimeConfig)
-    cs.store(group="pipeline", name="base_default", node=PipelineConfig)
+    cs.store(group="groups", name="base_default", node=GroupsConfig)
+    cs.store(group="profiling", name="base_default", node=ProfilingConfig)
+    cs.store(group="analysis", name="base_default", node=AnalysisConfig)
+    cs.store(group="execution", name="base_default", node=ExecutionConfig)
     cs.store(group="mlflow", name="base_default", node=MLflowConfig)
-    cs.store(group="ensemble", name="base_ce_ensembles", node=EnsembleConfig)
+    cs.store(group="ensemble", name="base_dynamic", node=EnsembleConfig)
     cs.store(group="adapter", name="base_default", node=AdapterConfig)

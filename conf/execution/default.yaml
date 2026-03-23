@@ -1,0 +1,5 @@
+# ── Execution controls ──
+# Common runtime knobs shared across all post-training pipeline steps.
+
+split: test    # dataset split to evaluate on (test | val | train)
+force: false   # set true to recompute even if a finished run already exists

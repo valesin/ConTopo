@@ -2,7 +2,9 @@
 cfg_hash — deterministic hash of experiment-semantic config only.
 
 Excluded top-level keys (do NOT affect experiment results):
-  runtime, mlflow, storage, hydra, pipeline
+  runtime, mlflow, storage, hydra,
+  groups, profiling, analysis, execution,
+  ensemble, adapter, migration
 
 Included (experiment-semantic):
   schema_version, trial, seed, model.*, loss.*, dataset.*, training.*
@@ -23,7 +25,10 @@ EXCLUDED_KEYS = frozenset(
         "mlflow",
         "storage",
         "hydra",
-        "pipeline",
+        "groups",
+        "profiling",
+        "analysis",
+        "execution",
         "ensemble",
         "adapter",
         "migration",
@@ -57,7 +62,9 @@ IDEMPOTENCY_REGISTRY: dict[str, StepIdentity] = {
             "split",
         )
     ),
-    "diagnostics": StepIdentity(identity_fields=("parent_run_id", "diagnostic_metric")),
+    "diagnostics": StepIdentity(
+        identity_fields=("parent_run_id", "diagnostic_metric", "split")
+    ),
     "ensemble": StepIdentity(
         identity_fields=("component_set_hash", "split", "feature_type", "method")
     ),
@@ -97,14 +104,15 @@ def cfg_hash(cfg: DictConfig) -> str:
     Deterministic SHA-256 (16 hex chars) of experiment-semantic config.
 
     Steps:
-      1. Resolve interpolations via OmegaConf.
-      2. Strip EXCLUDED_KEYS from the top level.
+      1. Strip EXCLUDED_KEYS before resolution (avoids Hydra interpolation errors
+         in keys like mlflow.tracking_uri that are irrelevant to the hash).
+      2. Resolve remaining interpolations via OmegaConf.
       3. Canonicalise via ``json.dumps(sort_keys=True)``.
       4. Return first 16 hex chars of SHA-256.
     """
-    resolved = OmegaConf.to_container(cfg, resolve=True)
-    for key in EXCLUDED_KEYS:
-        resolved.pop(key, None)
+    keys_to_include = [k for k in cfg.keys() if k not in EXCLUDED_KEYS]
+    filtered = OmegaConf.masked_copy(cfg, keys_to_include)
+    resolved = OmegaConf.to_container(filtered, resolve=True)
     canonical = json.dumps(_deep_sort(resolved), sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 

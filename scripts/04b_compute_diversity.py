@@ -23,7 +23,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.loaders import get_split_labels
-from src.ensemble.selector import discover_ensembles
+from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.paths import get_cache_dir
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
@@ -46,14 +46,14 @@ from src.mlflow_schema_logger import (
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
-    if not cfg.pipeline.diversity.enabled:
-        print("Diversity computation disabled (pipeline.diversity.enabled=false).")
+    if not cfg.analysis.diversity.enabled:
+        print("Diversity computation disabled (analysis.diversity.enabled=false).")
         return
 
-    split = cfg.pipeline.split
-    force = cfg.pipeline.force
+    split = cfg.execution.split
+    force = cfg.execution.force
     cache_dir = get_cache_dir(cfg)
-    metrics_list = list(cfg.pipeline.diversity.metrics)
+    metrics_list = list(cfg.analysis.diversity.metrics)
 
     if not metrics_list:
         print("No diversity metrics specified. Nothing to do.")
@@ -63,7 +63,7 @@ def main(cfg: DictConfig) -> None:
     labels = get_split_labels(cfg, split)
 
     # 2. Discover ensemble groups dynamically from the actual DB tracking
-    groups = discover_ensembles(cfg.mlflow.experiment_name)
+    groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
 
     print(f"\nDiscovered {len(groups)} ensemble groups from MLflow.")
 

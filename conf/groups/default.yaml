@@ -1,0 +1,7 @@
+# ── Ensemble component discovery controls ──
+# Defines how FINISHED model runs are grouped into ensembles.
+# Used by steps 04, 04b, 04c, and 05 via discover_ensembles_from_cfg().
+
+group_by: [topology, rho]   # params that define a group signature
+min_components: 2            # skip groups with fewer runs than this
+filter: {}                   # optional extra MLflow param filters (e.g. {topology: torus})

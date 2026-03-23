@@ -9,16 +9,16 @@ from step 02 via MLflow artifacts.
 Each profiling job is tracked as its own MLflow run
 (kind=category_similarity_profile), linked to the parent model run and inference run.
 
-Anchor selection and similarity metric are read from `cfg.pipeline`:
-  - `pipeline.anchors`          (per_class, strategy, order_by, source_split)
-  - `pipeline.profiles.metrics` (list of metrics, e.g. [cosine, l2])
+Anchor selection and similarity metric are read from `cfg.profiling`:
+  - `profiling.anchors`          (per_class, strategy, order_by, source_split)
+  - `profiling.profiles.metrics` (list of metrics, e.g. [cosine, l2])
 
 Usage:
     python scripts/03_compute_profiles.py
-    python scripts/03_compute_profiles.py pipeline.force=true
-    python scripts/03_compute_profiles.py pipeline.anchors.per_class=200
-    python scripts/03_compute_profiles.py "pipeline.profiles.metrics=[l2]"
-    python scripts/03_compute_profiles.py pipeline.profiles.skip=true
+    python scripts/03_compute_profiles.py execution.force=true
+    python scripts/03_compute_profiles.py profiling.anchors.per_class=200
+    python scripts/03_compute_profiles.py "profiling.profiles.metrics=[l2]"
+    python scripts/03_compute_profiles.py profiling.profiles.skip=true
 """
 
 from __future__ import annotations
@@ -61,8 +61,8 @@ def main(cfg: DictConfig) -> None:
     seed = resolve_seed(cfg)
     cfg.seed = seed
 
-    if cfg.pipeline.profiles.skip:
-        print("Profile computation skipped (pipeline.profiles.skip=true).")
+    if cfg.profiling.profiles.skip:
+        print("Profile computation skipped (profiling.profiles.skip=true).")
         return
 
     # ── Target specific model by ID ──
@@ -75,8 +75,8 @@ def main(cfg: DictConfig) -> None:
         )
         return
 
-    split = cfg.pipeline.split
-    force = cfg.pipeline.force
+    split = cfg.execution.split
+    force = cfg.execution.force
     cache_dir = get_cache_dir(cfg)
 
     # ── Fetch corresponding Inference Run ──
@@ -93,7 +93,7 @@ def main(cfg: DictConfig) -> None:
     # ── Labels & Anchors ──
     labels = get_split_labels(cfg, split)
 
-    sel = cfg.pipeline.anchors
+    sel = cfg.profiling.anchors
     anchors = get_or_create_anchors(
         labels=labels,
         source_split=sel.source_split,
@@ -136,7 +136,7 @@ def main(cfg: DictConfig) -> None:
 
     # Should this be changed and become only for one metric and sweepable?
     # ── Compute and Log Profiles for Each Metric ──
-    for similarity_metric in cfg.pipeline.profiles.metrics:
+    for similarity_metric in cfg.profiling.profiles.metrics:
         print(f"\nProcessing metric={similarity_metric}")
         prof_hash = similarity_profile_hash(
             run_id, a_spec_hash, similarity_metric, split

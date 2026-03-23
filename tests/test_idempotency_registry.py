@@ -27,7 +27,11 @@ def _base_fields(kind: str) -> dict[str, str]:
             "split": "test",
         }
     if kind == "diagnostics":
-        return {"parent_run_id": "run_1", "diagnostic_metric": "morans_i"}
+        return {
+            "parent_run_id": "run_1",
+            "diagnostic_metric": "morans_i",
+            "split": "test",
+        }
     if kind == "ensemble":
         return {
             "component_set_hash": "cs123",
