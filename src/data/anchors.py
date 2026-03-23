@@ -14,32 +14,12 @@ causes a loud, immediate error.
 
 from __future__ import annotations
 
-import dataclasses
-import hashlib
-import json
 import os
 from typing import Any, Dict
 
 import torch
 
-
-def compute_anchor_spec_hash(
-    source_split: str,
-    per_class: int,
-    strategy: str,
-    order_by: str,
-    num_classes: int,
-) -> str:
-    """Deterministic 16-char hex hash of an anchor specification."""
-    spec_dict = {
-        "source_split": source_split,
-        "per_class": per_class,
-        "strategy": strategy,
-        "order_by": order_by,
-        "num_classes": num_classes,
-    }
-    canonical = json.dumps(spec_dict, sort_keys=True, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+from src.config.hash import compute_anchor_spec_hash
 
 
 def get_anchor_spec_dict(

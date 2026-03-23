@@ -35,10 +35,10 @@ from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
 from src.ensemble.selector import discover_ensembles
 from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir
+from src.config.hash import identity_hash
 from src.mlflow_utils import (
     behaviour_tags,
     component_set_hash,
-    behaviour_input_hash,
     find_finished_ensemble_run,
     log_resolved_config,
     setup_mlflow,
@@ -108,7 +108,6 @@ def _run_votes(
     composition_map,
     run_ids,
     cs_hash,
-    bi_hash,
     split_name,
     cache_dir,
     rho_val: str | None = None,
@@ -121,9 +120,17 @@ def _run_votes(
             print(f"  WARN: unknown vote method '{method}', skipping.")
             continue
 
+        step_identity_hash = identity_hash(
+            "ensemble",
+            component_set_hash=cs_hash,
+            split=split_name,
+            feature_type="logits",
+            method=method,
+        )
+
         # Idempotency
         existing = find_finished_ensemble_run(
-            cfg.mlflow.experiment_name, bi_hash, ensemble_method=method
+            cfg.mlflow.experiment_name, step_identity_hash, ensemble_method=method
         )
         if existing is not None:
             print(
@@ -142,12 +149,13 @@ def _run_votes(
             kind="ensemble",
             behaviour=method,
             component_run_ids=run_ids,
-            behaviour_input_hash=bi_hash,
+            behaviour_input_hash=step_identity_hash,
             component_set_hash=cs_hash,
             rho=rho_val,
             extra={
                 "ensemble_name": ens_name,
                 "feature_type": "logits",
+                "identity_hash": step_identity_hash,
             },
         )
         tags["component_run_ids_csv"] = component_run_ids_csv
@@ -290,13 +298,8 @@ def main(cfg: DictConfig) -> None:
                 rhos.add(r_rho)
         rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
 
-        # Compute hashes for idempotency and tagging
+        # Compute component set hash for idempotency and tagging
         cs_hash = component_set_hash(run_ids)
-        bi_hash = behaviour_input_hash(
-            component_set_hash_val=cs_hash,
-            split=split,
-            feature_type="logits",
-        )
 
         # ── Vote methods ──
         if vote_methods:
@@ -309,7 +312,6 @@ def main(cfg: DictConfig) -> None:
                 composition_map,
                 run_ids,
                 cs_hash,
-                bi_hash,
                 split,
                 cache_dir,
                 rho_val=rho_sum,

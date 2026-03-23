@@ -12,8 +12,6 @@ Provides:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import logging
 import tempfile
@@ -27,7 +25,11 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 # ── Re-export cfg_hash from canonical location ──
-from src.config.hash import cfg_hash  # noqa: F401
+from src.config.hash import (  # noqa: F401
+    cfg_hash,
+    behaviour_input_hash as _behaviour_input_hash,
+    component_set_hash as _component_set_hash,
+)
 from src.config.paths import ensure_output_dirs
 
 # ───────────────── setup ─────────────────
@@ -208,6 +210,29 @@ def find_finished_run(
     return find_run_by_tags(experiment_name, tags)
 
 
+def find_finished_identity_run(
+    experiment_name: str,
+    kind: str,
+    identity_hash_val: str,
+) -> Optional[mlflow.entities.Run]:
+    """Search for FINISHED run by run kind + identity_hash tag."""
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return None
+    filter_str = (
+        f"tags.kind = '{kind}' and "
+        f"tags.identity_hash = '{identity_hash_val}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    runs = mlflow.search_runs(
+        experiment_ids=[exp.experiment_id],
+        filter_string=filter_str,
+        max_results=1,
+        output_format="list",
+    )
+    return runs[0] if runs else None
+
+
 def check_existing_model(
     experiment_name: str, cfg_hash_value: str, kind: str | None = "model"
 ) -> bool:
@@ -287,6 +312,7 @@ def behaviour_tags(
         "kind": kind,
         "component_set_hash": component_set_hash,
         "behaviour_input_hash": behaviour_input_hash,
+        "identity_hash": behaviour_input_hash,
     }
     if extra:
         tags.update(extra)
@@ -302,9 +328,7 @@ def profiles_tags(cfg_hash_value: str, profile_type: str) -> Dict[str, str]:
 
 
 def component_set_hash(run_ids: list[str]) -> str:
-    """Hash of sorted component model run_ids."""
-    canonical = json.dumps(sorted(run_ids), ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return _component_set_hash(run_ids)
 
 
 def behaviour_input_hash(
@@ -317,29 +341,16 @@ def behaviour_input_hash(
     init_seed: str = "",
     profile_mask: str = "",
 ) -> str:
-    """Derived hash summarising everything that changes behaviour input data.
-
-    The ``similarity_metric`` field is included so that switching from e.g.
-    cosine to L2 produces a different hash (and therefore a new run).
-    Default is ``""`` for compatibility with logits-only runs.
-
-    The ``init_seed`` field is included so that different adapter init seeds
-    produce different hashes (and therefore separate runs).
-
-    The ``profile_mask`` field controls how the profile features are masked.
-    """
-    parts = [
-        component_set_hash_val,
-        split,
-        feature_type,
-        anchor_spec,
-        meta_split_spec,
-        similarity_metric,
-        init_seed,
-        profile_mask,
-    ]
-    canonical = json.dumps(parts, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return _behaviour_input_hash(
+        component_set_hash_val=component_set_hash_val,
+        split=split,
+        feature_type=feature_type,
+        anchor_spec=anchor_spec,
+        meta_split_spec=meta_split_spec,
+        similarity_metric=similarity_metric,
+        init_seed=init_seed,
+        profile_mask=profile_mask,
+    )
 
 
 # ───────────────── per-step idempotency ─────────────────
@@ -377,81 +388,42 @@ def get_inference_run(
 
 def find_finished_ensemble_run(
     experiment_name: str,
-    behaviour_input_hash_val: str,
+    identity_hash_val: str,
     ensemble_method: str = "",
 ) -> Optional[mlflow.entities.Run]:
     """Check if an ensemble run already exists."""
-    tags = {"kind": "ensemble", "behaviour_input_hash": behaviour_input_hash_val}
-    return find_run_by_tags(experiment_name, tags)
+    return find_finished_identity_run(experiment_name, "ensemble", identity_hash_val)
 
 
 def find_finished_metalearner_run(
     experiment_name: str,
-    behaviour_input_hash_val: str,
+    identity_hash_val: str,
     meta_type: str = "",
 ) -> Optional[mlflow.entities.Run]:
     """Check if a metalearner run already exists."""
-    tags = {"kind": "metalearner", "behaviour_input_hash": behaviour_input_hash_val}
-    return find_run_by_tags(experiment_name, tags)
+    return find_finished_identity_run(experiment_name, "metalearner", identity_hash_val)
 
 
 def find_finished_diagnostic_run(
-    experiment_name: str, parent_run_id: str, metric_name: str
+    experiment_name: str, identity_hash_val: str
 ) -> Optional[mlflow.entities.Run]:
-    """Check if a diagnostic run already exists for this (model, metric)."""
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        return None
-    filter_str = (
-        f"tags.kind = 'diagnostics' and "
-        f"tags.parent_run_id = '{parent_run_id}' and "
-        f"params.diagnostic_metric = '{metric_name}' and "
-        f"attributes.status = 'FINISHED'"
-    )
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_str,
-        max_results=1,
-        output_format="list",
-    )
-    return runs[0] if runs else None
+    """Check if a diagnostic run already exists."""
+    return find_finished_identity_run(experiment_name, "diagnostics", identity_hash_val)
 
 
 def find_finished_diversity_run(
     experiment_name: str,
-    cs_hash: str,
-    metric_name: str,
-    split: str,
+    identity_hash_val: str,
 ) -> Optional[mlflow.entities.Run]:
-    """Check if a diversity run already exists for this (ensemble, metric)."""
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        return None
-    filter_str = (
-        f"tags.kind = 'diversity' and "
-        f"tags.component_set_hash = '{cs_hash}' and "
-        f"params.diversity_metric = '{metric_name}' and "
-        f"params.split = '{split}' and "
-        f"attributes.status = 'FINISHED'"
-    )
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_str,
-        max_results=1,
-        output_format="list",
-    )
-    return runs[0] if runs else None
+    """Check if a diversity run already exists."""
+    return find_finished_identity_run(experiment_name, "diversity", identity_hash_val)
 
 
 def find_finished_consistency_run(
-    experiment_name: str, cons_hash: str
+    experiment_name: str, identity_hash_val: str
 ) -> Optional[mlflow.entities.Run]:
     """Check if a consistency run already exists for this hash."""
-    tags = {
-        "kind": "consistency",
-        "consistency_hash": cons_hash,
-    }
-    return find_run_by_tags(experiment_name, tags)
+    return find_finished_identity_run(experiment_name, "consistency", identity_hash_val)
 
 
 # ───────────────── category similarity profile ─────────────────
@@ -460,6 +432,10 @@ def find_finished_consistency_run(
 def category_similarity_profile_tags(
     parent_run_id: str,
     anchor_spec_hash: str,
+    identity_hash: str,
+    similarity_metric: str,
+    split: str,
+    profile_hash: str,
     extra: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Standard tag dict for a *category_similarity_profile* run."""
@@ -467,6 +443,10 @@ def category_similarity_profile_tags(
         "kind": "category_similarity_profile",
         "parent_run_id": parent_run_id,
         "anchor_spec_hash": anchor_spec_hash,
+        "identity_hash": identity_hash,
+        "similarity_metric": similarity_metric,
+        "split": split,
+        "profile_hash": profile_hash,
     }
     if extra:
         tags.update(extra)
@@ -475,30 +455,12 @@ def category_similarity_profile_tags(
 
 def find_finished_similarity_profile_run(
     experiment_name: str,
-    parent_run_id: str,
-    anchor_spec_hash: str,
-    similarity_metric: str,
-    split: str = "test",
+    identity_hash_val: str,
 ) -> Optional[mlflow.entities.Run]:
     """Check if a category_similarity_profile run already exists."""
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        return None
-    filter_str = (
-        f"tags.kind = 'category_similarity_profile' and "
-        f"tags.parent_run_id = '{parent_run_id}' and "
-        f"tags.anchor_spec_hash = '{anchor_spec_hash}' and "
-        f"params.similarity_metric = '{similarity_metric}' and "
-        f"params.split = '{split}' and "
-        f"attributes.status = 'FINISHED'"
+    return find_finished_identity_run(
+        experiment_name, "category_similarity_profile", identity_hash_val
     )
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_str,
-        max_results=1,
-        output_format="list",
-    )
-    return runs[0] if runs else None
 
 
 def get_profile_run(

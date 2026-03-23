@@ -13,25 +13,23 @@ Validates:
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
-from src.data.anchors import compute_anchor_spec_hash, select_anchors
-from src.mlflow_utils import (
+from src.config.hash import (
     behaviour_input_hash,
-    category_similarity_profile_tags,
     component_set_hash,
-    find_finished_similarity_profile_run,
-)
-from src.profiling.category_similarity import (
-    compute_similarity_profile,
+    compute_anchor_spec_hash,
     similarity_profile_hash,
 )
+from src.data.anchors import select_anchors
+from src.mlflow_utils import (
+    category_similarity_profile_tags,
+    find_finished_similarity_profile_run,
+)
+from src.profiling.category_similarity import compute_similarity_profile
 
 # ──────────── Fixtures ──────────────
 
@@ -123,30 +121,34 @@ class TestComputeSimilarityProfile:
     """Test correctness of cosine and L2 similarity profile computation."""
 
     def test_cosine_shape(self):
-        N, D, K = 100, 64, 20
+        N, D, K, num_classes = 100, 64, 20, 10
         emb = torch.randn(N, D)
         anchors = torch.randn(K, D)
-        profiles = compute_similarity_profile(emb, anchors, metric="cosine")
-        assert profiles.shape == (N, K)
+        profiles = compute_similarity_profile(
+            emb, anchors, num_classes=num_classes, metric="cosine"
+        )
+        assert profiles.shape == (N, num_classes)
 
     def test_l2_shape(self):
-        N, D, K = 100, 64, 20
+        N, D, K, num_classes = 100, 64, 20, 10
         emb = torch.randn(N, D)
         anchors = torch.randn(K, D)
-        profiles = compute_similarity_profile(emb, anchors, metric="l2")
-        assert profiles.shape == (N, K)
+        profiles = compute_similarity_profile(
+            emb, anchors, num_classes=num_classes, metric="l2"
+        )
+        assert profiles.shape == (N, num_classes)
 
     def test_cosine_self_similarity_is_one(self):
         """Cosine similarity of a vector with itself should be ~1.0."""
         emb = torch.randn(10, 32)
-        profiles = compute_similarity_profile(emb, emb, metric="cosine")
+        profiles = compute_similarity_profile(emb, emb, num_classes=10, metric="cosine")
         diagonal = torch.diag(profiles)
         assert torch.allclose(diagonal, torch.ones(10), atol=1e-5)
 
     def test_l2_self_distance_is_zero(self):
         """L2 distance of a vector with itself should be ~0 (profile = -0 ≈ 0)."""
         emb = torch.randn(10, 32)
-        profiles = compute_similarity_profile(emb, emb, metric="l2")
+        profiles = compute_similarity_profile(emb, emb, num_classes=10, metric="l2")
         diagonal = torch.diag(profiles)
         assert torch.allclose(diagonal, torch.zeros(10), atol=5e-3)
 
@@ -154,7 +156,9 @@ class TestComputeSimilarityProfile:
         """Cosine similarity should be in [-1, 1]."""
         emb = torch.randn(50, 64)
         anchors = torch.randn(20, 64)
-        profiles = compute_similarity_profile(emb, anchors, metric="cosine")
+        profiles = compute_similarity_profile(
+            emb, anchors, num_classes=10, metric="cosine"
+        )
         assert profiles.min() >= -1.0 - 1e-6
         assert profiles.max() <= 1.0 + 1e-6
 
@@ -162,21 +166,21 @@ class TestComputeSimilarityProfile:
         """Negated L2 should be <= 0."""
         emb = torch.randn(50, 64)
         anchors = torch.randn(20, 64)
-        profiles = compute_similarity_profile(emb, anchors, metric="l2")
+        profiles = compute_similarity_profile(emb, anchors, num_classes=10, metric="l2")
         assert profiles.max() <= 1e-6
 
     def test_unknown_metric_raises(self):
         with pytest.raises(ValueError, match="Unknown similarity metric"):
             compute_similarity_profile(
-                torch.randn(5, 3), torch.randn(2, 3), metric="dot"
+                torch.randn(5, 3), torch.randn(2, 3), num_classes=2, metric="dot"
             )
 
     def test_deterministic(self):
         """Same inputs produce identical outputs."""
         emb = torch.randn(20, 16)
-        anchors = torch.randn(5, 16)
-        p1 = compute_similarity_profile(emb, anchors, metric="cosine")
-        p2 = compute_similarity_profile(emb, anchors, metric="cosine")
+        anchors = torch.randn(10, 16)
+        p1 = compute_similarity_profile(emb, anchors, num_classes=10, metric="cosine")
+        p2 = compute_similarity_profile(emb, anchors, num_classes=10, metric="cosine")
         assert torch.equal(p1, p2)
 
 
@@ -285,6 +289,7 @@ class TestCategorySimilarityProfileTags:
         tags = category_similarity_profile_tags(
             parent_run_id="run_abc",
             anchor_spec_hash="hash_123",
+            identity_hash="idhash_123",
             similarity_metric="cosine",
             split="test",
             profile_hash="prof_abc",
@@ -292,6 +297,7 @@ class TestCategorySimilarityProfileTags:
         assert tags["kind"] == "category_similarity_profile"
         assert tags["parent_run_id"] == "run_abc"
         assert tags["anchor_spec_hash"] == "hash_123"
+        assert tags["identity_hash"] == "idhash_123"
         assert tags["similarity_metric"] == "cosine"
         assert tags["split"] == "test"
         assert tags["profile_hash"] == "prof_abc"
@@ -300,6 +306,7 @@ class TestCategorySimilarityProfileTags:
         tags = category_similarity_profile_tags(
             parent_run_id="r",
             anchor_spec_hash="a",
+            identity_hash="i",
             similarity_metric="l2",
             split="val",
             profile_hash="p",
@@ -321,7 +328,7 @@ class TestDemandDrivenCaching:
         """When no matching run exists, find_finished_similarity_profile_run returns None."""
         mock_mlflow.get_experiment_by_name.return_value = None
         result = find_finished_similarity_profile_run(
-            "test_exp", "run_abc", "hash_123", "cosine", "test"
+            "test_exp", "id_hash_123"
         )
         assert result is None
 
@@ -337,7 +344,7 @@ class TestDemandDrivenCaching:
         mock_mlflow.search_runs.return_value = [mock_run]
 
         result = find_finished_similarity_profile_run(
-            "test_exp", "run_abc", "hash_123", "cosine", "test"
+            "test_exp", "id_hash_123"
         )
         assert result is not None
         assert result.info.run_id == "cached_run_id"
@@ -348,9 +355,7 @@ class TestDemandDrivenCaching:
             "filter_string", ""
         )
         assert "category_similarity_profile" in filter_str
-        assert "run_abc" in filter_str
-        assert "hash_123" in filter_str
-        assert "cosine" in filter_str
+        assert "id_hash_123" in filter_str
 
     def test_local_cache_saves_and_loads(self, tmp_path):
         """Profiles saved locally can be loaded back identically."""
@@ -387,19 +392,25 @@ class TestEndToEndFeatureAssembly:
 
         # Compute profiles
         anchor_emb = emb[anchors["anchor_indices"]]
-        profiles_cos = compute_similarity_profile(emb, anchor_emb, metric="cosine")
-        profiles_l2 = compute_similarity_profile(emb, anchor_emb, metric="l2")
+        profiles_cos = compute_similarity_profile(
+            emb, anchor_emb, num_classes=num_classes, metric="cosine"
+        )
+        profiles_l2 = compute_similarity_profile(
+            emb, anchor_emb, num_classes=num_classes, metric="l2"
+        )
 
-        assert profiles_cos.shape == (N, K)
-        assert profiles_l2.shape == (N, K)
+        assert profiles_cos.shape == (N, num_classes)
+        assert profiles_l2.shape == (N, num_classes)
 
         # Feature assembly: embeddings+profiles
         combined = torch.cat([emb, profiles_cos], dim=1)
-        assert combined.shape == (N, D + K)
+        assert combined.shape == (N, D + num_classes)
 
         # Determinism: repeat and compare
         anchors2 = select_anchors(labels, **spec)
         anchor_emb2 = emb[anchors2["anchor_indices"]]
-        profiles_cos2 = compute_similarity_profile(emb, anchor_emb2, metric="cosine")
+        profiles_cos2 = compute_similarity_profile(
+            emb, anchor_emb2, num_classes=num_classes, metric="cosine"
+        )
         assert torch.equal(profiles_cos, profiles_cos2)
         assert anchors["spec_hash"] == anchors2["spec_hash"]
