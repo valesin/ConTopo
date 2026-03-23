@@ -50,7 +50,12 @@ IDEMPOTENCY_REGISTRY: dict[str, StepIdentity] = {
     ),
     "inference": StepIdentity(identity_fields=("trained_model_run_id", "split")),
     "category_similarity_profile": StepIdentity(
-        identity_fields=("parent_run_id", "anchor_spec_hash", "similarity_metric", "split")
+        identity_fields=(
+            "parent_run_id",
+            "anchor_spec_hash",
+            "similarity_metric",
+            "split",
+        )
     ),
     "diagnostics": StepIdentity(identity_fields=("parent_run_id", "diagnostic_metric")),
     "ensemble": StepIdentity(
