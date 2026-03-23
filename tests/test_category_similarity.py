@@ -327,9 +327,7 @@ class TestDemandDrivenCaching:
     def test_find_finished_returns_none_on_miss(self, mock_mlflow):
         """When no matching run exists, find_finished_similarity_profile_run returns None."""
         mock_mlflow.get_experiment_by_name.return_value = None
-        result = find_finished_similarity_profile_run(
-            "test_exp", "id_hash_123"
-        )
+        result = find_finished_similarity_profile_run("test_exp", "id_hash_123")
         assert result is None
 
     @patch("src.mlflow_utils.mlflow")
@@ -343,9 +341,7 @@ class TestDemandDrivenCaching:
         mock_run.info.run_id = "cached_run_id"
         mock_mlflow.search_runs.return_value = [mock_run]
 
-        result = find_finished_similarity_profile_run(
-            "test_exp", "id_hash_123"
-        )
+        result = find_finished_similarity_profile_run("test_exp", "id_hash_123")
         assert result is not None
         assert result.info.run_id == "cached_run_id"
 
