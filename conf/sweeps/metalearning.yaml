@@ -1,5 +1,14 @@
 # @package _global_
-# @package _global_
+
+# 1. Define a single "master" variable at the top level
+master_seed: 42
+
+# 2. Link your adapter parameters to that master variable
+adapter:
+  init_seed: ${master_seed}
+  meta_split:
+    seed: ${master_seed}
+
 hydra:
   mode: MULTIRUN
   sweeper:
@@ -7,3 +16,7 @@ hydra:
       adapter.meta_type: meta_lr, meta_mlp_2, meta_mlp_3
       adapter.feature_type: logits, embeddings, "embeddings+profiles"
       adapter.similarity_metric: cosine, l2
+      adapter.profile_mask: true_class, argmax_similarity
+      
+      # 3. Sweep over the master variable instead!
+      master_seed: range(42,52)
