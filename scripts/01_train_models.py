@@ -32,7 +32,7 @@ from src.mlflow_utils import (
     log_resolved_config,
     model_tags,
     setup_mlflow,
-    find_finished_identity_run,
+    find_finished_model_run_compat,
     resolve_seed,
     log_dataset_lineage,
 )
@@ -118,8 +118,17 @@ def main(cfg: DictConfig) -> None:
     )
     setup_mlflow(cfg)
 
-    if find_finished_identity_run(cfg.mlflow.experiment_name, "model", model_identity_hash) is not None:
-        print(f"Model with identity_hash={model_identity_hash} already FINISHED. Skipping.")
+    existing_run = find_finished_model_run_compat(
+        experiment_name=cfg.mlflow.experiment_name,
+        identity_hash_val=model_identity_hash,
+        cfg_hash_value=hash_val,
+    )
+    if existing_run is not None:
+        print(
+            "Model already FINISHED. "
+            f"run_id={existing_run.info.run_id}, "
+            f"identity_hash={model_identity_hash}, cfg_hash={hash_val}. Skipping."
+        )
         return
 
     # ── Data ──
