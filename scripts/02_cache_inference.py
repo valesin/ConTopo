@@ -9,8 +9,8 @@ MLflow run (kind=inference).
 
 Usage:
     python scripts/02_cache_inference.py
-    python scripts/02_cache_inference.py pipeline.split=val
-    python scripts/02_cache_inference.py pipeline.force=true
+    python scripts/02_cache_inference.py execution.split=val
+    python scripts/02_cache_inference.py execution.force=true
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def main(cfg: DictConfig) -> None:
     model, run_id = get_existing_model(cfg.mlflow.experiment_name, hash_val)
     if model is None:
         print(
-            f"A model with cfg_hash={hash_val} has not been trained yet. Please run 01_train_models.py first with the same config (or set pipeline.force=true to ignore this check)."
+            f"A model with cfg_hash={hash_val} has not been trained yet. Please run 01_train_models.py first with the same config."
         )
         return
 
@@ -66,12 +66,12 @@ def main(cfg: DictConfig) -> None:
     # Try getting 'rho' from parent run's parameters
     rho = parent_run.data.params.get("rho", "N/A")
 
-    split = cfg.pipeline.split
+    split = cfg.execution.split
     cache_dir = get_cache_dir(cfg)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Check if this specific inference run already exists
-    if not cfg.pipeline.force:
+    if not cfg.execution.force:
         inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
         if not inf_runs.empty:
             print(

@@ -32,7 +32,7 @@ from src.mlflow_utils import (
     log_resolved_config,
     model_tags,
     setup_mlflow,
-    check_existing_model,
+    find_finished_identity_run,
     resolve_seed,
     log_dataset_lineage,
 )
@@ -118,9 +118,8 @@ def main(cfg: DictConfig) -> None:
     )
     setup_mlflow(cfg)
 
-    exists = check_existing_model(cfg.mlflow.experiment_name, hash_val, kind="model")
-    if exists:
-        print(f"Run with cfg_hash={hash_val} already FINISHED. Skipping.")
+    if find_finished_identity_run(cfg.mlflow.experiment_name, "model", model_identity_hash) is not None:
+        print(f"Model with identity_hash={model_identity_hash} already FINISHED. Skipping.")
         return
 
     # ── Data ──
@@ -205,6 +204,11 @@ def main(cfg: DictConfig) -> None:
                 "split_strategy": cfg.dataset.split.strategy,
                 "split_seed": cfg.dataset.split.seed,
                 "val_per_class": cfg.dataset.split.val_per_class,
+                "save_freq_epochs": cfg.training.save_freq_epochs,
+                "early_stopping_patience": cfg.training.early_stopping_patience,
+                "beta": cfg.training.balancer.beta,
+                "eps": cfg.training.balancer.eps,
+                "lambda_max": cfg.training.balancer.lambda_max,
             },
         )
         log_resolved_config(cfg)

@@ -1,0 +1,19 @@
+# ── Profiling configuration ──
+# Controls anchor selection, similarity profile computation (step 03),
+# and per-model diagnostics (step 03b).
+
+anchors:
+  per_class: 100                   # N anchors per class; total = per_class * num_classes
+  strategy: per_class_first_n      # selection strategy
+  order_by: example_id             # stable ordering key: example_id | original_index
+  source_split: test               # which dataset split to draw anchors from
+                                   # NOTE: independent of execution.split
+
+profiles:
+  skip: false                      # set true to explicitly skip profile computation
+  metrics: [cosine, l2]            # cosine | l2
+
+diagnostics:
+  morans_i: true
+  weight_norms: true
+  unit_distance_correlation: true

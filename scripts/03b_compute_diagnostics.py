@@ -15,8 +15,8 @@ MLflow run (kind=diagnostics).
 
 Usage:
     python scripts/03b_compute_diagnostics.py
-    python scripts/03b_compute_diagnostics.py pipeline.diagnostics.morans_i=false
-    python scripts/03b_compute_diagnostics.py pipeline.force=true
+    python scripts/03b_compute_diagnostics.py profiling.diagnostics.morans_i=false
+    python scripts/03b_compute_diagnostics.py execution.force=true
 """
 
 from __future__ import annotations
@@ -60,6 +60,7 @@ def _log_diagnostic_run(
     metrics,
     artifact_dir,
     cfg,
+    split,
 ):
     """Create one MLflow run for a single diagnostic metric."""
     rho = model_params.get("rho", "?")
@@ -69,7 +70,10 @@ def _log_diagnostic_run(
     tags = {
         "parent_run_id": run_id,
         "identity_hash": identity_hash(
-            "diagnostics", parent_run_id=run_id, diagnostic_metric=metric_name
+            "diagnostics",
+            parent_run_id=run_id,
+            diagnostic_metric=metric_name,
+            split=split,
         ),
         "run_name": f"diag_{metric_name}_{topology}_rho{rho}_t{trial}",
     }
@@ -83,7 +87,7 @@ def _log_diagnostic_run(
     ) as diag_run:
         params = {
             "diagnostic_metric": metric_name,
-            "split": cfg.pipeline.split,
+            "split": cfg.execution.split,
         }
 
         schema_log_params("diagnostics", params)
@@ -92,8 +96,8 @@ def _log_diagnostic_run(
             mlflow.log_metric(k, v)
 
         log_dataset_lineage(
-            get_split_labels(cfg, cfg.pipeline.split),
-            cfg.pipeline.split,
+            get_split_labels(cfg, cfg.execution.split),
+            cfg.execution.split,
             cfg.dataset.name,
             context="diagnostics",
         )
@@ -120,7 +124,7 @@ def main(cfg: DictConfig) -> None:
     seed = resolve_seed(cfg)
     cfg.seed = seed
 
-    diag_cfg = cfg.pipeline.diagnostics
+    diag_cfg = cfg.profiling.diagnostics
     enabled = []
     if diag_cfg.morans_i:
         enabled.append("morans_i")
@@ -143,8 +147,8 @@ def main(cfg: DictConfig) -> None:
         )
         return
 
-    split = cfg.pipeline.split
-    force = cfg.pipeline.force
+    split = cfg.execution.split
+    force = cfg.execution.force
     cache_dir = get_cache_dir(cfg)
     artifacts_root = str(cache_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -166,7 +170,10 @@ def main(cfg: DictConfig) -> None:
             existing = find_finished_diagnostic_run(
                 cfg.mlflow.experiment_name,
                 identity_hash(
-                    "diagnostics", parent_run_id=run_id, diagnostic_metric=metric_name
+                    "diagnostics",
+                    parent_run_id=run_id,
+                    diagnostic_metric=metric_name,
+                    split=split,
                 ),
             )
             if existing is not None:
@@ -218,6 +225,7 @@ def main(cfg: DictConfig) -> None:
             {"morans_i": mi},
             diag_dir,
             cfg,
+            split,
         )
 
     # ── Weight-based diagnostics ──
@@ -249,6 +257,7 @@ def main(cfg: DictConfig) -> None:
                     },
                     diag_dir,
                     cfg,
+                    split,
                 )
 
             if "unit_distance_correlation" in weight_needed:
@@ -269,6 +278,7 @@ def main(cfg: DictConfig) -> None:
                     metrics,
                     diag_dir,
                     cfg,
+                    split,
                 )
 
     print("\nDone.")

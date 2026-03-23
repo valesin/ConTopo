@@ -1,0 +1,9 @@
+# ── Post-ensemble analysis configuration ──
+# Controls diversity metrics (step 04b) and consistency / RSA (step 04c).
+
+diversity:
+  enabled: true
+  metrics: [q_statistic, disagreement, double_fault, correlation, interrater_agreement]
+
+consistency:
+  enabled: true

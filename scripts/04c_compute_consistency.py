@@ -27,7 +27,7 @@ from omegaconf import DictConfig
 
 from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
-from src.ensemble.selector import discover_ensembles
+from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.paths import get_cache_dir
 from src.config.hash import consistency_hash
 from src.mlflow_utils import (
@@ -50,21 +50,21 @@ from src.mlflow_schema_logger import (
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
-    if not cfg.pipeline.consistency.enabled:
-        print("Consistency computation disabled (pipeline.consistency.enabled=false).")
+    if not cfg.analysis.consistency.enabled:
+        print("Consistency computation disabled (analysis.consistency.enabled=false).")
         return
 
-    split = cfg.pipeline.split
-    force = cfg.pipeline.force
+    split = cfg.execution.split
+    force = cfg.execution.force
     cache_dir = get_cache_dir(cfg)
-    anchors_cfg = cfg.pipeline.anchors
+    anchors_cfg = cfg.profiling.anchors
 
     # 1. Get ground-truth labels
     labels = get_split_labels(cfg, split)
 
     anchors = get_or_create_anchors(
         labels=labels,
-        source_split=split,
+        source_split=anchors_cfg.source_split,
         per_class=anchors_cfg.per_class,
         strategy=anchors_cfg.strategy,
         order_by=anchors_cfg.order_by,
@@ -76,7 +76,7 @@ def main(cfg: DictConfig) -> None:
     a_spec_hash = anchors["spec_hash"]
 
     # 2. Discover ensemble groups dynamically from the actual DB tracking
-    groups = discover_ensembles(cfg.mlflow.experiment_name)
+    groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
 
     print(f"\nDiscovered {len(groups)} ensemble groups from MLflow.")
 

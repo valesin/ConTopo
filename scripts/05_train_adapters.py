@@ -24,7 +24,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.data.loaders import get_split_labels
-from src.ensemble.selector import discover_ensembles
+from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.paths import get_cache_dir
 from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
@@ -182,7 +182,7 @@ def _assert_valid_feature_tensor(
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
-    split = cfg.pipeline.split
+    split = cfg.execution.split
     cache_dir = get_cache_dir(cfg)
 
     init_seed = cfg.adapter.init_seed
@@ -203,7 +203,7 @@ def main(cfg: DictConfig) -> None:
     profile_mask = cfg.adapter.get("profile_mask", "true_class")
     anchor_spec_hash = ""
     if use_profiles:
-        anchors_cfg = cfg.pipeline.anchors
+        anchors_cfg = cfg.profiling.anchors
         anchor_spec_hash = compute_anchor_spec_hash(
             source_split=anchors_cfg.source_split,
             per_class=anchors_cfg.per_class,
@@ -217,18 +217,17 @@ def main(cfg: DictConfig) -> None:
     total_examples = len(labels_tensor)
 
     # 2. Discover Ensemble Components from MLflow
-    groups = discover_ensembles(cfg.mlflow.experiment_name)
+    groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
     if not groups:
         print("No dynamic ensembles discovered. Exiting.")
         return
 
     client = mlflow.tracking.MlflowClient()
-    device = torch.device(
-        "cuda"
-        if torch.cuda.is_available()
-        and getattr(cfg.pipeline, "device", "cuda") != "cpu"
-        else "cpu"
-    )
+    dev_name = cfg.runtime.device
+    if dev_name == "auto":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(dev_name)
 
     for ens_name, run_ids in groups.items():
         print(
@@ -254,7 +253,7 @@ def main(cfg: DictConfig) -> None:
         existing = find_finished_metalearner_run(
             cfg.mlflow.experiment_name, step_identity_hash, meta_type=meta_type
         )
-        if existing is not None and not cfg.pipeline.force:
+        if existing is not None and not cfg.execution.force:
             print(
                 f"  SKIP: {meta_type} adapter already trained (run_id={existing.info.run_id})"
             )
@@ -308,8 +307,10 @@ def main(cfg: DictConfig) -> None:
                         "meta_split_train": meta_split_cfg.fractions.get("train", 0.6),
                         "meta_split_val": meta_split_cfg.fractions.get("val", 0.2),
                         "adapter_architecture": (
-                            "Input -> 128 -> ReLU -> 64 -> ReLU -> num_classes"
-                            if meta_type == "meta_mlp"
+                            "Input -> D -> ReLU -> 128 -> ReLU -> num_classes"
+                            if meta_type == "meta_mlp_2"
+                            else "Input -> D -> ReLU -> 128 -> ReLU -> 64 -> ReLU -> num_classes"
+                            if meta_type == "meta_mlp_3"
                             else "Linear"
                         ),
                         "standardization_applied": True,
