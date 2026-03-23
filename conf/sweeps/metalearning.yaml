@@ -18,5 +18,5 @@ hydra:
       adapter.similarity_metric: cosine, l2
       adapter.profile_mask: true_class, argmax_similarity
       
-      # 3. Sweep over the master variable instead!
+      # 3. Sweep over the master variable instead
       master_seed: range(42,52)

@@ -1,0 +1,19 @@
+# @package _global_
+
+# Stage 2: embeddings+profiles with similarity metrics
+master_seed: 42
+
+adapter:
+  init_seed: ${master_seed}
+  meta_split:
+    seed: ${master_seed}
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      adapter.meta_type: meta_lr, meta_mlp_2
+      adapter.feature_type: "embeddings+profiles"
+      adapter.similarity_metric: l2
+      adapter.profile_mask: true_class
+      master_seed: range(42,52)
