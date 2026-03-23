@@ -34,7 +34,7 @@ from src.mlflow_utils import (
     get_inference_run,
     log_dataset_lineage,
 )
-from src.config.hash import cfg_hash
+from src.config.hash import cfg_hash, identity_hash
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -93,6 +93,9 @@ def main(cfg: DictConfig) -> None:
         "trained_model_run_id": run_id,  # Link back to the trained model
         "parent_run_name": parent_run_name,
         "cfg_hash": hash_val,
+        "identity_hash": identity_hash(
+            "inference", trained_model_run_id=run_id, split=split
+        ),
     }
 
     with schema_start_run(

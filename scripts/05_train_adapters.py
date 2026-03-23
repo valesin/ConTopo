@@ -10,6 +10,7 @@ appended as additional features.
 
 from __future__ import annotations
 
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -25,11 +26,11 @@ from torch.utils.data import DataLoader, TensorDataset
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
+from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
     behaviour_tags,
     component_set_hash,
     find_finished_metalearner_run,
-    behaviour_input_hash,
     log_resolved_config,
     setup_mlflow,
     get_inference_run,
@@ -200,6 +201,16 @@ def main(cfg: DictConfig) -> None:
     meta_split_cfg = cfg.adapter.meta_split
     use_profiles = "profiles" in feature_type
     profile_mask = cfg.adapter.get("profile_mask", "true_class")
+    anchor_spec_hash = ""
+    if use_profiles:
+        anchors_cfg = cfg.pipeline.anchors
+        anchor_spec_hash = compute_anchor_spec_hash(
+            source_split=anchors_cfg.source_split,
+            per_class=anchors_cfg.per_class,
+            strategy=anchors_cfg.strategy,
+            order_by=anchors_cfg.order_by,
+            num_classes=cfg.dataset.num_classes,
+        )
 
     # 1. Get ground-truth labels
     labels_tensor = get_split_labels(cfg, split)
@@ -225,21 +236,23 @@ def main(cfg: DictConfig) -> None:
         )
 
         cs_hash = component_set_hash(run_ids)
-        adapter_cfg_dict = OmegaConf.to_container(cfg.adapter, resolve=True)
-        # Lock identity
-        bi_hash = behaviour_input_hash(
-            component_set_hash_val=cs_hash,
+        step_identity_hash = identity_hash(
+            "metalearner",
+            component_set_hash=cs_hash,
             split=split,
             feature_type=feature_type,
+            anchor_spec=anchor_spec_hash,
+            meta_split_spec=json.dumps(
+                OmegaConf.to_container(meta_split_cfg, resolve=True), sort_keys=True
+            ),
             similarity_metric=similarity_metric if use_profiles else "",
-            init_seed=str(init_seed)
-            + str(meta_split_cfg.seed)
-            + str(meta_split_cfg.fractions),
+            init_seed=str(init_seed),
             profile_mask=profile_mask if use_profiles else "",
+            meta_type=meta_type,
         )
 
         existing = find_finished_metalearner_run(
-            cfg.mlflow.experiment_name, bi_hash, meta_type=meta_type
+            cfg.mlflow.experiment_name, step_identity_hash, meta_type=meta_type
         )
         if existing is not None and not cfg.pipeline.force:
             print(
@@ -261,11 +274,12 @@ def main(cfg: DictConfig) -> None:
             kind="metalearner",
             behaviour=meta_type,
             component_run_ids=run_ids,
-            behaviour_input_hash=bi_hash,
+            behaviour_input_hash=step_identity_hash,
             component_set_hash=cs_hash,
             rho=rho_sum,
             extra={
                 "ensemble_name": ens_name,
+                "identity_hash": step_identity_hash,
                 "run_name": f"{ens_name}_adapter_{meta_type}",
             },
         )
@@ -519,12 +533,16 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 tabular_path = os.path.join(
-                    cache_dir, f"adapter_holdout_{bi_hash}.parquet"
+                    cache_dir, f"adapter_holdout_{step_identity_hash}.parquet"
                 )
-                tensors_path = os.path.join(cache_dir, f"adapter_holdout_{bi_hash}.npz")
-                inputs_path = os.path.join(cache_dir, f"adapter_inputs_{bi_hash}.npz")
+                tensors_path = os.path.join(
+                    cache_dir, f"adapter_holdout_{step_identity_hash}.npz"
+                )
+                inputs_path = os.path.join(
+                    cache_dir, f"adapter_inputs_{step_identity_hash}.npz"
+                )
                 split_trace_path = os.path.join(
-                    cache_dir, f"adapter_split_trace_{bi_hash}.parquet"
+                    cache_dir, f"adapter_split_trace_{step_identity_hash}.parquet"
                 )
 
                 os.makedirs(cache_dir, exist_ok=True)

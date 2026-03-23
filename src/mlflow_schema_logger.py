@@ -87,6 +87,7 @@ ALLOWED_PARAMS: dict[str, set[str]] = {
 ALLOWED_TAGS: dict[str, set[str]] = {
     "model": {
         "kind",
+        "identity_hash",
         "schema_version",
         "cfg_hash",
         "trial",
@@ -94,12 +95,14 @@ ALLOWED_TAGS: dict[str, set[str]] = {
     },
     "inference": {
         "kind",
+        "identity_hash",
         "trained_model_run_id",
         "parent_run_name",
         "cfg_hash",
     },
     "category_similarity_profile": {
         "kind",
+        "identity_hash",
         "parent_run_id",
         "inference_run_id",
         "anchor_spec_hash",
@@ -108,12 +111,14 @@ ALLOWED_TAGS: dict[str, set[str]] = {
     },
     "diagnostics": {
         "kind",
+        "identity_hash",
         "parent_run_id",
         "inference_run_id",
         "run_name",
     },
     "ensemble": {
         "kind",
+        "identity_hash",
         "ensemble_name",
         "component_set_hash",
         "behaviour_input_hash",
@@ -122,12 +127,14 @@ ALLOWED_TAGS: dict[str, set[str]] = {
     },
     "diversity": {
         "kind",
+        "identity_hash",
         "ensemble_name",
         "component_set_hash",
         "run_name",
     },
     "consistency": {
         "kind",
+        "identity_hash",
         "ensemble_name",
         "component_set_hash",
         "consistency_hash",
@@ -136,6 +143,7 @@ ALLOWED_TAGS: dict[str, set[str]] = {
     },
     "metalearner": {
         "kind",
+        "identity_hash",
         "ensemble_name",
         "component_set_hash",
         "behaviour_input_hash",

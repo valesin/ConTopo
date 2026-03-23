@@ -30,7 +30,7 @@ import torch.nn as nn
 from omegaconf import DictConfig
 
 from src.config.paths import get_cache_dir
-from src.config.hash import cfg_hash
+from src.config.hash import cfg_hash, identity_hash
 from src.mlflow_utils import (
     log_resolved_config,
     setup_mlflow,
@@ -68,6 +68,9 @@ def _log_diagnostic_run(
 
     tags = {
         "parent_run_id": run_id,
+        "identity_hash": identity_hash(
+            "diagnostics", parent_run_id=run_id, diagnostic_metric=metric_name
+        ),
         "run_name": f"diag_{metric_name}_{topology}_rho{rho}_t{trial}",
     }
     if inf_run_id:
@@ -161,7 +164,10 @@ def main(cfg: DictConfig) -> None:
     for metric_name in enabled:
         if not force:
             existing = find_finished_diagnostic_run(
-                cfg.mlflow.experiment_name, run_id, metric_name
+                cfg.mlflow.experiment_name,
+                identity_hash(
+                    "diagnostics", parent_run_id=run_id, diagnostic_metric=metric_name
+                ),
             )
             if existing is not None:
                 print(f"  -> Diagnostic {metric_name} already computed. Skipping.")

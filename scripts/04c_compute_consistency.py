@@ -15,7 +15,6 @@ ensemble_name and component run IDs for easy link-back.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -30,6 +29,7 @@ from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles
 from src.config.paths import get_cache_dir
+from src.config.hash import consistency_hash
 from src.mlflow_utils import (
     component_set_hash,
     log_resolved_config,
@@ -44,13 +44,6 @@ from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
 )
-
-
-def _consistency_hash(cs_hash: str, anchor_spec_hash: str, split: str) -> str:
-    """Idempotency hash for a consistency computation."""
-    parts = [cs_hash, anchor_spec_hash, split, "consistency"]
-    canonical = json.dumps(parts, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -92,7 +85,7 @@ def main(cfg: DictConfig) -> None:
         print(f"Consistency: {ens_name}")
 
         cs_hash = component_set_hash(run_ids)
-        cons_hash = _consistency_hash(cs_hash, a_spec_hash, split)
+        cons_hash = consistency_hash(cs_hash, a_spec_hash, split)
 
         # Idempotency
         if not force:
@@ -179,6 +172,7 @@ def main(cfg: DictConfig) -> None:
             "ensemble_name": ens_name,
             "component_set_hash": cs_hash,
             "consistency_hash": cons_hash,
+            "identity_hash": cons_hash,
             "anchor_spec_hash": a_spec_hash,
             "run_name": f"cons_{ens_name}",
         }

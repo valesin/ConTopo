@@ -19,11 +19,10 @@ Supported metrics:
 
 from __future__ import annotations
 
-import hashlib
-import json
-
 import torch
 import torch.nn.functional as F
+
+from src.config.hash import similarity_profile_hash
 
 
 def compute_similarity_profile(
@@ -68,26 +67,3 @@ def compute_similarity_profile(
     N = sims.shape[0]
     A = sims.shape[1] // num_classes
     return sims.view(N, num_classes, A).mean(dim=2)
-
-
-def similarity_profile_hash(
-    parent_run_id: str,
-    anchor_spec_hash: str,
-    similarity_metric: str,
-    split: str = "test",
-) -> str:
-    """
-    Deterministic hash identifying a cached similarity profile.
-
-    Inputs:
-        parent_run_id:    MLflow run ID of the component model
-        anchor_spec_hash: hash of the anchor selection specification
-        similarity_metric: metric name (cosine, l2)
-        split:            dataset split
-
-    Returns:
-        16-char hex hash.
-    """
-    parts = [parent_run_id, anchor_spec_hash, similarity_metric, split]
-    canonical = json.dumps(parts, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
