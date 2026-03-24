@@ -15,10 +15,14 @@ from omegaconf import OmegaConf
 from src.config.hash import identity_hash
 
 TARGET_EXPERIMENT = "contopo"
-OUTPUT_DIR = Path("/home/vlr/Workspaces/Topographic/ConTopo/reports/identity_audit_20260324")
+OUTPUT_DIR = Path(
+    "/home/vlr/Workspaces/Topographic/ConTopo/reports/identity_audit_20260324"
+)
 
 
-def flatten_identity_section_training(prefix: str, section: dict[str, Any]) -> dict[str, str]:
+def flatten_identity_section_training(
+    prefix: str, section: dict[str, Any]
+) -> dict[str, str]:
     out: dict[str, str] = {}
 
     def _walk(node: object, path: str) -> None:
@@ -35,7 +39,9 @@ def flatten_identity_section_training(prefix: str, section: dict[str, Any]) -> d
     return out
 
 
-def flatten_identity_section_migration(prefix: str, section: dict[str, Any]) -> dict[str, str]:
+def flatten_identity_section_migration(
+    prefix: str, section: dict[str, Any]
+) -> dict[str, str]:
     out: dict[str, str] = {}
 
     def _walk(node: object, path: str) -> None:
@@ -52,12 +58,20 @@ def flatten_identity_section_migration(prefix: str, section: dict[str, Any]) -> 
     return out
 
 
-def compute_model_identity_from_cfg_training(cfg: dict[str, Any]) -> tuple[str, dict[str, str]]:
+def compute_model_identity_from_cfg_training(
+    cfg: dict[str, Any],
+) -> tuple[str, dict[str, str]]:
     fields: dict[str, str] = {}
-    fields.update(flatten_identity_section_training("model", cfg.get("model", {}) or {}))
+    fields.update(
+        flatten_identity_section_training("model", cfg.get("model", {}) or {})
+    )
     fields.update(flatten_identity_section_training("loss", cfg.get("loss", {}) or {}))
-    fields.update(flatten_identity_section_training("dataset", cfg.get("dataset", {}) or {}))
-    fields.update(flatten_identity_section_training("training", cfg.get("training", {}) or {}))
+    fields.update(
+        flatten_identity_section_training("dataset", cfg.get("dataset", {}) or {})
+    )
+    fields.update(
+        flatten_identity_section_training("training", cfg.get("training", {}) or {})
+    )
 
     model_hash = identity_hash(
         "model",
@@ -69,12 +83,20 @@ def compute_model_identity_from_cfg_training(cfg: dict[str, Any]) -> tuple[str, 
     return model_hash, fields
 
 
-def compute_model_identity_from_cfg_migration(cfg: dict[str, Any]) -> tuple[str, dict[str, str]]:
+def compute_model_identity_from_cfg_migration(
+    cfg: dict[str, Any],
+) -> tuple[str, dict[str, str]]:
     fields: dict[str, str] = {}
-    fields.update(flatten_identity_section_migration("model", cfg.get("model", {}) or {}))
+    fields.update(
+        flatten_identity_section_migration("model", cfg.get("model", {}) or {})
+    )
     fields.update(flatten_identity_section_migration("loss", cfg.get("loss", {}) or {}))
-    fields.update(flatten_identity_section_migration("dataset", cfg.get("dataset", {}) or {}))
-    fields.update(flatten_identity_section_migration("training", cfg.get("training", {}) or {}))
+    fields.update(
+        flatten_identity_section_migration("dataset", cfg.get("dataset", {}) or {})
+    )
+    fields.update(
+        flatten_identity_section_migration("training", cfg.get("training", {}) or {})
+    )
 
     model_hash = identity_hash(
         "model",
@@ -91,7 +113,9 @@ def discover_db_candidates() -> list[Path]:
         Path("/home/vlr/Workspaces/Topographic/ConTopo/mlflow.db"),
         Path("/home/vlr/Workspaces/outputs/mlflow.db"),
     ]
-    candidates.extend(sorted(Path("/home/vlr/.local/share/Trash/files").rglob("mlflow.db")))
+    candidates.extend(
+        sorted(Path("/home/vlr/.local/share/Trash/files").rglob("mlflow.db"))
+    )
     unique: list[Path] = []
     seen: set[Path] = set()
     for path in candidates:
@@ -130,7 +154,9 @@ def db_diagnostics(db_path: Path) -> dict[str, Any]:
         out["run_count"] = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM tags")
         out["tag_count"] = cur.fetchone()[0]
-        cur.execute("SELECT experiment_id, name, artifact_location, lifecycle_stage FROM experiments ORDER BY experiment_id")
+        cur.execute(
+            "SELECT experiment_id, name, artifact_location, lifecycle_stage FROM experiments ORDER BY experiment_id"
+        )
         out["experiments"] = [
             {
                 "experiment_id": r[0],
@@ -146,7 +172,9 @@ def db_diagnostics(db_path: Path) -> dict[str, Any]:
     return out
 
 
-def get_model_runs_for_experiment(db_path: Path, experiment_name: str) -> tuple[list[dict[str, Any]], str | None]:
+def get_model_runs_for_experiment(
+    db_path: Path, experiment_name: str
+) -> tuple[list[dict[str, Any]], str | None]:
     con = sqlite_connect_ro(db_path)
     cur = con.cursor()
     cur.execute(
@@ -213,7 +241,10 @@ def resolve_artifacts_root(db_path: Path, artifact_uri: str | None) -> Path | No
         if candidate.exists():
             return candidate
 
-    if db_path.parent.name.startswith("outputs") and (db_path.parent / "mlruns").exists():
+    if (
+        db_path.parent.name.startswith("outputs")
+        and (db_path.parent / "mlruns").exists()
+    ):
         return db_path.parent / "mlruns"
 
     if (db_path.parent / "mlruns").exists():
@@ -222,12 +253,18 @@ def resolve_artifacts_root(db_path: Path, artifact_uri: str | None) -> Path | No
     return None
 
 
-def find_resolved_config_file(db_path: Path, run: dict[str, Any]) -> tuple[Path | None, str]:
+def find_resolved_config_file(
+    db_path: Path, run: dict[str, Any]
+) -> tuple[Path | None, str]:
     run_id = run["run_id"]
     artifact_uri = run.get("artifact_uri")
 
     if artifact_uri:
-        path = Path(artifact_uri.replace("file://", "", 1)) if str(artifact_uri).startswith("file://") else Path(str(artifact_uri))
+        path = (
+            Path(artifact_uri.replace("file://", "", 1))
+            if str(artifact_uri).startswith("file://")
+            else Path(str(artifact_uri))
+        )
         if path.exists():
             config_dir = path / "config"
             if config_dir.exists():
@@ -298,12 +335,26 @@ def classify_run(db_path: Path, run: dict[str, Any]) -> dict[str, Any]:
         result["flattened_fields_migration"] = {}
         return result
 
-    missing_required = [k for k in ["schema_version", "trial", "seed", "model", "loss", "dataset", "training"] if k not in cfg_dict]
+    missing_required = [
+        k
+        for k in [
+            "schema_version",
+            "trial",
+            "seed",
+            "model",
+            "loss",
+            "dataset",
+            "training",
+        ]
+        if k not in cfg_dict
+    ]
     if missing_required:
         result["computed_identity_hash"] = None
         result["computed_identity_hash_migration_helper"] = None
         result["classification"] = "needs_manual_inspection"
-        result["discrepancy_reason"] = f"resolved_config_missing_keys:{','.join(missing_required)}"
+        result["discrepancy_reason"] = (
+            f"resolved_config_missing_keys:{','.join(missing_required)}"
+        )
         result["differing_flattened_keys"] = []
         result["flattened_field_count"] = 0
         result["flattened_fields"] = {}
@@ -312,12 +363,16 @@ def classify_run(db_path: Path, run: dict[str, Any]) -> dict[str, Any]:
 
     try:
         computed, flattened = compute_model_identity_from_cfg_training(cfg_dict)
-        computed_migration, flattened_migration = compute_model_identity_from_cfg_migration(cfg_dict)
+        computed_migration, flattened_migration = (
+            compute_model_identity_from_cfg_migration(cfg_dict)
+        )
     except Exception as exc:
         result["computed_identity_hash"] = None
         result["computed_identity_hash_migration_helper"] = None
         result["classification"] = "needs_manual_inspection"
-        result["discrepancy_reason"] = f"identity_compute_failed:{type(exc).__name__}:{exc}"
+        result["discrepancy_reason"] = (
+            f"identity_compute_failed:{type(exc).__name__}:{exc}"
+        )
         result["differing_flattened_keys"] = []
         result["flattened_field_count"] = 0
         result["flattened_fields"] = {}
@@ -331,7 +386,9 @@ def classify_run(db_path: Path, run: dict[str, Any]) -> dict[str, Any]:
     result["flattened_fields_migration"] = flattened_migration
 
     diff_keys = sorted(
-        k for k in set(flattened.keys()) | set(flattened_migration.keys()) if flattened.get(k) != flattened_migration.get(k)
+        k
+        for k in set(flattened.keys()) | set(flattened_migration.keys())
+        if flattened.get(k) != flattened_migration.get(k)
     )
     result["differing_flattened_keys"] = diff_keys
 
@@ -341,7 +398,9 @@ def classify_run(db_path: Path, run: dict[str, Any]) -> dict[str, Any]:
         if computed == computed_migration:
             result["discrepancy_reason"] = "missing_identity_hash"
         else:
-            result["discrepancy_reason"] = "missing_identity_hash_and_training_vs_migration_hash_diff"
+            result["discrepancy_reason"] = (
+                "missing_identity_hash_and_training_vs_migration_hash_diff"
+            )
     elif existing == computed:
         result["classification"] = "ok"
         result["discrepancy_reason"] = "existing_matches_training_computation"
@@ -355,7 +414,9 @@ def classify_run(db_path: Path, run: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def grouped_presence_summary(records: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+def grouped_presence_summary(
+    records: list[dict[str, Any]], key: str
+) -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for rec in records:
         groups[str(rec.get(key))].append(rec)
@@ -363,7 +424,9 @@ def grouped_presence_summary(records: list[dict[str, Any]], key: str) -> list[di
     out: list[dict[str, Any]] = []
     for group_key, rows in sorted(groups.items(), key=lambda x: x[0]):
         with_identity = sum(1 for row in rows if row.get("existing_identity_hash"))
-        without_identity = sum(1 for row in rows if not row.get("existing_identity_hash"))
+        without_identity = sum(
+            1 for row in rows if not row.get("existing_identity_hash")
+        )
         out.append(
             {
                 "group_key": group_key,
@@ -387,7 +450,9 @@ def run_audit() -> dict[str, Any]:
     per_db_summary: list[dict[str, Any]] = []
 
     for db_path in db_candidates:
-        model_runs, experiment_id = get_model_runs_for_experiment(db_path, TARGET_EXPERIMENT)
+        model_runs, experiment_id = get_model_runs_for_experiment(
+            db_path, TARGET_EXPERIMENT
+        )
         if not model_runs:
             per_db_summary.append(
                 {
@@ -421,8 +486,14 @@ def run_audit() -> dict[str, Any]:
             }
         )
 
-    cfg_group_summary = grouped_presence_summary(all_records, "cfg_hash") if all_records else []
-    id_group_summary = grouped_presence_summary(all_records, "existing_identity_hash") if all_records else []
+    cfg_group_summary = (
+        grouped_presence_summary(all_records, "cfg_hash") if all_records else []
+    )
+    id_group_summary = (
+        grouped_presence_summary(all_records, "existing_identity_hash")
+        if all_records
+        else []
+    )
 
     # variability analysis of flattened keys within cfg_hash groups
     variability: dict[str, dict[str, list[str]]] = {}
@@ -500,7 +571,9 @@ def run_audit() -> dict[str, Any]:
         writer.writeheader()
         for row in all_records:
             flat = {k: row.get(k) for k in csv_fields}
-            flat["differing_flattened_keys"] = json.dumps(row.get("differing_flattened_keys", []), ensure_ascii=False)
+            flat["differing_flattened_keys"] = json.dumps(
+                row.get("differing_flattened_keys", []), ensure_ascii=False
+            )
             writer.writerow(flat)
 
     return {

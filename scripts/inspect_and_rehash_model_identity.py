@@ -223,13 +223,18 @@ def main() -> None:
     all_identity_fields = {**base_fields, **flattened}
 
     allowed_patterns = IDEMPOTENCY_REGISTRY["model"].identity_fields
-    required_exact = sorted([pattern for pattern in allowed_patterns if not pattern.endswith("*")])
-    wildcard_groups = sorted([pattern for pattern in allowed_patterns if pattern.endswith("*")])
+    required_exact = sorted(
+        [pattern for pattern in allowed_patterns if not pattern.endswith("*")]
+    )
+    wildcard_groups = sorted(
+        [pattern for pattern in allowed_patterns if pattern.endswith("*")]
+    )
 
     missing_exact = [
         key
         for key in required_exact
-        if (key not in all_identity_fields) or (all_identity_fields.get(key) in (None, "None"))
+        if (key not in all_identity_fields)
+        or (all_identity_fields.get(key) in (None, "None"))
     ]
 
     wildcard_presence = {
