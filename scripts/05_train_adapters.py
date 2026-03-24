@@ -354,6 +354,12 @@ def main(cfg: DictConfig) -> None:
                             strict=True,
                         ).cpu()
 
+                        if not torch.isfinite(inf_prof_node).all():
+                            raise ValueError(
+                                f"Profile artifact for model {run_id} (profile run {prof_run_id}) "
+                                f"contains NaN/Inf — likely corrupted artifact on disk"
+                            )
+
                         profile_tensors.append(inf_prof_node)
 
                     data = load_mlflow_artifact(
