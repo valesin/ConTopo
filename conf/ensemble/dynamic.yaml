@@ -2,4 +2,4 @@
 # Discovery controls (group_by, min_components, filter) are in conf/groups/default.yaml.
 
 name: dynamic_ensembles
-votes: [soft, hard, max_confidence, conf_weighted]
+votes: [soft]

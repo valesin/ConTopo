@@ -11,7 +11,7 @@ anchors:
 
 profiles:
   skip: false                      # set true to explicitly skip profile computation
-  metrics: [cosine, l2]            # cosine | l2
+  metrics: [cosine]            # cosine | l2
 
 diagnostics:
   morans_i: true
