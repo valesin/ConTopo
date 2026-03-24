@@ -267,19 +267,27 @@ def find_finished_model_run_compat(
     experiment_name: str,
     identity_hash_val: str,
     cfg_hash_value: str,
+    legacy_identity_hash_candidates: list[str] | None = None,
 ) -> Optional[mlflow.entities.Run]:
     """Find a FINISHED model run with identity-hash first, cfg-hash fallback.
 
     If a legacy cfg-hash run is found and missing ``identity_hash``, this function
     backfills the tag once so future lookups resolve via identity hash directly.
     """
-    run = find_finished_identity_run(
-        experiment_name=experiment_name,
-        kind="model",
-        identity_hash_val=identity_hash_val,
-    )
-    if run is not None:
-        return run
+    identity_candidates: list[str] = [identity_hash_val]
+    if legacy_identity_hash_candidates:
+        for candidate in legacy_identity_hash_candidates:
+            if candidate and candidate not in identity_candidates:
+                identity_candidates.append(candidate)
+
+    for candidate in identity_candidates:
+        run = find_finished_identity_run(
+            experiment_name=experiment_name,
+            kind="model",
+            identity_hash_val=candidate,
+        )
+        if run is not None:
+            return run
 
     legacy_run = find_finished_run(
         experiment_name=experiment_name,
