@@ -16,4 +16,4 @@ hydra:
       adapter.feature_type: "embeddings+profiles"
       adapter.similarity_metric: l2
       adapter.profile_mask: true_class
-      master_seed: range(42,52)
+      master_seed: range(42,47)
