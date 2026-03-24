@@ -650,9 +650,10 @@ def main(cfg: DictConfig) -> None:
                 print(f"  Holdout Acc = {hold_acc:.4f}  run_id={run.info.run_id}")
 
         except Exception as e:
-            active_run = mlflow.active_run()
-            if active_run is not None:
-                mlflow.end_run(status="FAILED")
+            # The `with` context manager already called end_run(status="FINISHED"),
+            # so mlflow.active_run() is None here. Use the client to correct the status.
+            if run is not None:
+                client.set_terminated(run.info.run_id, status="FAILED")
             raise RuntimeError(f"Adapter training failed for '{ens_name}': {e}") from e
 
 
