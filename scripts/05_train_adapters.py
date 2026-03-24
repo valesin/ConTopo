@@ -307,11 +307,13 @@ def main(cfg: DictConfig) -> None:
                         "meta_split_train": meta_split_cfg.fractions.get("train", 0.6),
                         "meta_split_val": meta_split_cfg.fractions.get("val", 0.2),
                         "adapter_architecture": (
-                            "Input -> D -> ReLU -> 128 -> ReLU -> num_classes"
+                            "TwoLayerMLPAdapter"
                             if meta_type == "meta_mlp_2"
-                            else "Input -> D -> ReLU -> 128 -> ReLU -> 64 -> ReLU -> num_classes"
-                            if meta_type == "meta_mlp_3"
-                            else "Linear"
+                            else (
+                                "ThreeLayerMLPAdapter"
+                                if meta_type == "meta_mlp_3"
+                                else "LinearAdapter"
+                            )
                         ),
                         "standardization_applied": True,
                         "num_components": len(run_ids),
