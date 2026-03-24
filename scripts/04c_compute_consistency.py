@@ -29,7 +29,7 @@ from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.paths import get_anchors_dir
-from src.config.hash import consistency_hash
+from src.config.hash import identity_hash
 from src.mlflow_utils import (
     component_set_hash,
     log_resolved_config,
@@ -85,7 +85,12 @@ def main(cfg: DictConfig) -> None:
         print(f"Consistency: {ens_name}")
 
         cs_hash = component_set_hash(run_ids)
-        cons_hash = consistency_hash(cs_hash, a_spec_hash, split)
+        cons_hash = identity_hash(
+            "consistency",
+            component_set_hash=cs_hash,
+            anchor_spec_hash=a_spec_hash,
+            split=split,
+        )
 
         # Idempotency
         if not force:

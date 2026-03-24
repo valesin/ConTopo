@@ -5,7 +5,7 @@ Validates:
   - AnchorSpec dataclass and its hash property
   - Anchor selection is deterministic given the same labels + spec
   - anchor_spec_hash is deterministic and sensitive to spec changes
-  - Anchor identity (spec_hash) can be included in behaviour_input_hash
+    - Anchor identity (spec_hash) can be included in metalearner identity_hash
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from src.data.anchors import (
     get_anchor_spec_dict,
     select_anchors,
 )
-from src.config.hash import behaviour_input_hash, component_set_hash
+from src.config.hash import component_set_hash, identity_hash
 
 
 def _make_test_labels(N=500, num_classes=10):
@@ -98,46 +98,59 @@ class TestAnchorSelection:
 
 
 class TestAnchorIdentityInBehaviourHash:
-    """Test that anchor spec hash affects behaviour_input_hash (requirement #4)."""
+    """Test that anchor spec hash affects metalearner identity_hash."""
+
+    def _metalearner_hash(
+        self,
+        *,
+        cs: str,
+        anchor_spec: str,
+        meta_split: str,
+        feature_type: str = "logits",
+    ) -> str:
+        return identity_hash(
+            "metalearner",
+            component_set_hash=cs,
+            split="test",
+            feature_type=feature_type,
+            anchor_spec=anchor_spec,
+            meta_split_spec=meta_split,
+            similarity_metric="",
+            init_seed="",
+            profile_mask="",
+            meta_type="meta_linear",
+        )
 
     def test_anchor_spec_changes_behaviour_hash(self):
-        """Changing anchor selection MUST change meta-learner behaviour_input_hash."""
+        """Changing anchor selection MUST change meta-learner identity_hash."""
         cs = component_set_hash(["run_a", "run_b"])
         meta_split = '{"seed": 42}'
 
-        h1 = behaviour_input_hash(
-            cs,
-            split="test",
-            feature_type="logits",
+        h1 = self._metalearner_hash(
+            cs=cs,
             anchor_spec="anchor_hash_AAA",
-            meta_split_spec=meta_split,
+            meta_split=meta_split,
         )
-        h2 = behaviour_input_hash(
-            cs,
-            split="test",
-            feature_type="logits",
+        h2 = self._metalearner_hash(
+            cs=cs,
             anchor_spec="anchor_hash_BBB",
-            meta_split_spec=meta_split,
+            meta_split=meta_split,
         )
         assert h1 != h2
 
     def test_same_anchors_same_behaviour_hash(self):
-        """Same anchor spec MUST produce same behaviour_input_hash."""
+        """Same anchor spec MUST produce same identity_hash."""
         cs = component_set_hash(["run_a", "run_b"])
         meta_split = '{"seed": 42}'
 
-        h1 = behaviour_input_hash(
-            cs,
-            split="test",
-            feature_type="logits",
+        h1 = self._metalearner_hash(
+            cs=cs,
             anchor_spec="anchor_hash_SAME",
-            meta_split_spec=meta_split,
+            meta_split=meta_split,
         )
-        h2 = behaviour_input_hash(
-            cs,
-            split="test",
-            feature_type="logits",
+        h2 = self._metalearner_hash(
+            cs=cs,
             anchor_spec="anchor_hash_SAME",
-            meta_split_spec=meta_split,
+            meta_split=meta_split,
         )
         assert h1 == h2

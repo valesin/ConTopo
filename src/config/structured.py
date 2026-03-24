@@ -29,7 +29,6 @@ class ModelConfig:
     name: str = "resnet18"
     arch: str = "LinearResNet18"
     embedding_dim: int = 256
-    num_classes: int = 10
     use_dropout: bool = True
     p_dropout: float = 0.5
     head: HeadConfig = field(default_factory=HeadConfig)

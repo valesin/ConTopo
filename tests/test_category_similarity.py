@@ -3,10 +3,10 @@ Tests for the Category Similarity Profile pipeline.
 
 Validates:
   - anchor_spec_hash stability and sensitivity
-  - similarity_profile_hash stability and sensitivity
+    - category_similarity_profile identity_hash stability and sensitivity
   - compute_similarity_profile correctness (cosine + L2)
   - demand-driven caching logic (mock MLflow)
-  - behaviour_input_hash includes anchor_spec_hash + similarity_metric + feature_type
+    - metalearner identity_hash includes anchor_spec_hash + similarity_metric + feature_type
   - feature_type changes produced feature dimensions deterministically
   - category_similarity_profile_tags contain required keys
 """
@@ -19,10 +19,9 @@ import pytest
 import torch
 
 from src.config.hash import (
-    behaviour_input_hash,
     component_set_hash,
     compute_anchor_spec_hash,
-    similarity_profile_hash,
+    identity_hash,
 )
 from src.data.anchors import select_anchors
 from src.mlflow_utils import (
@@ -78,39 +77,54 @@ class TestAnchorSpecHashStability:
         assert all(c in "0123456789abcdef" for c in h)
 
 
-# ──────── similarity_profile_hash ────────
+# ──────── category_similarity_profile identity_hash ────────
 
 
 class TestSimilarityProfileHash:
-    """similarity_profile_hash must be stable and sensitive to all inputs."""
+    """Profile identity hash must be stable and sensitive to all inputs."""
+
+    def _profile_hash(
+        self,
+        parent_run_id: str,
+        anchor_spec_hash: str,
+        similarity_metric: str,
+        split: str,
+    ) -> str:
+        return identity_hash(
+            "category_similarity_profile",
+            parent_run_id=parent_run_id,
+            anchor_spec_hash=anchor_spec_hash,
+            similarity_metric=similarity_metric,
+            split=split,
+        )
 
     def test_stable(self):
-        h1 = similarity_profile_hash("run_abc", "anchor_hash", "cosine", "test")
-        h2 = similarity_profile_hash("run_abc", "anchor_hash", "cosine", "test")
+        h1 = self._profile_hash("run_abc", "anchor_hash", "cosine", "test")
+        h2 = self._profile_hash("run_abc", "anchor_hash", "cosine", "test")
         assert h1 == h2
 
     def test_parent_run_changes_hash(self):
-        h1 = similarity_profile_hash("run_AAA", "anchor_hash", "cosine", "test")
-        h2 = similarity_profile_hash("run_BBB", "anchor_hash", "cosine", "test")
+        h1 = self._profile_hash("run_AAA", "anchor_hash", "cosine", "test")
+        h2 = self._profile_hash("run_BBB", "anchor_hash", "cosine", "test")
         assert h1 != h2
 
     def test_anchor_spec_changes_hash(self):
-        h1 = similarity_profile_hash("run_abc", "anchor_AAA", "cosine", "test")
-        h2 = similarity_profile_hash("run_abc", "anchor_BBB", "cosine", "test")
+        h1 = self._profile_hash("run_abc", "anchor_AAA", "cosine", "test")
+        h2 = self._profile_hash("run_abc", "anchor_BBB", "cosine", "test")
         assert h1 != h2
 
     def test_metric_changes_hash(self):
-        h1 = similarity_profile_hash("run_abc", "anchor_hash", "cosine", "test")
-        h2 = similarity_profile_hash("run_abc", "anchor_hash", "l2", "test")
+        h1 = self._profile_hash("run_abc", "anchor_hash", "cosine", "test")
+        h2 = self._profile_hash("run_abc", "anchor_hash", "l2", "test")
         assert h1 != h2
 
     def test_split_changes_hash(self):
-        h1 = similarity_profile_hash("run_abc", "anchor_hash", "cosine", "test")
-        h2 = similarity_profile_hash("run_abc", "anchor_hash", "cosine", "val")
+        h1 = self._profile_hash("run_abc", "anchor_hash", "cosine", "test")
+        h2 = self._profile_hash("run_abc", "anchor_hash", "cosine", "val")
         assert h1 != h2
 
     def test_hash_length_16(self):
-        h = similarity_profile_hash("r", "a", "cosine", "test")
+        h = self._profile_hash("r", "a", "cosine", "test")
         assert len(h) == 16
 
 
@@ -188,49 +202,62 @@ class TestComputeSimilarityProfile:
 
 
 class TestBehaviourInputHashIdempotency:
-    """Meta-learner idempotency must include anchor_spec_hash + similarity_metric + feature_type."""
+    """Meta-learner identity hash must include anchor_spec_hash + similarity_metric + feature_type."""
 
     def _base_args(self):
         return {
-            "component_set_hash_val": component_set_hash(["run_a", "run_b"]),
+            "component_set_hash": component_set_hash(["run_a", "run_b"]),
             "split": "test",
             "feature_type": "embeddings+profiles",
             "anchor_spec": "anchor_hash_AAAA",
             "meta_split_spec": '{"seed": 42}',
             "similarity_metric": "cosine",
+            "init_seed": "42",
+            "profile_mask": "true_class",
+            "meta_type": "meta_linear",
         }
 
     def test_same_inputs_same_hash(self):
         args = self._base_args()
-        assert behaviour_input_hash(**args) == behaviour_input_hash(**args)
+        assert identity_hash("metalearner", **args) == identity_hash(
+            "metalearner", **args
+        )
 
     def test_anchor_spec_changes_hash(self):
         args1 = self._base_args()
         args2 = {**args1, "anchor_spec": "anchor_hash_BBBB"}
-        assert behaviour_input_hash(**args1) != behaviour_input_hash(**args2)
+        assert identity_hash("metalearner", **args1) != identity_hash(
+            "metalearner", **args2
+        )
 
     def test_similarity_metric_changes_hash(self):
         args1 = self._base_args()
         args2 = {**args1, "similarity_metric": "l2"}
-        assert behaviour_input_hash(**args1) != behaviour_input_hash(**args2)
+        assert identity_hash("metalearner", **args1) != identity_hash(
+            "metalearner", **args2
+        )
 
     def test_feature_type_changes_hash(self):
         args1 = self._base_args()
         args2 = {**args1, "feature_type": "embeddings"}
-        assert behaviour_input_hash(**args1) != behaviour_input_hash(**args2)
+        assert identity_hash("metalearner", **args1) != identity_hash(
+            "metalearner", **args2
+        )
 
     def test_logits_vs_embeddings_different(self):
         args_logits = {**self._base_args(), "feature_type": "logits"}
         args_emb = {**self._base_args(), "feature_type": "embeddings"}
-        assert behaviour_input_hash(**args_logits) != behaviour_input_hash(**args_emb)
+        assert identity_hash("metalearner", **args_logits) != identity_hash(
+            "metalearner", **args_emb
+        )
 
     def test_empty_similarity_metric_backward_compat(self):
         """Empty similarity_metric is default for logits-only (backward compat)."""
-        args = self._base_args()
+        args = {**self._base_args(), "feature_type": "logits", "profile_mask": ""}
         args["similarity_metric"] = ""
-        h1 = behaviour_input_hash(**args)
+        h1 = identity_hash("metalearner", **args)
         args["similarity_metric"] = "cosine"
-        h2 = behaviour_input_hash(**args)
+        h2 = identity_hash("metalearner", **args)
         assert h1 != h2
 
 

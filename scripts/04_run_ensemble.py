@@ -43,6 +43,7 @@ from src.mlflow_utils import (
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
+    get_run_context,
     safe_to_numpy_float64,
     log_dataset_lineage,
 )
@@ -213,7 +214,8 @@ def _run_votes(
 
                 eval_df.to_parquet(tabular_path, index=False)
                 np.savez_compressed(
-                    tensors_path, probs=probs.numpy() if hasattr(probs, "numpy") else probs
+                    tensors_path,
+                    probs=probs.numpy() if hasattr(probs, "numpy") else probs,
                 )
 
                 mlflow.log_artifact(tabular_path, artifact_path="ensemble_data")
@@ -253,7 +255,9 @@ def main(cfg: DictConfig) -> None:
 
     # Resolve component run IDs dynamically
     try:
-        discovered_ensembles = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
+        discovered_ensembles = discover_ensembles_from_cfg(
+            cfg, cfg.mlflow.experiment_name
+        )
     except ValueError as e:
         raise RuntimeError(f"HARD FAIL discovering ensembles: {e}")
 
@@ -278,8 +282,8 @@ def main(cfg: DictConfig) -> None:
         client = mlflow.tracking.MlflowClient()
         for rid in run_ids:
             r = client.get_run(rid)
-            r_rho = r.data.params.get("rho")
-            if r_rho is not None:
+            r_rho, _, _ = get_run_context(r)
+            if r_rho != "?":
                 rhos.add(r_rho)
         rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
 

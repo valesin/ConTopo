@@ -36,6 +36,9 @@ from src.mlflow_utils import (
     get_inference_run,
     get_profile_run,
     load_mlflow_artifact,
+    set_torch_seed,
+    resolve_device,
+    get_run_context,
     safe_to_numpy_float64,
     log_dataset_lineage,
 )
@@ -185,9 +188,7 @@ def main(cfg: DictConfig) -> None:
     split = cfg.execution.split
 
     init_seed = cfg.adapter.init_seed
-    torch.manual_seed(init_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(init_seed)
+    set_torch_seed(init_seed)
 
     adapter_epochs = cfg.adapter.epochs
     adapter_lr = cfg.adapter.learning_rate
@@ -222,11 +223,7 @@ def main(cfg: DictConfig) -> None:
         return
 
     client = mlflow.tracking.MlflowClient()
-    dev_name = cfg.runtime.device
-    if dev_name == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device(dev_name)
+    device = resolve_device(cfg.runtime.device)
 
     for ens_name, run_ids in groups.items():
         print(
@@ -262,8 +259,8 @@ def main(cfg: DictConfig) -> None:
         rhos = set()
         for rid in run_ids:
             r = client.get_run(rid)
-            r_rho = r.data.params.get("rho")
-            if r_rho is not None:
+            r_rho, _, _ = get_run_context(r)
+            if r_rho != "?":
                 rhos.add(r_rho)
         rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
 
@@ -603,7 +600,9 @@ def main(cfg: DictConfig) -> None:
                                 torch.tensor(holdout_idx)
                             ),
                             "label": safe_to_numpy_float64(labels_tensor[holdout_idx]),
-                            "prediction": safe_to_numpy_float64(hold_probs.argmax(dim=1)),
+                            "prediction": safe_to_numpy_float64(
+                                hold_probs.argmax(dim=1)
+                            ),
                             "confidence": safe_to_numpy_float64(
                                 hold_probs.max(dim=1).values
                             ),
@@ -614,7 +613,9 @@ def main(cfg: DictConfig) -> None:
                     np.savez_compressed(tensors_path, probs=hold_probs.numpy())
 
                     mlflow.log_artifact(inputs_path, artifact_path="adapter_inputs")
-                    mlflow.log_artifact(split_trace_path, artifact_path="adapter_inputs")
+                    mlflow.log_artifact(
+                        split_trace_path, artifact_path="adapter_inputs"
+                    )
                     mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
                     mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
 

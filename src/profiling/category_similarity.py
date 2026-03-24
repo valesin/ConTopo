@@ -22,8 +22,6 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from src.config.hash import similarity_profile_hash
-
 
 def compute_similarity_profile(
     embeddings: torch.Tensor,
