@@ -184,9 +184,15 @@ def compare_with_current_config(
     current_seed = resolve_seed_local(current_cfg)
     current_cfg.seed = current_seed
 
-    current_cfg_dict = OmegaConf.to_container(current_cfg, resolve=True)
-    if not isinstance(current_cfg_dict, dict):
-        raise ValueError("Current composed config did not resolve to a dictionary")
+    current_cfg_dict: dict[str, Any] = {
+        "schema_version": current_cfg.schema_version,
+        "trial": current_cfg.trial,
+        "seed": current_cfg.seed,
+        "model": OmegaConf.to_container(current_cfg.model, resolve=True),
+        "loss": OmegaConf.to_container(current_cfg.loss, resolve=True),
+        "dataset": OmegaConf.to_container(current_cfg.dataset, resolve=True),
+        "training": OmegaConf.to_container(current_cfg.training, resolve=True),
+    }
 
     current_identity, current_all_identity_fields = (
         compute_model_identity_from_cfg_dict(current_cfg_dict)
@@ -275,9 +281,15 @@ def initialize_mlflow_like_pipeline(
     repo_root = Path(__file__).resolve().parent.parent
     conf_dir = repo_root / "conf"
 
-    overrides = [f"mlflow.experiment_name={experiment_name}"]
-    if tracking_uri:
-        overrides.append(f"mlflow.tracking_uri={tracking_uri}")
+    fallback_tracking_uri = (
+        f"sqlite:///{(repo_root / 'outputs' / 'mlflow.db').as_posix()}"
+    )
+    effective_tracking_uri = tracking_uri or fallback_tracking_uri
+
+    overrides = [
+        f"mlflow.experiment_name={experiment_name}",
+        f"mlflow.tracking_uri={effective_tracking_uri}",
+    ]
 
     with initialize_config_dir(config_dir=str(conf_dir), version_base=None):
         cfg = compose(config_name="config", overrides=overrides)
