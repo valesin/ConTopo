@@ -13,6 +13,7 @@ from mlflow.tracking import MlflowClient
 from omegaconf import OmegaConf
 
 from src.config.hash import IDEMPOTENCY_REGISTRY, cfg_hash, identity_hash
+from src.mlflow_utils import setup_mlflow
 
 
 def flatten_training_style(prefix: str, section: dict[str, Any]) -> dict[str, str]:
@@ -267,6 +268,24 @@ def find_run_id(
     return str(rows.iloc[0]["run_id"])
 
 
+def initialize_mlflow_like_pipeline(
+    tracking_uri: str | None,
+    experiment_name: str,
+) -> tuple[str, str]:
+    repo_root = Path(__file__).resolve().parent.parent
+    conf_dir = repo_root / "conf"
+
+    overrides = [f"mlflow.experiment_name={experiment_name}"]
+    if tracking_uri:
+        overrides.append(f"mlflow.tracking_uri={tracking_uri}")
+
+    with initialize_config_dir(config_dir=str(conf_dir), version_base=None):
+        cfg = compose(config_name="config", overrides=overrides)
+
+    setup_mlflow(cfg)
+    return mlflow.get_tracking_uri(), str(cfg.mlflow.experiment_name)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Inspect model identity inputs and recompute hash with fixed missing values."
@@ -312,16 +331,15 @@ def main() -> None:
     args = parser.parse_args()
 
     env_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-    if args.tracking_uri:
-        mlflow.set_tracking_uri(args.tracking_uri)
-    elif env_tracking_uri:
-        mlflow.set_tracking_uri(env_tracking_uri)
-
-    active_tracking_uri = mlflow.get_tracking_uri()
+    chosen_tracking_uri = args.tracking_uri or env_tracking_uri
+    active_tracking_uri, effective_experiment = initialize_mlflow_like_pipeline(
+        tracking_uri=chosen_tracking_uri,
+        experiment_name=args.experiment,
+    )
 
     client = MlflowClient()
     chosen_run_id = find_run_id(
-        client, args.experiment, args.run_id, args.identity_hash_old
+        client, effective_experiment, args.run_id, args.identity_hash_old
     )
 
     run = client.get_run(chosen_run_id)
@@ -380,7 +398,7 @@ def main() -> None:
 
     output = {
         "tracking_uri": active_tracking_uri,
-        "experiment": args.experiment,
+        "experiment": effective_experiment,
         "run_id": chosen_run_id,
         "existing_identity_hash_tag": run.data.tags.get("identity_hash"),
         "cfg_hash_tag": run.data.tags.get("cfg_hash"),
