@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -159,7 +160,16 @@ def find_run_id(
 
     exp = mlflow.get_experiment_by_name(experiment_name)
     if exp is None:
-        raise ValueError(f"Experiment not found: {experiment_name}")
+        available = [
+            e.name
+            for e in client.search_experiments(
+                view_type=mlflow.entities.ViewType.ACTIVE_ONLY
+            )
+        ]
+        raise ValueError(
+            f"Experiment not found: {experiment_name}. "
+            f"Available active experiments: {available}"
+        )
 
     rows = mlflow.search_runs(
         experiment_ids=[exp.experiment_id],
@@ -184,8 +194,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Inspect model identity inputs and recompute hash with fixed missing values."
     )
-    parser.add_argument("--tracking-uri", required=True)
-    parser.add_argument("--experiment", required=True)
+    parser.add_argument(
+        "--tracking-uri",
+        default=None,
+        help=(
+            "MLflow tracking URI. Optional on server: if omitted, uses MLFLOW_TRACKING_URI "
+            "from environment when available, otherwise MLflow default URI."
+        ),
+    )
+    parser.add_argument(
+        "--experiment",
+        default="contopo",
+        help="MLflow experiment name (default: contopo).",
+    )
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--identity-hash-old", default=None)
     parser.add_argument(
@@ -205,7 +226,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    mlflow.set_tracking_uri(args.tracking_uri)
+    env_tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if args.tracking_uri:
+        mlflow.set_tracking_uri(args.tracking_uri)
+    elif env_tracking_uri:
+        mlflow.set_tracking_uri(env_tracking_uri)
+
+    active_tracking_uri = mlflow.get_tracking_uri()
+
     client = MlflowClient()
     chosen_run_id = find_run_id(
         client, args.experiment, args.run_id, args.identity_hash_old
@@ -266,7 +294,7 @@ def main() -> None:
     recomputed_with_fixed = identity_hash("model", **recompute_fields)
 
     output = {
-        "tracking_uri": args.tracking_uri,
+        "tracking_uri": active_tracking_uri,
         "experiment": args.experiment,
         "run_id": chosen_run_id,
         "existing_identity_hash_tag": run.data.tags.get("identity_hash"),
