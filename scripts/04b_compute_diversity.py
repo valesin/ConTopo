@@ -24,7 +24,6 @@ from omegaconf import DictConfig
 
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
-from src.config.paths import get_cache_dir
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     log_resolved_config,
@@ -52,7 +51,6 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.execution.split
     force = cfg.execution.force
-    cache_dir = get_cache_dir(cfg)
     metrics_list = list(cfg.analysis.diversity.metrics)
 
     if not metrics_list:
@@ -148,10 +146,6 @@ def main(cfg: DictConfig) -> None:
         )
         results = compute_metrics(ctx, needed, reduce_group=True)
 
-        # Save locally (all metrics in one file for convenience)
-        div_dir = str(cache_dir / "diversity" / ens_name)
-        os.makedirs(div_dir, exist_ok=True)
-
         # Log one MLflow run per metric
         for metric_name, value in results.items():
             step_identity_hash = identity_hash(
@@ -160,10 +154,6 @@ def main(cfg: DictConfig) -> None:
                 diversity_metric=metric_name,
                 split=split,
             )
-            # Save individual metric file
-            metric_path = os.path.join(div_dir, f"{metric_name}.json")
-            with open(metric_path, "w") as f:
-                json.dump({metric_name: float(value)}, f, indent=2)
 
             tags = {
                 "ensemble_name": ens_name,
@@ -187,16 +177,18 @@ def main(cfg: DictConfig) -> None:
                 )
                 mlflow.log_metric(metric_name, float(value))
 
-                mlflow.log_artifact(metric_path, artifact_path="diversity")
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    # Save metric file
+                    metric_path = os.path.join(tmpdir, f"{metric_name}.json")
+                    with open(metric_path, "w") as f:
+                        json.dump({metric_name: float(value)}, f, indent=2)
+                    mlflow.log_artifact(metric_path, artifact_path="diversity")
 
-                # Log component IDs
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".json", delete=False
-                ) as f:
-                    json.dump({"component_run_ids": run_ids}, f, indent=2)
-                    f.flush()
-                    mlflow.log_artifact(f.name, artifact_path="diversity")
-                    os.unlink(f.name)
+                    # Log component IDs
+                    comp_path = os.path.join(tmpdir, "component_run_ids.json")
+                    with open(comp_path, "w") as f:
+                        json.dump({"component_run_ids": run_ids}, f, indent=2)
+                    mlflow.log_artifact(comp_path, artifact_path="diversity")
 
                 log_dataset_lineage(
                     labels, split, cfg.dataset.name, context="evaluation"

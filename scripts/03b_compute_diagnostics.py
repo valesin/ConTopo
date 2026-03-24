@@ -29,7 +29,7 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
-from src.config.paths import get_cache_dir
+import tempfile
 from src.config.hash import cfg_hash, identity_hash
 from src.mlflow_utils import (
     log_resolved_config,
@@ -149,8 +149,6 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.execution.split
     force = cfg.execution.force
-    cache_dir = get_cache_dir(cfg)
-    artifacts_root = str(cache_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Get parent model params for logging
@@ -187,9 +185,6 @@ def main(cfg: DictConfig) -> None:
 
     print(f"Computing: {needed}")
 
-    diag_dir = os.path.join(artifacts_root, "diagnostics", run_id)
-    os.makedirs(diag_dir, exist_ok=True)
-
     # ── Fetch corresponding Inference Run (for Moran's I) ──
     inf_run_id = None
     if "morans_i" in needed:
@@ -203,83 +198,84 @@ def main(cfg: DictConfig) -> None:
             )
             needed.remove("morans_i")
 
-    # ── Moran's I ──
-    if "morans_i" in needed:
-        data = load_mlflow_artifact(
-            inf_run_id,
-            f"inference_data/{split}_tensors.npz",
-            file_type="numpy",
-            strict=True,
-        )
-        embs = torch.from_numpy(data["embeddings"])
-
-        emb_dim = int(model_run.data.params.get("embedding_dim", 256))
-        mi = morans_i(embs, emb_dim)
-
-        _log_diagnostic_run(
-            run_id,
-            model_params,
-            model_tags,
-            inf_run_id,
-            "morans_i",
-            {"morans_i": mi},
-            diag_dir,
-            cfg,
-            split,
-        )
-
-    # ── Weight-based diagnostics ──
-    weight_needed = [
-        m for m in needed if m in ("weight_norms", "unit_distance_correlation")
-    ]
-    if weight_needed:
-        # Safely unwrap model to target the `fc` layer directly
-        base_model = unwrap(model).to(device)
-        fc_layer = getattr(base_model, "fc", None)
-
-        if fc_layer is None or not isinstance(fc_layer, nn.Linear):
-            print(
-                "    WARN: fc_layer is not nn.Linear (or not found), skipping weight diagnostics"
+    with tempfile.TemporaryDirectory() as diag_dir:
+        # ── Moran's I ──
+        if "morans_i" in needed:
+            data = load_mlflow_artifact(
+                inf_run_id,
+                f"inference_data/{split}_tensors.npz",
+                file_type="numpy",
+                strict=True,
             )
-        else:
-            if "weight_norms" in weight_needed:
-                wnorms = weight_norms(fc_layer)
-                torch.save(wnorms, os.path.join(diag_dir, "weight_norms.pt"))
-                _log_diagnostic_run(
-                    run_id,
-                    model_params,
-                    model_tags,
-                    None,
-                    "weight_norms",
-                    {
-                        "weight_norms_mean": float(wnorms.mean()),
-                        "weight_norms_std": float(wnorms.std()),
-                    },
-                    diag_dir,
-                    cfg,
-                    split,
-                )
+            embs = torch.from_numpy(data["embeddings"])
 
-            if "unit_distance_correlation" in weight_needed:
-                udc = unit_distance_correlation(fc_layer)
-                torch.save(udc, os.path.join(diag_dir, "unit_distance_correlation.pt"))
-                metrics = {}
-                if udc.shape[0] > 2:
-                    from src.profiling.rdm import pearson_corrcoef
+            emb_dim = int(model_run.data.params.get("embedding_dim", 256))
+            mi = morans_i(embs, emb_dim)
 
-                    r = float(pearson_corrcoef(udc.t())[0, 1].item())
-                    metrics["unit_dist_cos_correlation"] = r
-                _log_diagnostic_run(
-                    run_id,
-                    model_params,
-                    model_tags,
-                    None,
-                    "unit_distance_correlation",
-                    metrics,
-                    diag_dir,
-                    cfg,
-                    split,
+            _log_diagnostic_run(
+                run_id,
+                model_params,
+                model_tags,
+                inf_run_id,
+                "morans_i",
+                {"morans_i": mi},
+                diag_dir,
+                cfg,
+                split,
+            )
+
+        # ── Weight-based diagnostics ──
+        weight_needed = [
+            m for m in needed if m in ("weight_norms", "unit_distance_correlation")
+        ]
+        if weight_needed:
+            # Safely unwrap model to target the `fc` layer directly
+            base_model = unwrap(model).to(device)
+            fc_layer = getattr(base_model, "fc", None)
+
+            if fc_layer is None or not isinstance(fc_layer, nn.Linear):
+                print(
+                    "    WARN: fc_layer is not nn.Linear (or not found), skipping weight diagnostics"
                 )
+            else:
+                if "weight_norms" in weight_needed:
+                    wnorms = weight_norms(fc_layer)
+                    torch.save(wnorms, os.path.join(diag_dir, "weight_norms.pt"))
+                    _log_diagnostic_run(
+                        run_id,
+                        model_params,
+                        model_tags,
+                        None,
+                        "weight_norms",
+                        {
+                            "weight_norms_mean": float(wnorms.mean()),
+                            "weight_norms_std": float(wnorms.std()),
+                        },
+                        diag_dir,
+                        cfg,
+                        split,
+                    )
+
+                if "unit_distance_correlation" in weight_needed:
+                    udc = unit_distance_correlation(fc_layer)
+                    torch.save(udc, os.path.join(diag_dir, "unit_distance_correlation.pt"))
+                    metrics = {}
+                    if udc.shape[0] > 2:
+                        from src.profiling.rdm import pearson_corrcoef
+
+                        r = float(pearson_corrcoef(udc.t())[0, 1].item())
+                        metrics["unit_dist_cos_correlation"] = r
+                    _log_diagnostic_run(
+                        run_id,
+                        model_params,
+                        model_tags,
+                        None,
+                        "unit_distance_correlation",
+                        metrics,
+                        diag_dir,
+                        cfg,
+                        split,
+                    )
 
     print("\nDone.")
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import numpy as np
 import pandas as pd
 
@@ -25,7 +26,6 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
-from src.config.paths import get_cache_dir
 from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
     behaviour_tags,
@@ -183,7 +183,6 @@ def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
     split = cfg.execution.split
-    cache_dir = get_cache_dir(cfg)
 
     init_seed = cfg.adapter.init_seed
     torch.manual_seed(init_seed)
@@ -541,84 +540,83 @@ def main(cfg: DictConfig) -> None:
                     }
                 )
 
-                tabular_path = os.path.join(
-                    cache_dir, f"adapter_holdout_{step_identity_hash}.parquet"
-                )
-                tensors_path = os.path.join(
-                    cache_dir, f"adapter_holdout_{step_identity_hash}.npz"
-                )
-                inputs_path = os.path.join(
-                    cache_dir, f"adapter_inputs_{step_identity_hash}.npz"
-                )
-                split_trace_path = os.path.join(
-                    cache_dir, f"adapter_split_trace_{step_identity_hash}.parquet"
-                )
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tabular_path = os.path.join(
+                        tmpdir, f"adapter_holdout_{step_identity_hash}.parquet"
+                    )
+                    tensors_path = os.path.join(
+                        tmpdir, f"adapter_holdout_{step_identity_hash}.npz"
+                    )
+                    inputs_path = os.path.join(
+                        tmpdir, f"adapter_inputs_{step_identity_hash}.npz"
+                    )
+                    split_trace_path = os.path.join(
+                        tmpdir, f"adapter_split_trace_{step_identity_hash}.parquet"
+                    )
 
-                os.makedirs(cache_dir, exist_ok=True)
-
-                # Save exact regression-head inputs used in this run
-                np.savez_compressed(
-                    inputs_path,
-                    X_train=X_train.detach().cpu().numpy(),
-                    X_val=X_val.detach().cpu().numpy(),
-                    X_holdout=X_holdout.detach().cpu().numpy(),
-                    y_train=y_all[train_idx].detach().cpu().numpy(),
-                    y_val=y_all[val_idx].detach().cpu().numpy(),
-                    y_holdout=y_all[holdout_idx].detach().cpu().numpy(),
-                    train_idx=np.asarray(train_idx),
-                    val_idx=np.asarray(val_idx),
-                    holdout_idx=np.asarray(holdout_idx),
-                    standardize_mean=standardize_mean.detach().cpu().numpy(),
-                    standardize_std=standardize_std.detach().cpu().numpy(),
-                    x_base_dim=np.asarray([int(X_base.shape[1])], dtype=np.int64),
-                    profile_feature_dim=np.asarray(
-                        [profile_feature_dim], dtype=np.int64
-                    ),
-                    use_profiles=np.asarray([int(use_profiles)], dtype=np.int64),
-                    profile_mask=np.asarray([profile_mask]),
-                )
-
-                split_trace = pd.DataFrame(
-                    {
-                        "original_index": np.concatenate(
-                            [train_idx, val_idx, holdout_idx]
+                    # Save exact regression-head inputs used in this run
+                    np.savez_compressed(
+                        inputs_path,
+                        X_train=X_train.detach().cpu().numpy(),
+                        X_val=X_val.detach().cpu().numpy(),
+                        X_holdout=X_holdout.detach().cpu().numpy(),
+                        y_train=y_all[train_idx].detach().cpu().numpy(),
+                        y_val=y_all[val_idx].detach().cpu().numpy(),
+                        y_holdout=y_all[holdout_idx].detach().cpu().numpy(),
+                        train_idx=np.asarray(train_idx),
+                        val_idx=np.asarray(val_idx),
+                        holdout_idx=np.asarray(holdout_idx),
+                        standardize_mean=standardize_mean.detach().cpu().numpy(),
+                        standardize_std=standardize_std.detach().cpu().numpy(),
+                        x_base_dim=np.asarray([int(X_base.shape[1])], dtype=np.int64),
+                        profile_feature_dim=np.asarray(
+                            [profile_feature_dim], dtype=np.int64
                         ),
-                        "split": (
-                            ["train"] * len(train_idx)
-                            + ["val"] * len(val_idx)
-                            + ["holdout"] * len(holdout_idx)
-                        ),
-                        "position_in_split": np.concatenate(
-                            [
-                                np.arange(len(train_idx)),
-                                np.arange(len(val_idx)),
-                                np.arange(len(holdout_idx)),
-                            ]
-                        ),
-                    }
-                )
-                split_trace.to_parquet(split_trace_path, index=False)
+                        use_profiles=np.asarray([int(use_profiles)], dtype=np.int64),
+                        profile_mask=np.asarray([profile_mask]),
+                    )
 
-                df_hold = pd.DataFrame(
-                    {
-                        "original_index": safe_to_numpy_float64(
-                            torch.tensor(holdout_idx)
-                        ),
-                        "label": safe_to_numpy_float64(labels_tensor[holdout_idx]),
-                        "prediction": safe_to_numpy_float64(hold_probs.argmax(dim=1)),
-                        "confidence": safe_to_numpy_float64(
-                            hold_probs.max(dim=1).values
-                        ),
-                    }
-                )
+                    split_trace = pd.DataFrame(
+                        {
+                            "original_index": np.concatenate(
+                                [train_idx, val_idx, holdout_idx]
+                            ),
+                            "split": (
+                                ["train"] * len(train_idx)
+                                + ["val"] * len(val_idx)
+                                + ["holdout"] * len(holdout_idx)
+                            ),
+                            "position_in_split": np.concatenate(
+                                [
+                                    np.arange(len(train_idx)),
+                                    np.arange(len(val_idx)),
+                                    np.arange(len(holdout_idx)),
+                                ]
+                            ),
+                        }
+                    )
+                    split_trace.to_parquet(split_trace_path, index=False)
 
-                df_hold.to_parquet(tabular_path, index=False)
-                np.savez_compressed(tensors_path, probs=hold_probs.numpy())
+                    df_hold = pd.DataFrame(
+                        {
+                            "original_index": safe_to_numpy_float64(
+                                torch.tensor(holdout_idx)
+                            ),
+                            "label": safe_to_numpy_float64(labels_tensor[holdout_idx]),
+                            "prediction": safe_to_numpy_float64(hold_probs.argmax(dim=1)),
+                            "confidence": safe_to_numpy_float64(
+                                hold_probs.max(dim=1).values
+                            ),
+                        }
+                    )
 
-                mlflow.log_artifact(inputs_path, artifact_path="adapter_inputs")
-                mlflow.log_artifact(split_trace_path, artifact_path="adapter_inputs")
-                mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
-                mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
+                    df_hold.to_parquet(tabular_path, index=False)
+                    np.savez_compressed(tensors_path, probs=hold_probs.numpy())
+
+                    mlflow.log_artifact(inputs_path, artifact_path="adapter_inputs")
+                    mlflow.log_artifact(split_trace_path, artifact_path="adapter_inputs")
+                    mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
+                    mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
 
                 log_dataset_lineage(
                     y_all[train_idx],

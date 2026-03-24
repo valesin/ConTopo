@@ -34,7 +34,6 @@ from src.ensemble.combine import combine_logits, METHODS
 from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
 from src.ensemble.selector import discover_ensembles_from_cfg
 from src.data.loaders import get_split_labels
-from src.config.paths import get_cache_dir
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     behaviour_tags,
@@ -109,7 +108,6 @@ def _run_votes(
     run_ids,
     cs_hash,
     split_name,
-    cache_dir,
     rho_val: str | None = None,
 ):
     """Run vote-based methods and log identical artifact structures to 02_cache_inference."""
@@ -205,22 +203,21 @@ def _run_votes(
                 }
             )
 
-            # Local saves
-            os.makedirs(cache_dir, exist_ok=True)
-            tabular_path = os.path.join(
-                cache_dir, f"{split_name}_{ens_name}_{method}_inference.parquet"
-            )
-            tensors_path = os.path.join(
-                cache_dir, f"{split_name}_{ens_name}_{method}_tensors.npz"
-            )
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tabular_path = os.path.join(
+                    tmpdir, f"{split_name}_{ens_name}_{method}_inference.parquet"
+                )
+                tensors_path = os.path.join(
+                    tmpdir, f"{split_name}_{ens_name}_{method}_tensors.npz"
+                )
 
-            eval_df.to_parquet(tabular_path, index=False)
-            np.savez_compressed(
-                tensors_path, probs=probs.numpy() if hasattr(probs, "numpy") else probs
-            )
+                eval_df.to_parquet(tabular_path, index=False)
+                np.savez_compressed(
+                    tensors_path, probs=probs.numpy() if hasattr(probs, "numpy") else probs
+                )
 
-            mlflow.log_artifact(tabular_path, artifact_path="ensemble_data")
-            mlflow.log_artifact(tensors_path, artifact_path="ensemble_data")
+                mlflow.log_artifact(tabular_path, artifact_path="ensemble_data")
+                mlflow.log_artifact(tensors_path, artifact_path="ensemble_data")
 
             log_dataset_lineage(
                 labels, split_name, cfg.dataset.name, context="evaluation"
@@ -240,7 +237,6 @@ def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
 
     split = cfg.execution.split
-    cache_dir = get_cache_dir(cfg)
 
     labels = get_split_labels(cfg, split)
 
@@ -302,7 +298,6 @@ def main(cfg: DictConfig) -> None:
                 run_ids,
                 cs_hash,
                 split,
-                cache_dir,
                 rho_val=rho_sum,
             )
 
