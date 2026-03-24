@@ -89,7 +89,7 @@ def log_resolved_config(cfg: DictConfig) -> None:
 
 
 def load_mlflow_artifact(
-    run_id: str, artifact_path: str, file_type: str = "auto", strict: bool = False
+    run_id: str, artifact_path: str, file_type: str = "auto", strict: bool = True
 ) -> Any:
     """
     Download and load a specific artifact from an MLflow run.
@@ -171,6 +171,30 @@ def resolve_seed(cfg: DictConfig) -> int:
     if cfg.seed is not None:
         return int(cfg.seed)
     return 100 + int(cfg.trial)
+
+
+def set_torch_seed(seed: int) -> None:
+    """Set torch CPU/CUDA seeds consistently."""
+    torch.manual_seed(int(seed))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(seed))
+
+
+def resolve_device(device_name: str) -> torch.device:
+    """Resolve runtime device name into torch.device."""
+    if device_name == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device(device_name)
+
+
+def get_run_context(run: mlflow.entities.Run) -> tuple[str, str, str]:
+    """Extract common run metadata as (rho, trial, topology)."""
+    params = run.data.params
+    tags = run.data.tags
+    rho = params.get("rho", "?")
+    trial = tags.get("trial", params.get("trial", "?"))
+    topology = params.get("topology", "?")
+    return rho, trial, topology
 
 
 def find_run_by_tags(
@@ -273,19 +297,6 @@ def find_finished_model_run_compat(
     return legacy_run
 
 
-def check_existing_model(
-    experiment_name: str, cfg_hash_value: str, kind: str | None = "model"
-) -> bool:
-    """
-    Checks if a model with this exact configuration was already trained.
-    Returns True if such a model exists, False otherwise.
-    """
-    existing_run = find_finished_run(
-        experiment_name=experiment_name, cfg_hash_value=cfg_hash_value, kind=kind
-    )
-    return existing_run is not None
-
-
 def get_existing_model(
     experiment_name: str, cfg_hash_value: str, kind: str | None = "model"
 ):
@@ -317,11 +328,6 @@ def get_existing_model(
 
 
 # ───────────────── common tags ─────────────────
-
-
-def _format_rho(rho) -> str:
-    """Consistent string representation of rho for MLflow tags."""
-    return str(float(rho))
 
 
 def model_tags(

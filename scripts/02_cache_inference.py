@@ -23,13 +23,15 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.data.loaders import get_cifar10_eval_loader
+from src.data.loaders import get_cifar10_eval_loader, shutdown_dataloader_workers
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
     log_resolved_config,
     setup_mlflow,
     get_existing_model,
     resolve_seed,
+    resolve_device,
+    get_run_context,
     safe_to_numpy_float64,
     get_inference_run,
     log_dataset_lineage,
@@ -62,12 +64,12 @@ def main(cfg: DictConfig) -> None:
     # Extract parent run metadata
     parent_run = mlflow.get_run(run_id)
     parent_run_name = parent_run.info.run_name
-
-    # Try getting 'rho' from parent run's parameters
-    rho = parent_run.data.params.get("rho", "N/A")
+    rho, _, _ = get_run_context(parent_run)
+    if rho == "?":
+        rho = "N/A"
 
     split = cfg.execution.split
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(cfg.runtime.device)
 
     # Check if this specific inference run already exists
     if not cfg.execution.force:
@@ -85,83 +87,90 @@ def main(cfg: DictConfig) -> None:
         preset=cfg.dataset.transforms.preset,
     )
 
-    # Run inference
-    results = run_combined_model_inference(model, loader, device)
+    try:
+        # Run inference
+        results = run_combined_model_inference(model, loader, device)
 
-    tags = {
-        "trained_model_run_id": run_id,  # Link back to the trained model
-        "parent_run_name": parent_run_name,
-        "cfg_hash": hash_val,
-        "identity_hash": identity_hash(
-            "inference", trained_model_run_id=run_id, split=split
-        ),
-    }
+        tags = {
+            "trained_model_run_id": run_id,  # Link back to the trained model
+            "parent_run_name": parent_run_name,
+            "cfg_hash": hash_val,
+            "identity_hash": identity_hash(
+                "inference", trained_model_run_id=run_id, split=split
+            ),
+        }
 
-    with schema_start_run(
-        kind="inference", run_name=f"inf_{split}_{parent_run_name}", tags=tags
-    ) as inf_run:
-        schema_log_params(
-            "inference",
-            {
-                "dataset": cfg.dataset.name,
-                "split": split,
-                "transforms_preset": cfg.dataset.transforms.preset,
-                "rho": rho,
-            },
-        )
-
-        log_dataset_lineage(
-            results["labels"], split, cfg.dataset.name, context="evaluation"
-        )
-
-        # ─── 1. Save Tabular Data (Labels, Preds) ───
-        preds_np = (
-            results["preds"].numpy()
-            if hasattr(results["preds"], "numpy")
-            else results["preds"]
-        )
-        labels_np = (
-            results["labels"].numpy()
-            if hasattr(results["labels"], "numpy")
-            else results["labels"]
-        )
-
-        eval_df = pd.DataFrame(
-            {
-                "original_index": safe_to_numpy_float64(torch.arange(len(labels_np))),
-                "label": safe_to_numpy_float64(results["labels"]),
-                "prediction": safe_to_numpy_float64(results["preds"]),
-                "confidence": safe_to_numpy_float64(
-                    results["probs"].numpy().max(axis=1)
-                    if hasattr(results["probs"], "numpy")
-                    else results["probs"].max(axis=1)
-                ),
-            }
-        )
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Save and log the Parquet file (predictions -> artifacts)
-            tabular_path = os.path.join(tmpdir, f"{split}_inference_results.parquet")
-            eval_df.to_parquet(tabular_path, index=False)
-            mlflow.log_artifact(tabular_path, artifact_path="inference_data")
-
-            # ─── 2. Save Heavy Matrices (Embeddings, Logits, Probs) ───
-            tensors_path = os.path.join(tmpdir, f"{split}_tensors.npz")
-            np.savez_compressed(
-                tensors_path,
-                embeddings=results["embeddings"],
-                logits=results["logits"],
-                probs=results["probs"],  # The full Nx10 probability matrix
+        with schema_start_run(
+            kind="inference", run_name=f"inf_{split}_{parent_run_name}", tags=tags
+        ) as inf_run:
+            schema_log_params(
+                "inference",
+                {
+                    "dataset": cfg.dataset.name,
+                    "split": split,
+                    "transforms_preset": cfg.dataset.transforms.preset,
+                    "rho": rho,
+                },
             )
-            mlflow.log_artifact(tensors_path, artifact_path="inference_data")
 
-        # ─── 3. Quick Accuracy Logging ───
-        acc = float((preds_np == labels_np).mean())
-        mlflow.log_metric("accuracy", acc)
+            log_dataset_lineage(
+                results["labels"], split, cfg.dataset.name, context="evaluation"
+            )
 
-        print(f"Inference cached! Accuracy: {acc:.4f}")
+            # ─── 1. Save Tabular Data (Labels, Preds) ───
+            preds_np = (
+                results["preds"].numpy()
+                if hasattr(results["preds"], "numpy")
+                else results["preds"]
+            )
+            labels_np = (
+                results["labels"].numpy()
+                if hasattr(results["labels"], "numpy")
+                else results["labels"]
+            )
 
-        log_resolved_config(cfg)
+            eval_df = pd.DataFrame(
+                {
+                    "original_index": safe_to_numpy_float64(
+                        torch.arange(len(labels_np))
+                    ),
+                    "label": safe_to_numpy_float64(results["labels"]),
+                    "prediction": safe_to_numpy_float64(results["preds"]),
+                    "confidence": safe_to_numpy_float64(
+                        results["probs"].numpy().max(axis=1)
+                        if hasattr(results["probs"], "numpy")
+                        else results["probs"].max(axis=1)
+                    ),
+                }
+            )
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Save and log the Parquet file (predictions -> artifacts)
+                tabular_path = os.path.join(
+                    tmpdir, f"{split}_inference_results.parquet"
+                )
+                eval_df.to_parquet(tabular_path, index=False)
+                mlflow.log_artifact(tabular_path, artifact_path="inference_data")
+
+                # ─── 2. Save Heavy Matrices (Embeddings, Logits, Probs) ───
+                tensors_path = os.path.join(tmpdir, f"{split}_tensors.npz")
+                np.savez_compressed(
+                    tensors_path,
+                    embeddings=results["embeddings"],
+                    logits=results["logits"],
+                    probs=results["probs"],  # The full Nx10 probability matrix
+                )
+                mlflow.log_artifact(tensors_path, artifact_path="inference_data")
+
+            # ─── 3. Quick Accuracy Logging ───
+            acc = float((preds_np == labels_np).mean())
+            mlflow.log_metric("accuracy", acc)
+
+            print(f"Inference cached! Accuracy: {acc:.4f}")
+
+            log_resolved_config(cfg)
+    finally:
+        shutdown_dataloader_workers(loader)
 
     print("Done.")
 

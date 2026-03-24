@@ -191,62 +191,7 @@ def compute_anchor_spec_hash(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
-def similarity_profile_hash(
-    parent_run_id: str,
-    anchor_spec_hash: str,
-    similarity_metric: str,
-    split: str = "test",
-) -> str:
-    """Compatibility wrapper for category similarity profile identity hashing."""
-    return identity_hash(
-        "category_similarity_profile",
-        parent_run_id=parent_run_id,
-        anchor_spec_hash=anchor_spec_hash,
-        similarity_metric=similarity_metric,
-        split=split,
-    )
-
-
 def component_set_hash(run_ids: list[str]) -> str:
     """Hash of sorted component model run_ids."""
     canonical = json.dumps(sorted(run_ids), ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
-
-def behaviour_input_hash(
-    component_set_hash_val: str,
-    split: str = "test",
-    feature_type: str = "logits",
-    anchor_spec: str = "",
-    meta_split_spec: str = "",
-    similarity_metric: str = "",
-    init_seed: str = "",
-    profile_mask: str = "",
-    method: str = "",
-    meta_type: str = "",
-) -> str:
-    """Compatibility hash helper now including method/meta_type to avoid collisions."""
-    parts = [
-        component_set_hash_val,
-        split,
-        feature_type,
-        anchor_spec,
-        meta_split_spec,
-        similarity_metric,
-        init_seed,
-        profile_mask,
-        method,
-        meta_type,
-    ]
-    canonical = json.dumps(parts, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
-
-def consistency_hash(cs_hash: str, anchor_spec_hash: str, split: str) -> str:
-    """Compatibility wrapper for consistency-step identity hashing."""
-    return identity_hash(
-        "consistency",
-        component_set_hash=cs_hash,
-        anchor_spec_hash=anchor_spec_hash,
-        split=split,
-    )

@@ -10,6 +10,26 @@ from omegaconf import DictConfig
 from src.data.transforms import get_transforms
 
 
+def shutdown_dataloader_workers(loader: DataLoader | None) -> None:
+    """Best-effort explicit DataLoader worker shutdown.
+
+    Avoids occasional Python multiprocessing temp-dir cleanup race messages
+    (e.g. /tmp/pymp-*) when scripts exit after using worker processes.
+    """
+    if loader is None:
+        return
+    iterator = getattr(loader, "_iterator", None)
+    if iterator is None:
+        return
+    shutdown = getattr(iterator, "_shutdown_workers", None)
+    if shutdown is None:
+        return
+    try:
+        shutdown()
+    except Exception:
+        pass
+
+
 def _split_train_val_indices(root: str, val_per_class: int = 500):
     """
     Deterministic 45k/5k split from the CIFAR-10 train set.

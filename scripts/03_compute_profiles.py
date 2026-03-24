@@ -45,9 +45,10 @@ from src.mlflow_utils import (
     resolve_seed,
     get_inference_run,
     load_mlflow_artifact,
+    get_run_context,
     log_dataset_lineage,
 )
-from src.config.hash import cfg_hash, identity_hash, similarity_profile_hash
+from src.config.hash import cfg_hash, identity_hash
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -115,7 +116,10 @@ def main(cfg: DictConfig) -> None:
     # ── Load Inference Embeddings from MLflow Artifact ──
     try:
         data = load_mlflow_artifact(
-            inf_run_id, f"inference_data/{split}_tensors.npz", file_type="numpy"
+            inf_run_id,
+            f"inference_data/{split}_tensors.npz",
+            file_type="numpy",
+            strict=True,
         )
         embeddings = torch.from_numpy(data["embeddings"])
     except Exception as e:
@@ -128,9 +132,7 @@ def main(cfg: DictConfig) -> None:
 
     # Get parent model tags for logging
     model_run = mlflow.get_run(run_id)
-    rho = model_run.data.params.get("rho", "?")
-    trial = model_run.data.tags.get("trial", model_run.data.params.get("trial", "?"))
-    topology = model_run.data.params.get("topology", "?")
+    rho, trial, topology = get_run_context(model_run)
 
     computed = 0
     skipped = 0
@@ -139,8 +141,12 @@ def main(cfg: DictConfig) -> None:
     # ── Compute and Log Profiles for Each Metric ──
     for similarity_metric in cfg.profiling.profiles.metrics:
         print(f"\nProcessing metric={similarity_metric}")
-        prof_hash = similarity_profile_hash(
-            run_id, a_spec_hash, similarity_metric, split
+        prof_hash = identity_hash(
+            "category_similarity_profile",
+            parent_run_id=run_id,
+            anchor_spec_hash=a_spec_hash,
+            similarity_metric=similarity_metric,
+            split=split,
         )
         step_identity_hash = identity_hash(
             "category_similarity_profile",

@@ -36,9 +36,11 @@ from src.mlflow_utils import (
     setup_mlflow,
     get_existing_model,
     resolve_seed,
+    resolve_device,
     get_inference_run,
     load_mlflow_artifact,
     find_finished_diagnostic_run,
+    get_run_context,
     log_dataset_lineage,
 )
 from src.profiling.smoothness import morans_i
@@ -63,9 +65,8 @@ def _log_diagnostic_run(
     split,
 ):
     """Create one MLflow run for a single diagnostic metric."""
-    rho = model_params.get("rho", "?")
-    trial = model_tags.get("trial", model_params.get("trial", "?"))
-    topology = model_params.get("topology", "?")
+    parent_run = mlflow.get_run(run_id)
+    rho, trial, topology = get_run_context(parent_run)
 
     tags = {
         "parent_run_id": run_id,
@@ -149,14 +150,13 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.execution.split
     force = cfg.execution.force
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(cfg.runtime.device)
 
     # Get parent model params for logging
     model_run = mlflow.get_run(run_id)
     model_params = model_run.data.params
     model_tags = model_run.data.tags
-    rho = model_params.get("rho", "?")
-    trial = model_tags.get("trial", model_params.get("trial", "?"))
+    rho, trial, _ = get_run_context(model_run)
 
     print(f"Found target model Run ID: {run_id}, rho={rho} trial={trial}")
     print(f"Enabled diagnostics: {enabled}")
@@ -258,7 +258,9 @@ def main(cfg: DictConfig) -> None:
 
                 if "unit_distance_correlation" in weight_needed:
                     udc = unit_distance_correlation(fc_layer)
-                    torch.save(udc, os.path.join(diag_dir, "unit_distance_correlation.pt"))
+                    torch.save(
+                        udc, os.path.join(diag_dir, "unit_distance_correlation.pt")
+                    )
                     metrics = {}
                     if udc.shape[0] > 2:
                         from src.profiling.rdm import pearson_corrcoef

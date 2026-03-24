@@ -4,7 +4,6 @@ Model registry / factory for building models from Hydra config.
 
 from __future__ import annotations
 
-import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
@@ -33,7 +32,7 @@ def build_model(cfg: DictConfig, ret_emb: bool = True) -> nn.Module:
     head_bias = cfg.model.get("head", {}).get("bias", True)
     model = cls(
         emb_dim=cfg.model.embedding_dim,
-        num_classes=cfg.model.num_classes,
+        num_classes=cfg.dataset.num_classes,
         p_dropout=cfg.model.p_dropout,
         use_dropout=cfg.model.use_dropout,
         ret_emb=ret_emb,
@@ -45,13 +44,3 @@ def build_model(cfg: DictConfig, ret_emb: bool = True) -> nn.Module:
 def unwrap(model: nn.Module) -> nn.Module:
     """Strip DataParallel wrapper if present."""
     return model.module if isinstance(model, nn.DataParallel) else model
-
-
-def to_device(model: nn.Module, device: torch.device | None = None) -> nn.Module:
-    """Move model to device, optionally wrapping in DataParallel."""
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    if device.type == "cuda" and torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
-    return model
