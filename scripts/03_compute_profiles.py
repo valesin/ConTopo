@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 import os
+import tempfile
 import hydra
 import mlflow
 import mlflow.artifacts
@@ -31,7 +32,7 @@ from omegaconf import DictConfig
 
 from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
-from src.config.paths import get_cache_dir
+from src.config.paths import get_anchors_dir
 from src.profiling.category_similarity import (
     compute_similarity_profile,
 )
@@ -77,7 +78,7 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.execution.split
     force = cfg.execution.force
-    cache_dir = get_cache_dir(cfg)
+    anchors_dir = get_anchors_dir(cfg)
 
     # ── Fetch corresponding Inference Run ──
     inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
@@ -101,7 +102,7 @@ def main(cfg: DictConfig) -> None:
         strategy=sel.strategy,
         order_by=sel.order_by,
         num_classes=cfg.dataset.num_classes,
-        artifacts_root=str(cache_dir),
+        artifacts_root=str(anchors_dir),
         dataset_name=cfg.dataset.name,
     )
     a_spec_hash = anchors["spec_hash"]
@@ -201,15 +202,13 @@ def main(cfg: DictConfig) -> None:
                 },
             )
 
-            # Save strictly inside the global cache, exactly like 02_cache_inference
-            os.makedirs(cache_dir, exist_ok=True)
-            profile_path = os.path.join(
-                cache_dir, f"{split}_{similarity_metric}_profiles.pt"
-            )
-            torch.save(profiles, profile_path)
-
-            # Upload as MLflow Artifact Tracking
-            mlflow.log_artifact(profile_path, artifact_path="profiles")
+            # Save to tmpdir and upload as MLflow artifact
+            with tempfile.TemporaryDirectory() as tmpdir:
+                profile_path = os.path.join(
+                    tmpdir, f"{split}_{similarity_metric}_profiles.pt"
+                )
+                torch.save(profiles, profile_path)
+                mlflow.log_artifact(profile_path, artifact_path="profiles")
 
             log_dataset_lineage(labels, split, cfg.dataset.name, context="profiling")
 

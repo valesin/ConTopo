@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
+import tempfile
 
 import hydra
 import mlflow
@@ -28,7 +28,7 @@ from omegaconf import DictConfig
 from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
-from src.config.paths import get_cache_dir
+from src.config.paths import get_anchors_dir
 from src.config.hash import consistency_hash
 from src.mlflow_utils import (
     component_set_hash,
@@ -56,7 +56,7 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.execution.split
     force = cfg.execution.force
-    cache_dir = get_cache_dir(cfg)
+    anchors_dir = get_anchors_dir(cfg)
     anchors_cfg = cfg.profiling.anchors
 
     # 1. Get ground-truth labels
@@ -69,7 +69,7 @@ def main(cfg: DictConfig) -> None:
         strategy=anchors_cfg.strategy,
         order_by=anchors_cfg.order_by,
         num_classes=cfg.dataset.num_classes,
-        artifacts_root=str(cache_dir),
+        artifacts_root=str(anchors_dir),
         dataset_name=cfg.dataset.name,
     )
     anchor_indices = anchors["anchor_indices"]
@@ -99,11 +99,6 @@ def main(cfg: DictConfig) -> None:
         print(f"  Components: {len(run_ids)} runs")
 
         # Compute per-model RDMs from anchor embeddings
-        cons_dir = str(cache_dir / "consistency" / ens_name)
-        if os.path.exists(cons_dir):
-            shutil.rmtree(cons_dir)
-        os.makedirs(cons_dir, exist_ok=False)
-
         rdms = {}
         skip = False
 
@@ -133,9 +128,6 @@ def main(cfg: DictConfig) -> None:
             rdm = pearson_rdm(anchor_embs)  # [K, K]
             rdms[run_id] = rdm
 
-            # Save individual RDM
-            torch.save(rdm, os.path.join(cons_dir, f"{run_id}_rdm.pt"))
-
         if skip:
             continue
 
@@ -157,15 +149,6 @@ def main(cfg: DictConfig) -> None:
             mean_rsa = float(np.mean(rsa_matrix[mask]))
         else:
             mean_rsa = float("nan")
-
-        # Save RSA matrix
-        rsa_path = os.path.join(cons_dir, "rsa_matrix.pt")
-        torch.save(torch.tensor(rsa_matrix, dtype=torch.float32), rsa_path)
-
-        # Save run ID ordering for the matrix
-        ordering_path = os.path.join(cons_dir, "run_id_ordering.json")
-        with open(ordering_path, "w") as f:
-            json.dump(run_ids, f, indent=2)
 
         # Log MLflow run
         tags = {
@@ -192,11 +175,22 @@ def main(cfg: DictConfig) -> None:
             )
             mlflow.log_metric("mean_rsa_correlation", mean_rsa)
 
-            # Log all artifacts in the consistency dir
-            for fname in os.listdir(cons_dir):
-                fpath = os.path.join(cons_dir, fname)
-                if os.path.isfile(fpath):
-                    mlflow.log_artifact(fpath, artifact_path="consistency")
+            # Save and log all artifacts via tmpdir
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for rid, rdm in rdms.items():
+                    torch.save(rdm, os.path.join(tmpdir, f"{rid}_rdm.pt"))
+
+                rsa_path = os.path.join(tmpdir, "rsa_matrix.pt")
+                torch.save(torch.tensor(rsa_matrix, dtype=torch.float32), rsa_path)
+
+                ordering_path = os.path.join(tmpdir, "run_id_ordering.json")
+                with open(ordering_path, "w") as f:
+                    json.dump(run_ids, f, indent=2)
+
+                for fname in os.listdir(tmpdir):
+                    fpath = os.path.join(tmpdir, fname)
+                    if os.path.isfile(fpath):
+                        mlflow.log_artifact(fpath, artifact_path="consistency")
 
             labels_subset = labels[anchor_indices]
             log_dataset_lineage(

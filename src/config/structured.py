@@ -116,17 +116,10 @@ class InferenceRuntimeConfig:
 
 
 @dataclass
-class StorageConfig:
-    backend: str = "pt"
-
-
-@dataclass
 class PathsConfig:
     """Centralized output paths, all relative to outputs_root."""
 
-    models: str = "models"
-    cache: str = "cache"
-    analysis: str = "analysis"
+    anchors: str = "anchors"
 
 
 @dataclass
@@ -141,7 +134,6 @@ class RuntimeConfig:
     outputs_root: str = "outputs"
     paths: PathsConfig = field(default_factory=PathsConfig)
     inference: InferenceRuntimeConfig = field(default_factory=InferenceRuntimeConfig)
-    storage: StorageConfig = field(default_factory=StorageConfig)
 
 
 # ─────────── groups ───────────

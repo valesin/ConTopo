@@ -15,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 import os
+import tempfile
 import hydra
 import mlflow
 import torch
@@ -23,7 +24,6 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from src.data.loaders import get_cifar10_eval_loader
-from src.config.paths import get_cache_dir
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
     log_resolved_config,
@@ -67,7 +67,6 @@ def main(cfg: DictConfig) -> None:
     rho = parent_run.data.params.get("rho", "N/A")
 
     split = cfg.execution.split
-    cache_dir = get_cache_dir(cfg)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Check if this specific inference run already exists
@@ -140,21 +139,21 @@ def main(cfg: DictConfig) -> None:
             }
         )
 
-        # Save and log the Parquet file (this contains the predictions -> artifacts)
-        os.makedirs(cache_dir, exist_ok=True)
-        tabular_path = os.path.join(cache_dir, f"{split}_inference_results.parquet")
-        eval_df.to_parquet(tabular_path, index=False)
-        mlflow.log_artifact(tabular_path, artifact_path="inference_data")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Save and log the Parquet file (predictions -> artifacts)
+            tabular_path = os.path.join(tmpdir, f"{split}_inference_results.parquet")
+            eval_df.to_parquet(tabular_path, index=False)
+            mlflow.log_artifact(tabular_path, artifact_path="inference_data")
 
-        # ─── 2. Save Heavy Matrices (Embeddings, Logits, Probs) ───
-        tensors_path = os.path.join(cache_dir, f"{split}_tensors.npz")
-        np.savez_compressed(
-            tensors_path,
-            embeddings=results["embeddings"],
-            logits=results["logits"],
-            probs=results["probs"],  # The full Nx10 probability matrix
-        )
-        mlflow.log_artifact(tensors_path, artifact_path="inference_data")
+            # ─── 2. Save Heavy Matrices (Embeddings, Logits, Probs) ───
+            tensors_path = os.path.join(tmpdir, f"{split}_tensors.npz")
+            np.savez_compressed(
+                tensors_path,
+                embeddings=results["embeddings"],
+                logits=results["logits"],
+                probs=results["probs"],  # The full Nx10 probability matrix
+            )
+            mlflow.log_artifact(tensors_path, artifact_path="inference_data")
 
         # ─── 3. Quick Accuracy Logging ───
         acc = float((preds_np == labels_np).mean())

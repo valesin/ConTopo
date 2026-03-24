@@ -1,28 +1,21 @@
 """
-Inference runner + caching layer.
+Inference runner.
 
-``get_or_run_inference`` is the single entry-point:
-  1. Check for local cache (per-split artifacts)
-  2. If missing, run inference and save artifacts
-  3. Return loaded tensors
+``run_combined_model_inference`` runs a forward pass over a DataLoader and
+returns embeddings, logits, predictions, probabilities, and accuracy.
 
-Artifacts per run (logged to MLflow and saved locally):
-  - logits.pt, preds.pt, probs.pt, embeddings.pt, labels.pt
+Artifacts per run (logged to MLflow):
+  - logits, preds, probs, embeddings, labels (as .npz)
   - accuracy is logged as an MLflow *metric*, not an artifact
 """
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-
-from src.data.cache import StorageBackend, get_backend
-
-# ───────────── inference runner ─────────────
 
 
 @torch.no_grad()
@@ -83,89 +76,3 @@ def run_combined_model_inference(
         "embeddings": embeddings_all,
         "accuracy": acc,
     }
-
-
-# ───────────── artifact I/O ─────────────
-
-ARTIFACT_KEYS = ["logits", "preds", "probs", "embeddings", "labels"]
-
-
-def save_inference_artifacts(
-    data: Dict[str, Any],
-    artifact_dir: str,
-    backend: StorageBackend | None = None,
-) -> None:
-    """Save each artifact key as a separate file."""
-    if backend is None:
-        backend = get_backend("pt")
-    os.makedirs(artifact_dir, exist_ok=True)
-    for key in ARTIFACT_KEYS:
-        if key in data and data[key] is not None:
-            path = os.path.join(artifact_dir, f"{key}{backend.extension}")
-            backend.save(data[key], path)
-
-
-def load_inference_artifacts(
-    artifact_dir: str,
-    backend: StorageBackend | None = None,
-) -> Dict[str, Any]:
-    """Load all available artifact files from a directory."""
-    if backend is None:
-        backend = get_backend("pt")
-    result: Dict[str, Any] = {}
-    for key in ARTIFACT_KEYS:
-        path = os.path.join(artifact_dir, f"{key}{backend.extension}")
-        if backend.exists(path):
-            result[key] = backend.load(path)
-    return result
-
-
-def artifacts_complete(
-    artifact_dir: str, backend: StorageBackend | None = None
-) -> bool:
-    """Check that the minimum required artifacts exist."""
-    if backend is None:
-        backend = get_backend("pt")
-    required = ["logits", "preds", "labels"]
-    return all(
-        backend.exists(os.path.join(artifact_dir, f"{k}{backend.extension}"))
-        for k in required
-    )
-
-
-# ───────────── main API ─────────────
-
-
-def get_or_run_inference(
-    *,
-    model: nn.Module | None = None,
-    loader: DataLoader | None = None,
-    device: torch.device | None = None,
-    artifact_dir: str,
-    backend_name: str = "pt",
-    force: bool = False,
-) -> Dict[str, Any]:
-    """
-    Get cached inference or run it.
-
-    If cached artifacts exist in ``artifact_dir`` and ``force=False``, load and return.
-    Otherwise, run inference using ``model`` + ``loader`` and save.
-    """
-    backend = get_backend(backend_name)
-
-    if not force and artifacts_complete(artifact_dir, backend):
-        data = load_inference_artifacts(artifact_dir, backend)
-        return data
-
-    if model is None or loader is None:
-        raise ValueError(
-            "Cached artifacts not found and model/loader not provided. "
-            f"artifact_dir={artifact_dir}"
-        )
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    results = run_combined_model_inference(model, loader, device)
-
-    save_inference_artifacts(results, artifact_dir, backend)
-    return results
