@@ -7,11 +7,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+from hydra import compose, initialize_config_dir
 import mlflow
 from mlflow.tracking import MlflowClient
 from omegaconf import OmegaConf
 
-from src.config.hash import IDEMPOTENCY_REGISTRY, identity_hash
+from src.config.hash import IDEMPOTENCY_REGISTRY, cfg_hash, identity_hash
 
 
 def flatten_training_style(prefix: str, section: dict[str, Any]) -> dict[str, str]:
@@ -147,6 +148,82 @@ def parse_overrides(raw: str | None) -> dict[str, str]:
     return {str(k): str(v) for k, v in obj.items()}
 
 
+def parse_hydra_overrides(raw: str | None) -> list[str]:
+    if raw is None:
+        return []
+    values = [v.strip() for v in raw.split(",") if v.strip()]
+    return values
+
+
+def resolve_seed_local(cfg: Any) -> int:
+    if cfg.seed is not None:
+        return int(cfg.seed)
+    return 100 + int(cfg.trial)
+
+
+def compute_model_identity_from_cfg_dict(
+    cfg_dict: dict[str, Any],
+) -> tuple[str, dict[str, str]]:
+    base_fields, flattened = build_identity_input(cfg_dict)
+    all_fields = {**base_fields, **flattened}
+    computed = identity_hash("model", **all_fields)
+    return computed, all_fields
+
+
+def compare_with_current_config(
+    current_overrides: list[str],
+    old_all_identity_fields: dict[str, str],
+) -> dict[str, Any]:
+    repo_root = Path(__file__).resolve().parent.parent
+    conf_dir = repo_root / "conf"
+
+    with initialize_config_dir(config_dir=str(conf_dir), version_base=None):
+        current_cfg = compose(config_name="config", overrides=current_overrides)
+
+    current_seed = resolve_seed_local(current_cfg)
+    current_cfg.seed = current_seed
+
+    current_cfg_dict = OmegaConf.to_container(current_cfg, resolve=True)
+    if not isinstance(current_cfg_dict, dict):
+        raise ValueError("Current composed config did not resolve to a dictionary")
+
+    current_identity, current_all_identity_fields = (
+        compute_model_identity_from_cfg_dict(current_cfg_dict)
+    )
+    current_cfg_hash = cfg_hash(current_cfg)
+
+    all_keys = sorted(
+        set(old_all_identity_fields.keys()) | set(current_all_identity_fields.keys())
+    )
+    changed: list[dict[str, str]] = []
+    only_old: list[dict[str, str]] = []
+    only_current: list[dict[str, str]] = []
+
+    for key in all_keys:
+        old_val = old_all_identity_fields.get(key)
+        cur_val = current_all_identity_fields.get(key)
+        if old_val is None and cur_val is not None:
+            only_current.append({"key": key, "current": cur_val})
+        elif cur_val is None and old_val is not None:
+            only_old.append({"key": key, "old": old_val})
+        elif old_val != cur_val:
+            changed.append({"key": key, "old": old_val, "current": cur_val})
+
+    return {
+        "overrides": current_overrides,
+        "current_cfg_hash": current_cfg_hash,
+        "current_computed_identity_hash": current_identity,
+        "old_vs_current": {
+            "num_changed": len(changed),
+            "num_only_old": len(only_old),
+            "num_only_current": len(only_current),
+            "changed_fields": changed,
+            "only_old_fields": only_old,
+            "only_current_fields": only_current,
+        },
+    }
+
+
 def find_run_id(
     client: MlflowClient,
     experiment_name: str,
@@ -223,6 +300,14 @@ def main() -> None:
         "--artifact-root-override",
         default=None,
         help="Optional local path fallback root to locate run artifacts when MLflow artifact API cannot resolve them.",
+    )
+    parser.add_argument(
+        "--compare-current-overrides",
+        default=None,
+        help=(
+            "Comma-separated Hydra overrides for current config comparison, "
+            "e.g. 'loss.rho=0.008,trial=1'."
+        ),
     )
     args = parser.parse_args()
 
@@ -315,6 +400,13 @@ def main() -> None:
         "recomputed_identity_with_fixed_values": recomputed_with_fixed,
         "differs_after_fix": recomputed_with_fixed != computed_from_run,
     }
+
+    compare_overrides = parse_hydra_overrides(args.compare_current_overrides)
+    if compare_overrides:
+        output["current_config_comparison"] = compare_with_current_config(
+            current_overrides=compare_overrides,
+            old_all_identity_fields=all_identity_fields,
+        )
 
     print(json.dumps(output, indent=2, sort_keys=True))
 
