@@ -100,6 +100,32 @@ def _flatten_identity_section(prefix: str, section: DictConfig) -> dict[str, str
     return out
 
 
+def _model_identity_fields(cfg: DictConfig, seed: int) -> dict[str, str]:
+    fields: dict[str, str] = {
+        "schema_version": str(cfg.schema_version),
+        "trial": str(cfg.trial),
+        "seed": str(seed),
+    }
+    fields.update(_flatten_identity_section("model", cfg.model))
+    fields.update(_flatten_identity_section("loss", cfg.loss))
+    fields.update(_flatten_identity_section("dataset", cfg.dataset))
+    fields.update(_flatten_identity_section("training", cfg.training))
+    return fields
+
+
+def _legacy_model_identity_with_num_classes(
+    base_fields: dict[str, str], cfg: DictConfig
+) -> str | None:
+    if "model.num_classes" in base_fields:
+        return None
+    num_classes = getattr(cfg.dataset, "num_classes", None)
+    if num_classes is None:
+        return None
+    legacy_fields = dict(base_fields)
+    legacy_fields["model.num_classes"] = str(num_classes)
+    return identity_hash("model", **legacy_fields)
+
+
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     # ── Seed ──
@@ -110,15 +136,10 @@ def main(cfg: DictConfig) -> None:
 
     # ── Idempotency ──
     hash_val = cfg_hash(cfg)
-    model_identity_hash = identity_hash(
-        "model",
-        schema_version=str(cfg.schema_version),
-        trial=str(cfg.trial),
-        seed=str(seed),
-        **_flatten_identity_section("model", cfg.model),
-        **_flatten_identity_section("loss", cfg.loss),
-        **_flatten_identity_section("dataset", cfg.dataset),
-        **_flatten_identity_section("training", cfg.training),
+    identity_fields = _model_identity_fields(cfg, seed)
+    model_identity_hash = identity_hash("model", **identity_fields)
+    legacy_identity_hash_with_num_classes = _legacy_model_identity_with_num_classes(
+        identity_fields, cfg
     )
     setup_mlflow(cfg)
 
@@ -126,6 +147,11 @@ def main(cfg: DictConfig) -> None:
         experiment_name=cfg.mlflow.experiment_name,
         identity_hash_val=model_identity_hash,
         cfg_hash_value=hash_val,
+        legacy_identity_hash_candidates=(
+            [legacy_identity_hash_with_num_classes]
+            if legacy_identity_hash_with_num_classes
+            else None
+        ),
     )
     if existing_run is not None:
         print(
