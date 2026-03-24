@@ -220,21 +220,27 @@ def main() -> None:
     )
 
     base_fields, flattened = build_identity_input(cfg)
+    all_identity_fields = {**base_fields, **flattened}
 
-    required_exact = ["schema_version", "trial", "seed"]
-    missing_exact = [k for k in required_exact if base_fields.get(k) in (None, "None")]
+    allowed_patterns = IDEMPOTENCY_REGISTRY["model"].identity_fields
+    required_exact = sorted([pattern for pattern in allowed_patterns if not pattern.endswith("*")])
+    wildcard_groups = sorted([pattern for pattern in allowed_patterns if pattern.endswith("*")])
 
-    wildcard_groups = ["model.", "loss.", "dataset.", "training."]
+    missing_exact = [
+        key
+        for key in required_exact
+        if (key not in all_identity_fields) or (all_identity_fields.get(key) in (None, "None"))
+    ]
+
     wildcard_presence = {
-        prefix[:-1] + ".*": any(k.startswith(prefix) for k in flattened.keys())
-        for prefix in wildcard_groups
+        pattern: any(key.startswith(pattern[:-1]) for key in flattened.keys())
+        for pattern in wildcard_groups
     }
 
     missing_wildcard_groups = [
         k for k, present in wildcard_presence.items() if not present
     ]
 
-    all_identity_fields = {**base_fields, **flattened}
     fixed = parse_overrides(args.fixed_json)
 
     missing_dot_keys = sorted(k for k in fixed.keys() if k not in all_identity_fields)
@@ -262,6 +268,7 @@ def main() -> None:
         "cfg_hash_tag": run.data.tags.get("cfg_hash"),
         "config_artifact": cfg_artifact_path,
         "required_exact_fields": required_exact,
+        "allowed_identity_patterns": list(allowed_patterns),
         "missing_exact_fields": missing_exact,
         "wildcard_group_presence": wildcard_presence,
         "missing_wildcard_groups": missing_wildcard_groups,
