@@ -131,6 +131,7 @@ ALLOWED_TAGS: dict[str, set[str]] = {
         "behaviour_input_hash",
         "component_run_ids_csv",
         "feature_type",
+        "rho",
     },
     "diversity": {
         "kind",
@@ -156,6 +157,7 @@ ALLOWED_TAGS: dict[str, set[str]] = {
         "behaviour_input_hash",
         "component_run_ids_csv",
         "run_name",
+        "rho",
     },
 }
 
