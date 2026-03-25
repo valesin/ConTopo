@@ -141,18 +141,46 @@ def get_cifar10_eval_loader(
     num_workers: int = 2,
     pin_memory: bool | None = None,
     preset: str = "cifar10_resizedcrop_v1",
+    split: str = "test",
+    val_per_class: int = 500,
 ):
-    """Deterministic test-set loader for inference / profiling."""
+    """Deterministic eval loader for the requested split.
+
+    Always uses eval (no-augmentation) transforms regardless of split, since
+    this loader is intended for inference / profiling, not for training.
+
+    Args:
+        split: one of "test", "val", "train".
+        val_per_class: controls the train/val boundary (must match training).
+    """
     if pin_memory is None:
         pin_memory = torch.cuda.is_available()
     _, eval_transform = get_transforms(preset)
-    ds = datasets.CIFAR10(
-        root=root, train=False, download=True, transform=eval_transform
-    )
-    return DataLoader(
-        ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-    )
+
+    if split == "test":
+        ds = datasets.CIFAR10(
+            root=root, train=False, download=True, transform=eval_transform
+        )
+        return DataLoader(
+            ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+
+    if split in ("val", "train"):
+        train_indices, val_indices = _split_train_val_indices(root, val_per_class)
+        base_ds = datasets.CIFAR10(
+            root=root, train=True, download=True, transform=eval_transform
+        )
+        indices = val_indices if split == "val" else train_indices
+        return DataLoader(
+            Subset(base_ds, indices),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+
+    raise ValueError(f"Unknown split '{split}'. Expected 'test', 'val', or 'train'.")
