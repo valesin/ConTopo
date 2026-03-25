@@ -91,9 +91,6 @@ def main():
         "trial=0,1,2,3,4",
     ]
 
-    # Map script index (starting at 1) to 0-based list index
-    script_indices = {1: 0, 2: 1, 3: 2, "3b": 3, 4: 4, "4b": 5, "4c": 6, 5: 7}
-
     for idx, (script, desc) in enumerate(SCRIPTS, start=1):
         if idx < start:
             print(f"[SKIP] Step {idx}: {desc}")

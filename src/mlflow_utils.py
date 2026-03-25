@@ -317,9 +317,9 @@ def get_existing_model(
         experiment_name=experiment_name, cfg_hash_value=cfg_hash_value, kind=kind
     )
 
-    # 2. If no run matches your hash, return None so your script knows to train
+    # 2. If no run matches your hash, return (None, None) so callers can unpack safely
     if existing_run is None:
-        return None
+        return None, None
 
     # 3. If found, grab the Run ID
     run_id = existing_run.info.run_id
@@ -368,6 +368,8 @@ def behaviour_tags(
         "behaviour_input_hash": behaviour_input_hash,
         "identity_hash": behaviour_input_hash,
     }
+    if rho is not None:
+        tags["rho"] = rho
     if extra:
         tags.update(extra)
     return tags

@@ -148,19 +148,12 @@ def main(cfg: DictConfig) -> None:
             similarity_metric=similarity_metric,
             split=split,
         )
-        step_identity_hash = identity_hash(
-            "category_similarity_profile",
-            parent_run_id=run_id,
-            anchor_spec_hash=a_spec_hash,
-            similarity_metric=similarity_metric,
-            split=split,
-        )
 
-        # Idempotency check check across MLflow backend
+        # Idempotency check across MLflow backend
         if not force:
             existing = find_finished_similarity_profile_run(
                 cfg.mlflow.experiment_name,
-                step_identity_hash,
+                prof_hash,
             )
             if existing is not None:
                 print(
@@ -180,7 +173,7 @@ def main(cfg: DictConfig) -> None:
         tags = category_similarity_profile_tags(
             parent_run_id=run_id,
             anchor_spec_hash=a_spec_hash,
-            identity_hash=step_identity_hash,
+            identity_hash=prof_hash,
             similarity_metric=similarity_metric,
             split=split,
             profile_hash=prof_hash,

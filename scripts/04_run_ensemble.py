@@ -244,7 +244,7 @@ def main(cfg: DictConfig) -> None:
 
     # Get MLflow environment to fetch runs
     exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
-    if exp == None:
+    if exp is None:
         raise ValueError(f"Experiment '{cfg.mlflow.experiment_name}' not found.")
 
     vote_methods = list(cfg.ensemble.votes)

@@ -58,8 +58,7 @@ class LossConfig:
 
 @dataclass
 class SplitConfig:
-    strategy: str = "seeded_per_class"
-    seed: int = 0
+    strategy: str = "first_n_per_class"
     val_per_class: int = 500
 
 

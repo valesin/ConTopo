@@ -18,6 +18,7 @@ import pandas as pd
 
 import hydra
 import mlflow
+import torch.backends.cudnn as cudnn
 from mlflow.models.signature import infer_signature
 import torch
 import torch.nn as nn
@@ -188,7 +189,13 @@ def main(cfg: DictConfig) -> None:
     split = cfg.execution.split
 
     init_seed = cfg.adapter.init_seed
-    set_torch_seed(init_seed)
+
+    # Adapter training is small but must be fully reproducible: each ensemble's
+    # adapter starts from the same fixed seed regardless of iteration order.
+    # cuDNN determinism is enforced here (benchmark off) so weight-init and
+    # DataLoader shuffles produce identical results across reruns.
+    cudnn.deterministic = True
+    cudnn.benchmark = False
 
     adapter_epochs = cfg.adapter.epochs
     adapter_lr = cfg.adapter.learning_rate
@@ -226,6 +233,10 @@ def main(cfg: DictConfig) -> None:
     device = resolve_device(cfg.runtime.device)
 
     for ens_name, run_ids in groups.items():
+        # Re-seed at the start of every ensemble so each adapter's weight
+        # initialisation and DataLoader shuffles are independent of the order
+        # in which other ensembles were processed.
+        set_torch_seed(init_seed)
         print(
             f"\n{'=' * 60}\nAdapters: {ens_name} | Meta: {meta_type} | Feat: {feature_type}"
         )

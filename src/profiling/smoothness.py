@@ -23,8 +23,13 @@ def morans_i(activations: torch.Tensor, emb_dim: int) -> float:
     x_bar = grid.mean()
     z = grid - x_bar
 
-    # Build adjacency (4-connected) weights
-    # NOTE: These nested Python loops are intentionally kept for clarity.
+    # Build adjacency (4-connected / rook) weights.
+    # NOTE: The topographic loss uses 8-connected (queen) adjacency, so this
+    # metric measures a strictly smaller neighbourhood structure than what the
+    # loss optimises. Moran's I will therefore underestimate the smoothness
+    # induced by the regulariser. This is a deliberate simplification.
+    #
+    # These nested Python loops are intentionally kept for clarity.
     # For a 256-unit grid (16×16) the iteration count is ~1024 — negligible.
     # If emb_dim scales significantly (e.g. ≥1024), consider vectorizing with
     # torch adjacency sparse-matrix operations.

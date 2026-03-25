@@ -85,6 +85,8 @@ def main(cfg: DictConfig) -> None:
         batch_size=cfg.runtime.inference.batch_size,
         num_workers=cfg.runtime.inference.num_workers,
         preset=cfg.dataset.transforms.preset,
+        split=split,
+        val_per_class=cfg.dataset.split.val_per_class,
     )
 
     try:

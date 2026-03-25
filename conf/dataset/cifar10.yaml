@@ -7,8 +7,7 @@ mean: [0.4914, 0.4822, 0.4465]
 std:  [0.2023, 0.1994, 0.2010]
 
 split:
-  strategy: seeded_per_class     # deterministic split method
-  seed: 0                        # split random seed (0 = use original_index order)
+  strategy: first_n_per_class    # always picks the first val_per_class samples per class by original CIFAR-10 order
   val_per_class: 500             # 500 per class → 5 000 val, 45 000 train
 
 transforms:
