@@ -125,6 +125,8 @@ def main(cfg: DictConfig) -> None:
     hash_val = cfg_hash(cfg)
     identity_fields = _model_identity_fields(cfg, seed)
     model_identity_hash = identity_hash("model", **identity_fields)
+    import json as _json; print(f"DEBUG identity_fields: {_json.dumps(dict(sorted(identity_fields.items())), indent=2)}")
+    print(f"DEBUG identity_hash: {model_identity_hash}")
     setup_mlflow(cfg)
 
     existing_run = find_finished_identity_run(
