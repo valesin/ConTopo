@@ -45,7 +45,7 @@ from src.mlflow_utils import (
 )
 
 # ─── MODELS ───
-from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter, ThreeLayerMLPAdapter
+from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter, ThreeLayerMLPAdapter, FourLayerMLPAdapter
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -319,7 +319,11 @@ def main(cfg: DictConfig) -> None:
                             else (
                                 "ThreeLayerMLPAdapter"
                                 if meta_type == "meta_mlp_3"
-                                else "LinearAdapter"
+                                else (
+                                    "FourLayerMLPAdapter"
+                                    if meta_type == "meta_mlp_4"
+                                    else "LinearAdapter"
+                                )
                             )
                         ),
                         "standardization_applied": True,
@@ -514,6 +518,12 @@ def main(cfg: DictConfig) -> None:
                     )
                 elif meta_type == "meta_mlp_3":
                     model = ThreeLayerMLPAdapter(
+                        in_dim=input_dim,
+                        num_classes=num_classes,
+                        bias=adapter_bias,
+                    )
+                elif meta_type == "meta_mlp_4":
+                    model = FourLayerMLPAdapter(
                         in_dim=input_dim,
                         num_classes=num_classes,
                         bias=adapter_bias,

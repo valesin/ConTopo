@@ -15,4 +15,4 @@ hydra:
       adapter.meta_type: meta_lr, meta_mlp_2
       adapter.feature_type: logits, embeddings
       adapter.profile_mask: true_class
-      master_seed: range(42,47)
+      master_seed: range(42,52)

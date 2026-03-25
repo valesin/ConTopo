@@ -15,5 +15,6 @@ hydra:
       adapter.meta_type: meta_lr, meta_mlp_2
       adapter.feature_type: "embeddings+profiles"
       adapter.similarity_metric: cosine
-      adapter.profile_mask: true_class
+      # Redundant but im sure it works. I will be able to delete the 2 and keep this as the 3
+      adapter.profile_mask: true_class, argmax_logits, argmax_similarity, none
       master_seed: range(42,52)

@@ -4,15 +4,16 @@
 epochs: 50
 learning_rate: 0.001
 batch_size: 256
-bias: true
+bias: true   # does this affect only the inputs or everything
 
 # ── Meta-learner identity (sweepable via --multirun) ──
-meta_type: meta_lr            # meta_lr | meta_mlp_2 | meta_mlp_3
+meta_type: meta_lr            # meta_lr | meta_mlp_2 | meta_mlp_3 | meta_mlp_4
 feature_type: logits          # logits | embeddings | embeddings+profiles
 similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
 
 # ── Profile Masking ──
 profile_mask: true_class      # true_class | argmax_similarity | argmax_logits | none
+# Which is the difference between argmax similarity and logits?
 
 # ── Reproducibility seed for adapter weight init + training ──
 init_seed: 42                 # seeds torch.manual_seed() before adapter training
