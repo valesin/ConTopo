@@ -101,6 +101,22 @@ def load_resolved_cfg(run_id: str, artifact_relpath: str) -> dict | None:
         return None
 
 
+# Maps old config values to their current equivalents, applied before hashing.
+_STRATEGY_ALIASES: Dict[str, str] = {
+    "seeded_per_class": "first_n_per_class",
+}
+
+
+def _normalise_dataset(dataset: dict) -> dict:
+    """Apply known value renames so old stored configs hash identically to new ones."""
+    dataset = dict(dataset)
+    split = dict(dataset.get("split", {}))
+    if split.get("strategy") in _STRATEGY_ALIASES:
+        split["strategy"] = _STRATEGY_ALIASES[split["strategy"]]
+    dataset["split"] = split
+    return dataset
+
+
 def compute_model_identity_from_cfg(cfg: dict) -> tuple[str, Dict[str, str]]:
     """Compute the current-schema identity hash from a resolved config dict.
 
@@ -117,7 +133,7 @@ def compute_model_identity_from_cfg(cfg: dict) -> tuple[str, Dict[str, str]]:
 
     model_section = _canonical_section(cfg.get("model", {}), ModelConfig)
     loss_section = _canonical_section(cfg.get("loss", {}), LossConfig)
-    dataset_section = _canonical_section(cfg.get("dataset", {}), DatasetConfig)
+    dataset_section = _canonical_section(_normalise_dataset(cfg.get("dataset", {})), DatasetConfig)
     training_section = _canonical_section(cfg.get("training", {}), TrainingConfig)
 
     fields: Dict[str, str] = {}
