@@ -70,7 +70,6 @@ class TransformsConfig:
 @dataclass
 class DatasetConfig:
     name: str = "cifar10"
-    num_classes: int = 10
     image_size: int = 32
     in_channels: int = 3
     mean: List[float] = field(default_factory=lambda: [0.4914, 0.4822, 0.4465])

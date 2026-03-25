@@ -9,6 +9,19 @@ from omegaconf import DictConfig
 
 from src.data.transforms import get_transforms
 
+DATASET_NUM_CLASSES: dict[str, int] = {
+    "cifar10": 10,
+}
+
+
+def get_num_classes(dataset_name: str) -> int:
+    """Return the number of classes for a known dataset."""
+    if dataset_name not in DATASET_NUM_CLASSES:
+        raise ValueError(
+            f"Unknown dataset: {dataset_name!r}. Add it to DATASET_NUM_CLASSES."
+        )
+    return DATASET_NUM_CLASSES[dataset_name]
+
 
 def shutdown_dataloader_workers(loader: DataLoader | None) -> None:
     """Best-effort explicit DataLoader worker shutdown.

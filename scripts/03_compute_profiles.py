@@ -31,7 +31,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.anchors import get_or_create_anchors
-from src.data.loaders import get_split_labels
+from src.data.loaders import get_num_classes, get_split_labels
 from src.config.paths import get_anchors_dir
 from src.profiling.category_similarity import (
     compute_similarity_profile,
@@ -102,7 +102,7 @@ def main(cfg: DictConfig) -> None:
         per_class=sel.per_class,
         strategy=sel.strategy,
         order_by=sel.order_by,
-        num_classes=cfg.dataset.num_classes,
+        num_classes=get_num_classes(cfg.dataset.name),
         artifacts_root=str(anchors_dir),
         dataset_name=cfg.dataset.name,
     )
@@ -166,7 +166,7 @@ def main(cfg: DictConfig) -> None:
         profiles = compute_similarity_profile(
             embeddings,
             anchor_embeddings,
-            num_classes=cfg.dataset.num_classes,
+            num_classes=get_num_classes(cfg.dataset.name),
             metric=similarity_metric,
         )
 

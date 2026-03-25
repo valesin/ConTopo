@@ -26,7 +26,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.anchors import get_or_create_anchors
-from src.data.loaders import get_split_labels
+from src.data.loaders import get_num_classes, get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.paths import get_anchors_dir
 from src.config.hash import identity_hash
@@ -68,7 +68,7 @@ def main(cfg: DictConfig) -> None:
         per_class=anchors_cfg.per_class,
         strategy=anchors_cfg.strategy,
         order_by=anchors_cfg.order_by,
-        num_classes=cfg.dataset.num_classes,
+        num_classes=get_num_classes(cfg.dataset.name),
         artifacts_root=str(anchors_dir),
         dataset_name=cfg.dataset.name,
     )

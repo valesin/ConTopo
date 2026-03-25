@@ -25,7 +25,7 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.data.loaders import get_split_labels
+from src.data.loaders import get_num_classes, get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
@@ -216,7 +216,7 @@ def main(cfg: DictConfig) -> None:
             per_class=anchors_cfg.per_class,
             strategy=anchors_cfg.strategy,
             order_by=anchors_cfg.order_by,
-            num_classes=cfg.dataset.num_classes,
+            num_classes=get_num_classes(cfg.dataset.name),
         )
 
     # 1. Get ground-truth labels
@@ -499,7 +499,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # 5. Build and Train
-                num_classes = cfg.dataset.num_classes
+                num_classes = get_num_classes(cfg.dataset.name)
                 input_dim = X_train.shape[1]
 
                 if meta_type == "meta_lr":
