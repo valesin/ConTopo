@@ -29,6 +29,8 @@ from omegaconf import DictConfig, OmegaConf
 from src.config.hash import (  # noqa: F401
     cfg_hash,
     component_set_hash as _component_set_hash,
+    identity_hash as _identity_hash,
+    model_identity_fields as _model_identity_fields,
 )
 from src.config.paths import ensure_output_dirs
 
@@ -258,33 +260,38 @@ def find_finished_identity_run(
 
 
 
-def get_existing_model(
-    experiment_name: str, cfg_hash_value: str, kind: str | None = "model"
+def find_finished_model_run(
+    experiment_name: str,
+    cfg: DictConfig,
+    seed: int,
+) -> tuple[Optional[mlflow.entities.Run], str]:
+    """Find a FINISHED model run matching the given config.
+
+    Returns (run_or_None, identity_hash_str).  Scripts should use this instead
+    of computing model_identity_fields + identity_hash themselves.
+    """
+    fields = _model_identity_fields(cfg, seed)
+    hash_val = _identity_hash("model", **fields)
+    return find_finished_identity_run(experiment_name, "model", hash_val), hash_val
+
+
+def load_finished_model(
+    experiment_name: str,
+    cfg: DictConfig,
+    seed: int,
 ):
-    """
-    Checks if a model with this exact configuration was already trained.
-    If yes, downloads and returns the PyTorch model. If no, returns None.
-    """
-    # 1. Search for the run using your existing function
-    existing_run = find_finished_run(
-        experiment_name=experiment_name, cfg_hash_value=cfg_hash_value, kind=kind
-    )
+    """Find a FINISHED model run and load its best weights.
 
-    # 2. If no run matches your hash, return (None, None) so callers can unpack safely
-    if existing_run is None:
+    Returns (model_or_None, run_id_or_None).  Drop-in replacement for the
+    old cfg_hash-based get_existing_model(); uses identity hash internally.
+    """
+    run, _ = find_finished_model_run(experiment_name, cfg, seed)
+    if run is None:
         return None, None
-
-    # 3. If found, grab the Run ID
-    run_id = existing_run.info.run_id
-    # print(f"Found existing FINISHED run! (Run ID: {run_id})")
-
-    # 4. Construct the MLflow Model URI pointing to the "e2e_best" artifact
+    run_id = run.info.run_id
     model_uri = f"runs:/{run_id}/e2e_best"
-
-    # 5. Load the PyTorch model directly into memory
     print(f"Loading model weights from {model_uri}...")
     loaded_model = mlflow.pytorch.load_model(model_uri)
-
     return loaded_model, run_id
 
 

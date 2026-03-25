@@ -1,17 +1,46 @@
 #!/usr/bin/env python3
-"""Backfill/overwrite `identity_hash` tags on existing model runs.
+"""Backfill identity_hash tags on existing model runs after a schema change.
 
-Use this after any change to the model identity hash schema (e.g. removing a
-config field like dataset.num_classes from the identity hash). The script
-recomputes each run's identity_hash using the current schema and the run's
-stored config YAML artifact, then updates the MLflow tag.
+Each time the model identity hash schema changes (fields added, removed, or
+values renamed), existing MLflow runs carry stale hashes and are no longer
+recognised as idempotent. This script recomputes the correct hash for every
+FINISHED model run using the run's stored config YAML artifact, then writes
+the updated tag back to MLflow.
 
-By default the script is a dry-run. Pass --apply to write tags.
+See docs/identity_hash_migration.md for the full decision guide.
 
-Usage:
-    uv run scripts/migrate_model_identity_hashes.py --experiment ConTopo
-    uv run scripts/migrate_model_identity_hashes.py --experiment ConTopo --apply
-    uv run scripts/migrate_model_identity_hashes.py --experiment ConTopo --limit 5
+── HOW IT WORKS ────────────────────────────────────────────────────────────
+For each run the script:
+  1. Downloads the resolved config YAML that was logged at training time.
+  2. Filters each config section through the *current* structured schema
+     (strips removed fields, fills missing ones with current defaults,
+     coerces types) — so the result mirrors what 01_train_models.py sees.
+  3. Applies value-rename aliases (e.g. strategy renames) via _normalise_*.
+  4. Computes identity_hash("model", **fields) and compares with stored tag.
+  5. Writes the new tag if they differ (only with --apply).
+
+── CUSTOMISATION POINTS ────────────────────────────────────────────────────
+When you make a schema change, edit ONE OR BOTH of the following:
+
+  A. Field added or removed from structured config (src/config/structured.py)
+     → No code change needed here. _canonical_section() handles this
+       automatically: removed fields are stripped, added fields get their
+       current default value. Verify with a dry-run.
+
+  B. Field VALUE renamed (e.g. a strategy string changed name)
+     → Add an entry to the relevant _*_ALIASES dict below, and make sure
+       _normalise_*() applies it before _canonical_section() is called.
+       Pattern: {"old_value": "new_value"}.
+
+── USAGE ────────────────────────────────────────────────────────────────────
+    # Preview changes (no writes):
+    uv run scripts/migrate_model_identity_hashes.py --experiment contopo
+
+    # Preview with field dump for the first patched run:
+    uv run scripts/migrate_model_identity_hashes.py --experiment contopo --verbose
+
+    # Apply:
+    uv run scripts/migrate_model_identity_hashes.py --experiment contopo --apply
 """
 from __future__ import annotations
 
@@ -122,7 +151,7 @@ def compute_model_identity_from_cfg(cfg: dict) -> tuple[str, Dict[str, str]]:
 
     Returns (hash, identity_fields) so callers can inspect what was hashed.
 
-    Mirrors _model_identity_fields + identity_hash("model") in 01_train_models.py.
+    Mirrors model_identity_fields + identity_hash("model") in src/config/hash.py.
     Filters each section through the current structured config schema so that
     fields removed at any point (e.g. dataset.num_classes, dataset.split.seed)
     are excluded regardless of what the stored YAML contains.

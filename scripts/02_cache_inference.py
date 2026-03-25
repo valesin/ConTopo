@@ -28,7 +28,7 @@ from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
     log_resolved_config,
     setup_mlflow,
-    get_existing_model,
+    find_finished_model_run,
     resolve_seed,
     resolve_device,
     get_run_context,
@@ -51,15 +51,19 @@ def main(cfg: DictConfig) -> None:
     seed = resolve_seed(cfg)
     cfg.seed = seed
 
-    # ── Idempotency ──
-    hash_val = cfg_hash(cfg)
-
-    model, run_id = get_existing_model(cfg.mlflow.experiment_name, hash_val)
-    if model is None:
+    # ── Find parent model run ──
+    hash_val = cfg_hash(cfg)  # kept for tagging the inference run
+    model_run, model_hash = find_finished_model_run(cfg.mlflow.experiment_name, cfg, seed)
+    if model_run is None:
         print(
-            f"A model with cfg_hash={hash_val} has not been trained yet. Please run 01_train_models.py first with the same config."
+            f"No trained model found (identity_hash={model_hash}). "
+            "Please run 01_train_models.py first with the same config."
         )
         return
+    run_id = model_run.info.run_id
+    model_uri = f"runs:/{run_id}/e2e_best"
+    print(f"Loading model weights from {model_uri}...")
+    model = mlflow.pytorch.load_model(model_uri)
 
     # Extract parent run metadata
     parent_run = mlflow.get_run(run_id)

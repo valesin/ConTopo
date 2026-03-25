@@ -14,17 +14,15 @@ Usage:
 from __future__ import annotations
 
 import copy
-import json
-
 import hydra
 import mlflow
 from mlflow.models.signature import infer_signature
 import torch
 import torch.backends.cudnn as cudnn
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from torch.amp import GradScaler
 
-from src.config.hash import cfg_hash, identity_hash
+from src.config.hash import cfg_hash
 from src.data.loaders import (
     get_cifar10_loaders,
     get_split_labels,
@@ -36,7 +34,7 @@ from src.mlflow_utils import (
     log_resolved_config,
     model_tags,
     setup_mlflow,
-    find_finished_identity_run,
+    find_finished_model_run,
     resolve_seed,
     set_torch_seed,
     resolve_device,
@@ -79,39 +77,6 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
         raise ValueError(f"Unknown topography_type: {topo_type}")
 
 
-def _flatten_identity_section(prefix: str, section: DictConfig) -> dict[str, str]:
-    """Flatten a config section to dot-path string fields for model identity hashing.
-
-    ``None`` values are stringified as ``"None"`` to preserve deterministic identity input.
-    """
-    out: dict[str, str] = {}
-
-    def _walk(node: object, path: str) -> None:
-        if isinstance(node, dict):
-            for k, v in node.items():
-                _walk(v, f"{path}.{k}")
-            return
-        if isinstance(node, list):
-            out[path] = json.dumps(node, sort_keys=True)
-            return
-        out[path] = str(node)
-
-    _walk(OmegaConf.to_container(section, resolve=True), prefix)
-    return out
-
-
-def _model_identity_fields(cfg: DictConfig, seed: int) -> dict[str, str]:
-    fields: dict[str, str] = {
-        "schema_version": str(cfg.schema_version),
-        "trial": str(cfg.trial),
-        "seed": str(seed),
-    }
-    fields.update(_flatten_identity_section("model", cfg.model))
-    fields.update(_flatten_identity_section("loss", cfg.loss))
-    fields.update(_flatten_identity_section("dataset", cfg.dataset))
-    fields.update(_flatten_identity_section("training", cfg.training))
-    return fields
-
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -123,14 +88,10 @@ def main(cfg: DictConfig) -> None:
 
     # ── Idempotency ──
     hash_val = cfg_hash(cfg)
-    identity_fields = _model_identity_fields(cfg, seed)
-    model_identity_hash = identity_hash("model", **identity_fields)
     setup_mlflow(cfg)
 
-    existing_run = find_finished_identity_run(
-        experiment_name=cfg.mlflow.experiment_name,
-        kind="model",
-        identity_hash_val=model_identity_hash,
+    existing_run, model_identity_hash = find_finished_model_run(
+        cfg.mlflow.experiment_name, cfg, seed
     )
     if existing_run is not None:
         print(
