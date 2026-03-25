@@ -19,6 +19,38 @@ from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 
+
+def flatten_identity_section(prefix: str, section: DictConfig) -> dict[str, str]:
+    """Flatten a config section to dot-path string fields for identity hashing."""
+    out: dict[str, str] = {}
+
+    def _walk(node: object, path: str) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                _walk(v, f"{path}.{k}")
+            return
+        if isinstance(node, list):
+            out[path] = json.dumps(node, sort_keys=True)
+            return
+        out[path] = str(node)
+
+    _walk(OmegaConf.to_container(section, resolve=True), prefix)
+    return out
+
+
+def model_identity_fields(cfg: DictConfig, seed: int) -> dict[str, str]:
+    """Collect all fields that make up the model identity hash."""
+    fields: dict[str, str] = {
+        "schema_version": str(cfg.schema_version),
+        "trial": str(cfg.trial),
+        "seed": str(seed),
+    }
+    fields.update(flatten_identity_section("model", cfg.model))
+    fields.update(flatten_identity_section("loss", cfg.loss))
+    fields.update(flatten_identity_section("dataset", cfg.dataset))
+    fields.update(flatten_identity_section("training", cfg.training))
+    return fields
+
 EXCLUDED_KEYS = frozenset(
     {
         "runtime",

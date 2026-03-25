@@ -41,14 +41,14 @@ from src.mlflow_utils import (
     find_finished_similarity_profile_run,
     log_resolved_config,
     setup_mlflow,
-    get_existing_model,
+    load_finished_model,
     resolve_seed,
     get_inference_run,
     load_mlflow_artifact,
     get_run_context,
     log_dataset_lineage,
 )
-from src.config.hash import cfg_hash, identity_hash
+from src.config.hash import identity_hash
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -68,13 +68,10 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Target specific model by ID ──
-    hash_val = cfg_hash(cfg)
-    model, run_id = get_existing_model(cfg.mlflow.experiment_name, hash_val)
+    model, run_id = load_finished_model(cfg.mlflow.experiment_name, cfg, seed)
 
     if run_id is None:
-        print(
-            f"A model with cfg_hash={hash_val} has not been trained yet. Please run 01_train_models.py first."
-        )
+        print("No trained model found for this config. Please run 01_train_models.py first.")
         return
 
     split = cfg.execution.split
