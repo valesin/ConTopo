@@ -58,3 +58,25 @@ class ThreeLayerMLPAdapter(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+class FourLayerMLPAdapter(nn.Module):
+    """Four-layer MLP adapter: Input -> 256 -> ReLU -> 128 -> ReLU -> 64 -> ReLU -> num_classes.
+
+    Deeper variant of ThreeLayerMLPAdapter with a wider first hidden layer.
+    """
+
+    def __init__(self, in_dim: int, num_classes: int, bias: bool = True):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, 256, bias=bias),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 128, bias=bias),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 64, bias=bias),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, num_classes, bias=bias),
+        )
+
+    def forward(self, x):
+        return self.net(x)
