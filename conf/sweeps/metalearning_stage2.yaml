@@ -14,6 +14,6 @@ hydra:
     params:
       adapter.meta_type: meta_lr, meta_mlp_2
       adapter.feature_type: "embeddings+profiles"
-      adapter.similarity_metric: l2
+      adapter.similarity_metric: cosine
       adapter.profile_mask: true_class
       master_seed: range(42,47)
