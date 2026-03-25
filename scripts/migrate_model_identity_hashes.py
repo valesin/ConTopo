@@ -25,11 +25,30 @@ import mlflow
 from omegaconf import OmegaConf
 
 from src.config.hash import identity_hash
+from src.config.structured import DatasetConfig, LossConfig, ModelConfig, TrainingConfig
 
-# Fields that have been removed from the dataset config schema.
-# They are present in stored config YAMLs of old runs but must be excluded
-# when recomputing identity hashes under the current schema.
-_REMOVED_DATASET_FIELDS = {"num_classes"}
+
+def _schema_keys(struct_class) -> dict:
+    """Return the current-schema field template as a plain dict (all values are
+    either nested dicts or None), used to filter stored configs."""
+    return OmegaConf.to_container(OmegaConf.structured(struct_class))
+
+
+def _filter_to_schema(stored: dict, template: dict) -> dict:
+    """Recursively keep only keys that exist in the current schema template.
+
+    This strips any field removed from the structured config (e.g. num_classes,
+    split.seed) so that old stored configs hash the same as new configs.
+    """
+    result = {}
+    for k, v in stored.items():
+        if k not in template:
+            continue
+        if isinstance(v, dict) and isinstance(template[k], dict):
+            result[k] = _filter_to_schema(v, template[k])
+        else:
+            result[k] = v
+    return result
 
 
 def _flatten_section(prefix: str, section: Dict) -> Dict[str, str]:
@@ -77,22 +96,19 @@ def load_resolved_cfg(run_id: str, artifact_relpath: str) -> dict | None:
 def compute_model_identity_from_cfg(cfg: dict) -> str:
     """Compute the current-schema identity hash from a resolved config dict.
 
-    Mirrors _model_identity_fields + identity_hash("model") in 01_train_models.py,
-    but strips any fields that have since been removed from the schema.
+    Mirrors _model_identity_fields + identity_hash("model") in 01_train_models.py.
+    Filters each section through the current structured config schema so that
+    fields removed at any point (e.g. dataset.num_classes, dataset.split.seed)
+    are excluded regardless of what the stored YAML contains.
     """
     schema_version = str(cfg.get("schema_version"))
     trial = str(cfg.get("trial"))
     seed = str(cfg.get("seed"))
 
-    model_section = cfg.get("model", {})
-    loss_section = cfg.get("loss", {})
-    # Strip removed fields so old stored configs hash identically to new ones.
-    dataset_section = {
-        k: v
-        for k, v in cfg.get("dataset", {}).items()
-        if k not in _REMOVED_DATASET_FIELDS
-    }
-    training_section = cfg.get("training", {})
+    model_section = _filter_to_schema(cfg.get("model", {}), _schema_keys(ModelConfig))
+    loss_section = _filter_to_schema(cfg.get("loss", {}), _schema_keys(LossConfig))
+    dataset_section = _filter_to_schema(cfg.get("dataset", {}), _schema_keys(DatasetConfig))
+    training_section = _filter_to_schema(cfg.get("training", {}), _schema_keys(TrainingConfig))
 
     fields: Dict[str, str] = {}
     fields.update(_flatten_section("model", model_section))

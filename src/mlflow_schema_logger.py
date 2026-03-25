@@ -32,7 +32,6 @@ ALLOWED_PARAMS: dict[str, set[str]] = {
         "dataset",
         "transforms_preset",
         "split_strategy",
-        "split_seed",
         "val_per_class",
     },
     "inference": {

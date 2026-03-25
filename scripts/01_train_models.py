@@ -125,8 +125,6 @@ def main(cfg: DictConfig) -> None:
     hash_val = cfg_hash(cfg)
     identity_fields = _model_identity_fields(cfg, seed)
     model_identity_hash = identity_hash("model", **identity_fields)
-    import json as _json; print(f"DEBUG identity_fields: {_json.dumps(dict(sorted(identity_fields.items())), indent=2)}")
-    print(f"DEBUG identity_hash: {model_identity_hash}")
     setup_mlflow(cfg)
 
     existing_run = find_finished_identity_run(
@@ -219,7 +217,6 @@ def main(cfg: DictConfig) -> None:
                     "dataset": cfg.dataset.name,
                     "transforms_preset": cfg.dataset.transforms.preset,
                     "split_strategy": cfg.dataset.split.strategy,
-                    "split_seed": cfg.dataset.split.seed,
                     "val_per_class": cfg.dataset.split.val_per_class,
                     "save_freq_epochs": cfg.training.save_freq_epochs,
                     "early_stopping_patience": cfg.training.early_stopping_patience,
