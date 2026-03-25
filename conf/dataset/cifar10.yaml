@@ -1,6 +1,5 @@
 # CIFAR-10 dataset config
 name: cifar10
-num_classes: 10
 image_size: 32
 in_channels: 3
 mean: [0.4914, 0.4822, 0.4465]

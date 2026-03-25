@@ -36,7 +36,7 @@ from src.mlflow_utils import (
     log_resolved_config,
     model_tags,
     setup_mlflow,
-    find_finished_model_run_compat,
+    find_finished_identity_run,
     resolve_seed,
     set_torch_seed,
     resolve_device,
@@ -113,19 +113,6 @@ def _model_identity_fields(cfg: DictConfig, seed: int) -> dict[str, str]:
     return fields
 
 
-def _legacy_model_identity_with_num_classes(
-    base_fields: dict[str, str], cfg: DictConfig
-) -> str | None:
-    if "model.num_classes" in base_fields:
-        return None
-    num_classes = getattr(cfg.dataset, "num_classes", None)
-    if num_classes is None:
-        return None
-    legacy_fields = dict(base_fields)
-    legacy_fields["model.num_classes"] = str(num_classes)
-    return identity_hash("model", **legacy_fields)
-
-
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     # ── Seed ──
@@ -138,20 +125,12 @@ def main(cfg: DictConfig) -> None:
     hash_val = cfg_hash(cfg)
     identity_fields = _model_identity_fields(cfg, seed)
     model_identity_hash = identity_hash("model", **identity_fields)
-    legacy_identity_hash_with_num_classes = _legacy_model_identity_with_num_classes(
-        identity_fields, cfg
-    )
     setup_mlflow(cfg)
 
-    existing_run = find_finished_model_run_compat(
+    existing_run = find_finished_identity_run(
         experiment_name=cfg.mlflow.experiment_name,
+        kind="model",
         identity_hash_val=model_identity_hash,
-        cfg_hash_value=hash_val,
-        legacy_identity_hash_candidates=(
-            [legacy_identity_hash_with_num_classes]
-            if legacy_identity_hash_with_num_classes
-            else None
-        ),
     )
     if existing_run is not None:
         print(

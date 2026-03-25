@@ -257,53 +257,6 @@ def find_finished_identity_run(
     return runs[0] if runs else None
 
 
-# This is a compatibility function to bridge older cfg_hash-based runs
-# with the new identity_hash system, ensuring smooth transition
-# without losing access to previously logged models.
-# After running, all runs that had the old cfg_hash but are accessed via this function
-# will be backfilled with the new identity_hash tag for future direct access.
-# Delete eventually once all legacy runs have been accessed at least once and backfilled.
-def find_finished_model_run_compat(
-    experiment_name: str,
-    identity_hash_val: str,
-    cfg_hash_value: str,
-    legacy_identity_hash_candidates: list[str] | None = None,
-) -> Optional[mlflow.entities.Run]:
-    """Find a FINISHED model run with identity-hash first, cfg-hash fallback.
-
-    If a legacy cfg-hash run is found and missing ``identity_hash``, this function
-    backfills the tag once so future lookups resolve via identity hash directly.
-    """
-    identity_candidates: list[str] = [identity_hash_val]
-    if legacy_identity_hash_candidates:
-        for candidate in legacy_identity_hash_candidates:
-            if candidate and candidate not in identity_candidates:
-                identity_candidates.append(candidate)
-
-    for candidate in identity_candidates:
-        run = find_finished_identity_run(
-            experiment_name=experiment_name,
-            kind="model",
-            identity_hash_val=candidate,
-        )
-        if run is not None:
-            return run
-
-    legacy_run = find_finished_run(
-        experiment_name=experiment_name,
-        cfg_hash_value=cfg_hash_value,
-        kind="model",
-    )
-    if legacy_run is None:
-        return None
-
-    existing_identity = legacy_run.data.tags.get("identity_hash")
-    if existing_identity != identity_hash_val:
-        client = MlflowClient()
-        client.set_tag(legacy_run.info.run_id, "identity_hash", identity_hash_val)
-
-    return legacy_run
-
 
 def get_existing_model(
     experiment_name: str, cfg_hash_value: str, kind: str | None = "model"
