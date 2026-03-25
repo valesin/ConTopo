@@ -1,10 +1,10 @@
 # ── Runtime parameters (do NOT affect results → excluded from cfg_hash) ──
 device: cuda              # auto | cuda | cpu
 data_parallel: false
-num_workers: 2
+num_workers: 1
 pin_memory: true
 persistent_workers: false
-print_freq: 10
+print_freq: 50
 
 # Paths (platform-specific)
 data_root: ./dataset
@@ -17,4 +17,4 @@ paths:
 # Inference caching
 inference:
   batch_size: 256
-  num_workers: 2
+  num_workers: 1
