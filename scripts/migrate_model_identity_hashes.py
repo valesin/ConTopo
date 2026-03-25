@@ -28,27 +28,35 @@ from src.config.hash import identity_hash
 from src.config.structured import DatasetConfig, LossConfig, ModelConfig, TrainingConfig
 
 
-def _schema_keys(struct_class) -> dict:
-    """Return the current-schema field template as a plain dict (all values are
-    either nested dicts or None), used to filter stored configs."""
-    return OmegaConf.to_container(OmegaConf.structured(struct_class))
+def _canonical_section(stored: dict, struct_class) -> dict:
+    """Produce a canonical section dict that exactly matches what the training script sees.
 
+    Strategy:
+      1. Start with the current structured config (provides all current defaults).
+      2. Strip unknown keys from `stored` (fields removed from the schema).
+      3. Merge filtered stored values into the struct (provides missing-field defaults
+         and type-coerces values to declared types, e.g. int 0 -> float 0.0).
 
-def _filter_to_schema(stored: dict, template: dict) -> dict:
-    """Recursively keep only keys that exist in the current schema template.
-
-    This strips any field removed from the structured config (e.g. num_classes,
-    split.seed) so that old stored configs hash the same as new configs.
+    This is equivalent to what OmegaConf.to_container(cfg.section, resolve=True)
+    produces in the training script.
     """
-    result = {}
-    for k, v in stored.items():
-        if k not in template:
-            continue
-        if isinstance(v, dict) and isinstance(template[k], dict):
-            result[k] = _filter_to_schema(v, template[k])
-        else:
-            result[k] = v
-    return result
+    struct_node = OmegaConf.structured(struct_class)
+    template = OmegaConf.to_container(struct_node)
+
+    def _filter(src: dict, tmpl: dict) -> dict:
+        result = {}
+        for k, v in src.items():
+            if k not in tmpl:
+                continue
+            if isinstance(v, dict) and isinstance(tmpl[k], dict):
+                result[k] = _filter(v, tmpl[k])
+            else:
+                result[k] = v
+        return result
+
+    filtered = _filter(stored, template)
+    merged = OmegaConf.merge(struct_node, OmegaConf.create(filtered))
+    return OmegaConf.to_container(merged, resolve=True)
 
 
 def _flatten_section(prefix: str, section: Dict) -> Dict[str, str]:
@@ -93,8 +101,10 @@ def load_resolved_cfg(run_id: str, artifact_relpath: str) -> dict | None:
         return None
 
 
-def compute_model_identity_from_cfg(cfg: dict) -> str:
+def compute_model_identity_from_cfg(cfg: dict) -> tuple[str, Dict[str, str]]:
     """Compute the current-schema identity hash from a resolved config dict.
+
+    Returns (hash, identity_fields) so callers can inspect what was hashed.
 
     Mirrors _model_identity_fields + identity_hash("model") in 01_train_models.py.
     Filters each section through the current structured config schema so that
@@ -105,10 +115,10 @@ def compute_model_identity_from_cfg(cfg: dict) -> str:
     trial = str(cfg.get("trial"))
     seed = str(cfg.get("seed"))
 
-    model_section = _filter_to_schema(cfg.get("model", {}), _schema_keys(ModelConfig))
-    loss_section = _filter_to_schema(cfg.get("loss", {}), _schema_keys(LossConfig))
-    dataset_section = _filter_to_schema(cfg.get("dataset", {}), _schema_keys(DatasetConfig))
-    training_section = _filter_to_schema(cfg.get("training", {}), _schema_keys(TrainingConfig))
+    model_section = _canonical_section(cfg.get("model", {}), ModelConfig)
+    loss_section = _canonical_section(cfg.get("loss", {}), LossConfig)
+    dataset_section = _canonical_section(cfg.get("dataset", {}), DatasetConfig)
+    training_section = _canonical_section(cfg.get("training", {}), TrainingConfig)
 
     fields: Dict[str, str] = {}
     fields.update(_flatten_section("model", model_section))
@@ -116,13 +126,9 @@ def compute_model_identity_from_cfg(cfg: dict) -> str:
     fields.update(_flatten_section("dataset", dataset_section))
     fields.update(_flatten_section("training", training_section))
 
-    return identity_hash(
-        "model",
-        schema_version=schema_version,
-        trial=trial,
-        seed=seed,
-        **fields,
-    )
+    all_fields = {"schema_version": schema_version, "trial": trial, "seed": seed, **fields}
+    h = identity_hash("model", **all_fields)
+    return h, all_fields
 
 
 def main():
@@ -137,6 +143,10 @@ def main():
         "--limit", type=int, default=0, help="Cap number of runs processed (0=all)"
     )
     parser.add_argument("--tracking-uri", default=None, help="MLflow tracking URI")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Print computed identity fields for each patched run",
+    )
     args = parser.parse_args()
 
     if args.tracking_uri:
@@ -177,7 +187,7 @@ def main():
             continue
 
         try:
-            new_identity = compute_model_identity_from_cfg(cfg)
+            new_identity, identity_fields = compute_model_identity_from_cfg(cfg)
         except Exception as e:
             logging.warning("Hash computation failed for run %s: %s; skipping", run_id, e)
             skipped += 1
@@ -186,9 +196,9 @@ def main():
         if existing_identity == new_identity:
             print(f"OK    {run_id}")
         else:
-            print(
-                f"PATCH {run_id}  {existing_identity or '(none)'} -> {new_identity}"
-            )
+            print(f"PATCH {run_id}  {existing_identity or '(none)'} -> {new_identity}")
+            if args.verbose:
+                print(json.dumps(dict(sorted(identity_fields.items())), indent=4))
             if args.apply:
                 client.set_tag(run_id, "identity_hash", new_identity)
             updated += 1
