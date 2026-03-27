@@ -69,6 +69,11 @@ else
     echo "✓ Environment 'contopo' created successfully"
 fi
 
+# Install the project itself as editable (required for 'src' imports)
+echo "Installing ConTopo package (editable)..."
+conda run -n contopo pip install -e "$SCRIPT_DIR" --no-deps --quiet
+echo "✓ ConTopo package installed"
+
 echo ""
 echo "================================================"
 echo "Setup Complete!"
