@@ -1,71 +1,185 @@
+# Analysis retrieval helpers — two-layer rule
+#
+# This file is the analysis layer. It may import from src/ but is NEVER
+# imported by pipeline scripts (01–05). Dependency direction is one-way:
+#
+#   analysis scripts → mlflow_helpers → src/mlflow_utils (pipeline infra)
+#
+# Functions here fall into three categories:
+#   - Raw list functions  (get_X_list)    — full Polars DF of all runs of a kind
+#   - Result functions    (get_X_results) — normalised pandas DF ready for plotting
+#   - Artifact functions  (load_X / download_X) — deserialise MLflow artifacts
+
 import mlflow
+import pandas as pd
 import polars as pl
-import os
 from pathlib import Path
 
 
+# ── Raw list functions ────────────────────────────────────────────────────────
+# Return the full search_runs result as a Polars DataFrame.
+# Use for ad-hoc exploration, schema inspection, or joins across kinds.
+
+
 def get_ensemble_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    models_pd = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string="tags.kind = 'ensemble'",
+    return pl.from_pandas(
+        mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="tags.kind = 'ensemble'",
+        )
     )
-    return pl.from_pandas(models_pd)
 
 
 def get_metalearner_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    models_pd = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string="tags.kind = 'metalearner'",
+    return pl.from_pandas(
+        mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="tags.kind = 'metalearner'",
+        )
     )
-    return pl.from_pandas(models_pd)
 
 
 def get_base_model_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    models_pd = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string="tags.kind = 'model'",
+    return pl.from_pandas(
+        mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="tags.kind = 'model'",
+        )
     )
-    return pl.from_pandas(models_pd)
 
 
 def get_category_similarity_list(
     experiment: mlflow.entities.Experiment,
 ) -> pl.DataFrame:
-    models_pd = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string="tags.kind = 'category_similarity_profile'",
+    return pl.from_pandas(
+        mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="tags.kind = 'category_similarity_profile'",
+        )
     )
-    return pl.from_pandas(models_pd)
 
 
 def get_inference_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    models_pd = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string="tags.kind = 'inference'",
+    return pl.from_pandas(
+        mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            filter_string="tags.kind = 'inference'",
+        )
     )
-    return pl.from_pandas(models_pd)
+
+
+# ── Result functions ──────────────────────────────────────────────────────────
+# Return normalised pandas DataFrames with renamed columns, rho_numeric, and
+# consistent sort order. Use these when aggregating or plotting results.
+
+
+def get_ensemble_results(
+    experiment_name: str,
+    split: str = "test",
+) -> pd.DataFrame:
+    """
+    Normalised ensemble results for the given split.
+
+    Columns: run_id, rho, rho_numeric, cs_hash, vote_method, ensemble_name,
+             accuracy, comp_mean_acc
+    """
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return pd.DataFrame()
+
+    filter_str = (
+        f"tags.kind = 'ensemble' and "
+        f"params.split = '{split}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    runs = mlflow.search_runs(
+        experiment_ids=[exp.experiment_id],
+        filter_string=filter_str,
+    )
+    if runs.empty:
+        return pd.DataFrame()
+
+    cols = {
+        "run_id": "run_id",
+        "params.rho": "rho",
+        "tags.component_set_hash": "cs_hash",
+        "params.method": "vote_method",
+        "tags.ensemble_name": "ensemble_name",
+        "metrics.ensemble_accuracy": "accuracy",
+        "metrics.comp_mean_acc": "comp_mean_acc",
+    }
+    df = runs.rename(columns=cols)
+    keep = [c for c in cols.values() if c in df.columns]
+    result = df[keep].copy()
+
+    if "rho" in result.columns:
+        result["rho_numeric"] = pd.to_numeric(result["rho"], errors="coerce")
+        result = result.sort_values(["rho_numeric", "vote_method"])
+
+    return result
+
+
+def get_metalearner_results(
+    experiment_name: str,
+) -> pd.DataFrame:
+    """
+    Normalised metalearner results for all finished runs.
+
+    Note: the inference split is not logged as a param in script 05 and
+    therefore cannot be used as a filter here. All finished metalearner runs
+    are returned regardless of the underlying split.
+
+    Columns: run_id, rho, rho_numeric, cs_hash, meta_type, feature_type,
+             similarity_metric, split_seed, ensemble_name, profile_mask, accuracy
+    """
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        return pd.DataFrame()
+
+    filter_str = (
+        "tags.kind = 'metalearner' and "
+        "attributes.status = 'FINISHED'"
+    )
+    runs = mlflow.search_runs(
+        experiment_ids=[exp.experiment_id],
+        filter_string=filter_str,
+    )
+    if runs.empty:
+        return pd.DataFrame()
+
+    cols = {
+        "run_id": "run_id",
+        "params.rho": "rho",
+        "tags.component_set_hash": "cs_hash",
+        "params.meta_type": "meta_type",
+        "params.feature_type": "feature_type",
+        "params.similarity_metric": "similarity_metric",
+        "params.meta_split_seed": "split_seed",
+        "tags.ensemble_name": "ensemble_name",
+        "params.profile_mask": "profile_mask",
+        "metrics.holdout_acc": "accuracy",
+    }
+    df = runs.rename(columns=cols)
+    keep = [c for c in cols.values() if c in df.columns]
+    result = df[keep].copy()
+
+    if "rho" in result.columns:
+        result["rho_numeric"] = pd.to_numeric(result["rho"], errors="coerce")
+        result = result.sort_values(["rho_numeric", "meta_type", "feature_type"])
+
+    return result
+
+
+# ── Artifact functions ────────────────────────────────────────────────────────
 
 
 def get_inference_artifacts(run_id: str) -> pl.DataFrame:
-    """List artifacts for a given run_id and return as a Polars DataFrame.
-
-    Args:
-        run_id: MLflow run ID string.
-
-    Returns:
-        pl.DataFrame with columns `path`, `is_dir`, and `file_size` (when available).
-    """
+    """List artifacts for a run and return as a Polars DataFrame."""
     infos = mlflow.artifacts.list_artifacts(run_id=run_id)
-    rows = []
-    for info in infos:
-        rows.append(
-            {
-                "path": info.path,
-                "is_dir": info.is_dir,
-                "file_size": getattr(info, "file_size", None),
-            }
-        )
-    # Return an explicit empty DataFrame with the expected columns if no artifacts
+    rows = [
+        {"path": i.path, "is_dir": i.is_dir, "file_size": getattr(i, "file_size", None)}
+        for i in infos
+    ]
     if not rows:
         return pl.DataFrame(
             [], schema={"path": pl.Utf8, "is_dir": pl.Boolean, "file_size": pl.Int64}
@@ -74,48 +188,35 @@ def get_inference_artifacts(run_id: str) -> pl.DataFrame:
 
 
 def get_run_artifact_uri(run_id: str) -> str:
-    """Return the artifact URI for a run (e.g. file:///.../mlruns/0/<run_id>/artifacts)."""
-    run = mlflow.get_run(run_id)
-    return run.info.artifact_uri
+    """Return the artifact URI for a run."""
+    return mlflow.get_run(run_id).info.artifact_uri
 
 
 def download_inference_artifacts(
     run_id: str, artifact_path: str = "inference_data", dst_path: str | None = None
 ) -> dict:
-    """Download the `inference_data` artifact directory for a run and return local paths.
-
-    Returns a dict with `local_dir` and optional `parquet`/`npz` keys when found.
-    """
+    """Download inference_data artifacts and return local paths dict."""
     local_dir = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path, dst_path=dst_path
     )
     p = Path(local_dir)
     result = {"local_dir": str(local_dir)}
-    parquet_p = p / "test_inference_results.parquet"
-    npz_p = p / "test_tensors.npz"
-    if parquet_p.exists():
-        result["parquet"] = str(parquet_p)
-    if npz_p.exists():
-        result["npz"] = str(npz_p)
+    if (p / "test_inference_results.parquet").exists():
+        result["parquet"] = str(p / "test_inference_results.parquet")
+    if (p / "test_tensors.npz").exists():
+        result["npz"] = str(p / "test_tensors.npz")
     return result
 
 
 def load_inference_results(
     run_id: str, artifact_path: str = "inference_data"
 ) -> tuple[pl.DataFrame, dict]:
-    """Download and load expected inference artifacts.
-
-    Returns (results_df, tensors_dict) where `results_df` is a Polars DataFrame
-    loaded from `test_inference_results.parquet` (or None if missing), and
-    `tensors_dict` is the loaded numpy `.npz` contents (or empty dict if missing).
-    """
+    """Download and load inference artifacts. Returns (results_df, tensors_dict)."""
     import numpy as _np
 
     paths = download_inference_artifacts(run_id, artifact_path=artifact_path)
-    results_df = None
-    tensors = {}
-    if "parquet" in paths:
-        results_df = pl.read_parquet(paths["parquet"])
+    results_df = pl.read_parquet(paths["parquet"]) if "parquet" in paths else None
+    tensors: dict = {}
     if "npz" in paths:
         with _np.load(paths["npz"]) as d:
             tensors = {k: d[k] for k in d.files}
@@ -129,11 +230,7 @@ def download_profile_artifacts(
     artifact_path: str = "profiles",
     dst_path: str | None = None,
 ) -> dict:
-    """Download profile artifacts for a run and return local paths.
-
-    Returns a dict with `local_dir` and optional `tensor_pt` key for
-    `<split>_<similarity_metric>_profiles.pt` when present.
-    """
+    """Download profile artifacts and return local paths dict."""
     local_dir = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path, dst_path=dst_path
     )
@@ -151,19 +248,11 @@ def load_profile_results(
     similarity_metric: str = "cosine",
     artifact_path: str = "profiles",
 ) -> tuple[dict, object | None]:
-    """Download and load category-similarity profile artifacts.
-
-    Returns `(paths_dict, profile_tensor)` where:
-      - `paths_dict` is returned by `download_profile_artifacts`
-      - `profile_tensor` is loaded from `<split>_<similarity_metric>_profiles.pt`
-        or `None` if missing.
-    """
+    """Download and load category-similarity profile artifacts. Returns (paths_dict, tensor)."""
     import torch as _torch
 
     paths = download_profile_artifacts(
-        run_id=run_id,
-        split=split,
-        similarity_metric=similarity_metric,
+        run_id=run_id, split=split, similarity_metric=similarity_metric,
         artifact_path=artifact_path,
     )
     profile_tensor = None
@@ -172,50 +261,13 @@ def load_profile_results(
     return paths, profile_tensor
 
 
-def setup_connection(
-    root_path: str = None, port: int = None, experiment_name: str = "contopo"
-) -> mlflow.entities.Experiment:
-    # Prefer absolute Path objects and avoid changing the global cwd in libraries
-    if root_path is not None:
-        # Build absolute path to the sqlite DB (safer than relying on CWD)
-        db_path = os.path.abspath(os.path.join(root_path, "outputs", "mlflow.db"))
-        mlflow.set_tracking_uri(f"sqlite:///{db_path}")
-        experiment = mlflow.get_experiment_by_name(experiment_name)
-        if experiment is None:
-            raise ValueError(
-                f"Experiment '{experiment_name}' not found in MLflow database at {db_path}"
-            )
-        return experiment
-
-    if port is not None:
-        mlflow.set_tracking_uri(f"http://localhost:{port}")
-        experiment = mlflow.get_experiment_by_name(experiment_name)
-        if experiment is None:
-            raise ValueError(
-                f"Experiment '{experiment_name}' not found on MLflow server at http://localhost:{port}"
-            )
-        return experiment
-
-    # At least one of root_path or port must be provided
-    raise ValueError(
-        "Either root_path or port must be provided to connect to MLflow database"
-    )
-
-
 def download_adapter_inputs(
     run_id: str,
     behaviour_input_hash: str | None = None,
     artifact_path: str = "adapter_inputs",
     dst_path: str | None = None,
 ) -> dict:
-    """Download adapter inputs for a run and return local paths.
-
-    If `behaviour_input_hash` is not provided, it will be retrieved from
-    the run's tags `tags.behaviour_input_hash`.
-
-    Returns a dict with `local_dir` and optional `npz` key for
-    `adapter_inputs_<behaviour_input_hash>.npz` when present.
-    """
+    """Download adapter inputs and return local paths dict."""
     if behaviour_input_hash is None:
         run = mlflow.get_run(run_id)
         behaviour_input_hash = run.data.tags.get("behaviour_input_hash")
@@ -224,7 +276,6 @@ def download_adapter_inputs(
                 f"Run {run_id} is missing the 'behaviour_input_hash' tag. "
                 "Please provide it manually."
             )
-
     local_dir = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path, dst_path=dst_path
     )
@@ -241,24 +292,14 @@ def load_adapter_inputs(
     behaviour_input_hash: str | None = None,
     artifact_path: str = "adapter_inputs",
 ) -> tuple[dict, dict]:
-    """Download and load adapter inputs artifacts.
-
-    If `behaviour_input_hash` is not provided, it will be automatically
-    inferred from the run's tags.
-
-    Returns `(paths_dict, inputs_dict)` where:
-      - `paths_dict` is returned by `download_adapter_inputs`
-      - `inputs_dict` is loaded from `adapter_inputs_<behaviour_input_hash>.npz`
-        or empty dict if missing.
-    """
+    """Download and load adapter inputs. Returns (paths_dict, inputs_dict)."""
     import numpy as _np
 
     paths = download_adapter_inputs(
-        run_id=run_id,
-        behaviour_input_hash=behaviour_input_hash,
+        run_id=run_id, behaviour_input_hash=behaviour_input_hash,
         artifact_path=artifact_path,
     )
-    inputs_dict = {}
+    inputs_dict: dict = {}
     if "npz" in paths:
         with _np.load(paths["npz"]) as d:
             inputs_dict = {k: d[k] for k in d.files}
@@ -271,10 +312,7 @@ def load_inference_results_from_model_run_id(
     split: str = "test",
     artifact_path: str = "inference_data",
 ) -> tuple[pl.DataFrame, dict]:
-    """Finds the FINISHED inference run for a given model run and loads its data.
-
-    Returns `(results_df, tensors_dict)` exactly as `load_inference_results`.
-    """
+    """Find the FINISHED inference run for a model and load its data."""
     filter_string = (
         f"tags.kind = 'inference' and "
         f"tags.trained_model_run_id = '{trained_model_run_id}' and "
@@ -290,6 +328,6 @@ def load_inference_results_from_model_run_id(
             f"No FINISHED inference run found for model {trained_model_run_id} "
             f"on split '{split}'."
         )
-
-    inference_run_id = runs_pd.iloc[0].run_id
-    return load_inference_results(run_id=inference_run_id, artifact_path=artifact_path)
+    return load_inference_results(
+        run_id=runs_pd.iloc[0].run_id, artifact_path=artifact_path
+    )
