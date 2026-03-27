@@ -17,12 +17,12 @@ def migrate(db_path: Path, new_root: str, dry_run: bool) -> None:
     cur = con.cursor()
 
     tables = {
-        "runs": "artifact_uri",
-        "experiments": "artifact_location",
+        "runs": ("artifact_uri", "run_uuid"),
+        "experiments": ("artifact_location", "experiment_id"),
     }
 
-    for table, column in tables.items():
-        cur.execute(f"SELECT run_uuid, {column} FROM {table} WHERE {column} LIKE ?", (f"%{OLD_ROOT}%",))  # noqa: S608
+    for table, (column, pk) in tables.items():
+        cur.execute(f"SELECT {pk}, {column} FROM {table} WHERE {column} LIKE ?", (f"%{OLD_ROOT}%",))  # noqa: S608
         rows = cur.fetchall()
 
         if not rows:
@@ -34,7 +34,7 @@ def migrate(db_path: Path, new_root: str, dry_run: bool) -> None:
             new_val = old_val.replace(OLD_ROOT, new_root)
             print(f"  {old_val!r}\n  -> {new_val!r}")
             if not dry_run:
-                cur.execute(f"UPDATE {table} SET {column} = ? WHERE run_uuid = ?", (new_val, row_id))  # noqa: S608
+                cur.execute(f"UPDATE {table} SET {column} = ? WHERE {pk} = ?", (new_val, row_id))  # noqa: S608
 
     if dry_run:
         print("\n[dry-run] No changes written.")
