@@ -2,12 +2,20 @@
 CIFAR-10 data loaders with deterministic train/val split and named transform presets.
 """
 
+import contextlib
+import io
 import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets
 from omegaconf import DictConfig
 
 from src.data.transforms import get_transforms
+
+
+def _cifar10(*args, **kwargs):
+    """Wrapper around CIFAR10 that suppresses the 'Files already downloaded' stdout noise."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return _cifar10(*args, **kwargs)
 
 DATASET_NUM_CLASSES: dict[str, int] = {
     "cifar10": 10,
@@ -48,7 +56,7 @@ def _split_train_val_indices(root: str, val_per_class: int = 500):
     Deterministic 45k/5k split from the CIFAR-10 train set.
     Picks the first ``val_per_class`` samples per class by original order.
     """
-    base = datasets.CIFAR10(root=root, train=True, transform=None, download=True)
+    base = _cifar10(root=root, train=True, transform=None, download=True)
     targets = base.targets if hasattr(base, "targets") else base.train_labels
     class_counts = {c: 0 for c in range(10)}
     val_idx: list[int] = []
@@ -81,13 +89,13 @@ def get_cifar10_loaders(cfg: DictConfig):
     val_per_class = cfg.dataset.split.val_per_class
     train_indices, val_indices = _split_train_val_indices(root, val_per_class)
 
-    train_ds = datasets.CIFAR10(
+    train_ds = _cifar10(
         root=root, train=True, transform=train_transform, download=True
     )
-    val_ds = datasets.CIFAR10(
+    val_ds = _cifar10(
         root=root, train=True, transform=eval_transform, download=True
     )
-    test_ds = datasets.CIFAR10(
+    test_ds = _cifar10(
         root=root, train=False, transform=eval_transform, download=True
     )
 
@@ -131,13 +139,13 @@ def get_split_labels(cfg: DictConfig, split: str) -> "torch.Tensor":
     """
     root = cfg.runtime.data_root
     if split == "test":
-        ds = datasets.CIFAR10(root=root, train=False, download=True, transform=None)
+        ds = _cifar10(root=root, train=False, download=True, transform=None)
         targets = ds.targets if hasattr(ds, "targets") else ds.test_labels
         return torch.tensor(targets, dtype=torch.long)
 
     val_per_class = cfg.dataset.split.val_per_class
     train_idx, val_idx = _split_train_val_indices(root, val_per_class)
-    base = datasets.CIFAR10(root=root, train=True, download=True, transform=None)
+    base = _cifar10(root=root, train=True, download=True, transform=None)
     targets = base.targets if hasattr(base, "targets") else base.train_labels
 
     if split == "val":
@@ -171,7 +179,7 @@ def get_cifar10_eval_loader(
     _, eval_transform = get_transforms(preset)
 
     if split == "test":
-        ds = datasets.CIFAR10(
+        ds = _cifar10(
             root=root, train=False, download=True, transform=eval_transform
         )
         return DataLoader(
@@ -184,7 +192,7 @@ def get_cifar10_eval_loader(
 
     if split in ("val", "train"):
         train_indices, val_indices = _split_train_val_indices(root, val_per_class)
-        base_ds = datasets.CIFAR10(
+        base_ds = _cifar10(
             root=root, train=True, download=True, transform=eval_transform
         )
         indices = val_indices if split == "val" else train_indices
