@@ -16,25 +16,32 @@ def migrate(db_path: Path, new_root: str, dry_run: bool) -> None:
     con = sqlite3.connect(db_path)
     cur = con.cursor()
 
-    tables = {
-        "runs": ("artifact_uri", "run_uuid"),
-        "experiments": ("artifact_location", "experiment_id"),
-    }
+    # Discover all text columns in all tables that contain the old root
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    all_tables = [row[0] for row in cur.fetchall()]
 
-    for table, (column, pk) in tables.items():
-        cur.execute(f"SELECT {pk}, {column} FROM {table} WHERE {column} LIKE ?", (f"%{OLD_ROOT}%",))  # noqa: S608
-        rows = cur.fetchall()
+    for table in all_tables:
+        cur.execute(f"PRAGMA table_info({table})")  # noqa: S608
+        columns = [(row[1], row[2]) for row in cur.fetchall()]  # (name, type)
+        text_columns = [name for name, typ in columns if "TEXT" in typ.upper() or "CHAR" in typ.upper() or "CLOB" in typ.upper()]
 
-        if not rows:
-            print(f"{table}.{column}: nothing to update")
-            continue
+        # Find primary key
+        cur.execute(f"PRAGMA table_info({table})")  # noqa: S608
+        pk_col = next((row[1] for row in cur.fetchall() if row[5] == 1), None)
 
-        print(f"\n{table}.{column}: {len(rows)} rows to update")
-        for row_id, old_val in rows:
-            new_val = old_val.replace(OLD_ROOT, new_root)
-            print(f"  {old_val!r}\n  -> {new_val!r}")
-            if not dry_run:
-                cur.execute(f"UPDATE {table} SET {column} = ? WHERE {pk} = ?", (new_val, row_id))  # noqa: S608
+        for column in text_columns:
+            cur.execute(f"SELECT {pk_col}, {column} FROM {table} WHERE {column} LIKE ?", (f"%{OLD_ROOT}%",))  # noqa: S608
+            rows = cur.fetchall()
+
+            if not rows:
+                continue
+
+            print(f"\n{table}.{column}: {len(rows)} rows to update")
+            for row_id, old_val in rows:
+                new_val = old_val.replace(OLD_ROOT, new_root)
+                print(f"  {old_val!r}\n  -> {new_val!r}")
+                if not dry_run:
+                    cur.execute(f"UPDATE {table} SET {column} = ? WHERE {pk_col} = ?", (new_val, row_id))  # noqa: S608
 
     if dry_run:
         print("\n[dry-run] No changes written.")
