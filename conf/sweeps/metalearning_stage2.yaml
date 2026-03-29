@@ -1,6 +1,6 @@
 # @package _global_
 
-# Stage 2: embeddings+profiles with similarity metrics
+# Stage 2: embeddings+profiles — sweep profile_mask and similarity_metric
 master_seed: 42
 
 adapter:
@@ -15,5 +15,5 @@ hydra:
       adapter.meta_type: meta_lr, meta_mlp_2
       adapter.feature_type: "embeddings+profiles"
       adapter.similarity_metric: cosine
-      adapter.profile_mask: true_class
+      adapter.profile_mask: true_class, argmax_logits, argmax_similarity, none, hybrid_trueclass_argmaxlogits, hybrid_trueclass_argmaxsimilarity
       master_seed: range(42,52)

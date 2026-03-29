@@ -10,6 +10,7 @@
 #   - Result functions    (get_X_results) — normalised pandas DF ready for plotting
 #   - Artifact functions  (load_X / download_X) — deserialise MLflow artifacts
 
+import warnings
 import mlflow
 import pandas as pd
 import polars as pl
@@ -21,56 +22,64 @@ from pathlib import Path
 # Use for ad-hoc exploration, schema inspection, or joins across kinds.
 
 
-def get_ensemble_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    return pl.from_pandas(
+def _search_kind(experiment: mlflow.entities.Experiment, kind: str) -> pl.DataFrame:
+    df = pl.from_pandas(
         mlflow.search_runs(
             experiment_ids=[experiment.experiment_id],
-            filter_string="tags.kind = 'ensemble'",
+            filter_string=f"tags.kind = '{kind}'",
         )
     )
+    if df.is_empty():
+        warnings.warn(f"No runs found for kind='{kind}' in experiment '{experiment.name}'.")
+    return df
+
+
+def get_ensemble_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
+    return _search_kind(experiment, "ensemble")
 
 
 def get_metalearner_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    return pl.from_pandas(
-        mlflow.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            filter_string="tags.kind = 'metalearner'",
-        )
-    )
+    return _search_kind(experiment, "metalearner")
 
 
 def get_base_model_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    return pl.from_pandas(
-        mlflow.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            filter_string="tags.kind = 'model'",
-        )
-    )
+    return _search_kind(experiment, "model")
 
 
-def get_category_similarity_list(
-    experiment: mlflow.entities.Experiment,
-) -> pl.DataFrame:
-    return pl.from_pandas(
-        mlflow.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            filter_string="tags.kind = 'category_similarity_profile'",
-        )
-    )
+def get_category_similarity_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
+    return _search_kind(experiment, "category_similarity_profile")
 
 
 def get_inference_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    return pl.from_pandas(
-        mlflow.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            filter_string="tags.kind = 'inference'",
-        )
-    )
+    return _search_kind(experiment, "inference")
+
+
+def get_consistency_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
+    return _search_kind(experiment, "consistency")
+
+
+def get_diversity_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
+    return _search_kind(experiment, "diversity")
+
+
+def get_diagnostic_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
+    return _search_kind(experiment, "diagnostic")
 
 
 # ── Result functions ──────────────────────────────────────────────────────────
 # Return normalised pandas DataFrames with renamed columns, rho_numeric, and
 # consistent sort order. Use these when aggregating or plotting results.
+
+
+def _coalesce_rho(runs: pd.DataFrame) -> pd.DataFrame:
+    """Ensure params.rho exists by falling back to tags.rho."""
+    if "params.rho" not in runs.columns and "tags.rho" in runs.columns:
+        runs = runs.copy()
+        runs["params.rho"] = runs["tags.rho"]
+    elif "params.rho" in runs.columns and "tags.rho" in runs.columns:
+        runs = runs.copy()
+        runs["params.rho"] = runs["params.rho"].fillna(runs["tags.rho"])
+    return runs
 
 
 def get_ensemble_results(
@@ -99,6 +108,7 @@ def get_ensemble_results(
     if runs.empty:
         return pd.DataFrame()
 
+    runs = _coalesce_rho(runs)
     cols = {
         "run_id": "run_id",
         "params.rho": "rho",
@@ -147,6 +157,7 @@ def get_metalearner_results(
     if runs.empty:
         return pd.DataFrame()
 
+    runs = _coalesce_rho(runs)
     cols = {
         "run_id": "run_id",
         "params.rho": "rho",

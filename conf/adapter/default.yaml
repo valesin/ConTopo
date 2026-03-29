@@ -12,8 +12,8 @@ feature_type: logits          # logits | embeddings | embeddings+profiles
 similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
 
 # ── Profile Masking ──
-profile_mask: true_class      # true_class | argmax_similarity | argmax_logits | none
-# Which is the difference between argmax similarity and logits?
+profile_mask: true_class      # true_class | argmax_similarity | argmax_logits | none | hybrid_trueclass_argmaxlogits | hybrid_trueclass_argmaxsimilarity
+# hybrid_* modes use true_class on train/val and the argmax variant on holdout (no label leakage)
 
 # ── Reproducibility seed for adapter weight init + training ──
 init_seed: 42                 # seeds torch.manual_seed() before adapter training

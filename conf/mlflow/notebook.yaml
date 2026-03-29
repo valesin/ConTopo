@@ -1,0 +1,7 @@
+# MLflow config for interactive notebooks.
+# Connects to a running MLflow tracking server (e.g. via SSH tunnel on localhost:5000)
+# instead of the local SQLite database used by pipeline scripts.
+tracking_uri: http://localhost:5000
+artifact_location: ${hydra:runtime.cwd}/outputs/mlruns
+experiment_name: contopo
+enable_system_metrics: false
