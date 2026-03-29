@@ -7,19 +7,25 @@ from omegaconf import DictConfig
 
 
 def setup_environment(
-    config_name: str = "config", overrides: list[str] = None
+    config_name: str = "config",
+    overrides: list[str] = None,
+    mlflow_config: str = "notebook",
 ) -> tuple[DictConfig, mlflow.entities.Experiment]:
     """
-    Robust setup to use Hydra & MLflow configuration natively from interactive
-    environments (Jupyter, Marimo) regardless of where the kernel launched.
+    Robust setup for interactive environments (Jupyter, Marimo).
 
     1. Finds the project root traversing upwards.
-    2. Modifies `sys.path` and changes working directory to root safely.
-    3. Handles Hydra's `HydraConfig` injection so resolvers like `${hydra:runtime.cwd}` work.
-    4. Initializes Hydra configuration and returns configuration.
+    2. Modifies sys.path and chdirs to root so imports and artifact paths resolve correctly.
+    3. Injects HydraConfig so ${hydra:runtime.cwd} resolvers work.
+    4. Composes Hydra config and initialises MLflow.
+
+    mlflow_config selects conf/mlflow/<name>.yaml:
+      "notebook"  → http://localhost:5000  (remote server via SSH tunnel, default)
+      "default"   → sqlite:///outputs/mlflow.db  (local DB used by pipeline scripts)
+    Additional Hydra overrides can be passed via overrides list.
 
     Returns:
-        tuple[DictConfig, Experiment]: The hydra configuration and the MLflow experiment.
+        tuple[DictConfig, Experiment]: resolved config and the MLflow experiment object.
     """
     # 1. Start from current execution directory and walk up to find project root
     root_dir = os.getcwd()
@@ -39,7 +45,9 @@ def setup_environment(
     os.chdir(root_dir)
 
     # 3. Compose Configuration
-    overrides = overrides or []
+    overrides = list(overrides or [])
+    if not any(o.startswith("mlflow=") for o in overrides):
+        overrides = [f"mlflow={mlflow_config}"] + overrides
     config_dir = os.path.join(root_dir, "conf")
 
     # We use initialize_config_dir (which is part of the valid Compose API initialization methods)

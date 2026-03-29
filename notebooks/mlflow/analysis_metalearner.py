@@ -8,14 +8,14 @@
 # %% CONFIG
 SPLIT = "test"          # inference split used by ensemble runs
 VOTE_METHOD = "soft"    # ensemble voting method to use as baseline
-SIM_METRIC = "cosine"   # similarity metric filter for metalearner runs
-PROFILE_MASK = "all"    # profile_mask filter for metalearner runs (or None to skip)
+SIM_METRIC = "cosine"   # similarity metric filter for metalearner runs (None = no filter)
 
 # %% SETUP
 from src.config.notebook import setup_environment
-from notebooks.mlflow.mlflow_helpers import get_metalearner_results, get_ensemble_results
 
 cfg, experiment = setup_environment()
+
+from notebooks.mlflow.mlflow_helpers import get_metalearner_results, get_ensemble_results
 print(f"Experiment: {experiment.name}")
 
 # %% LOAD
@@ -40,31 +40,50 @@ if not ens_df.empty:
 import pandas as pd
 
 ml_filtered = ml_df.copy()
+
+# Drop runs that predate the profile_mask parameter
+if "profile_mask" in ml_filtered.columns:
+    ml_filtered = ml_filtered[ml_filtered["profile_mask"] != "N/A"]
+
 if SIM_METRIC is not None and "similarity_metric" in ml_filtered.columns:
     ml_filtered = ml_filtered[ml_filtered["similarity_metric"] == SIM_METRIC]
-if PROFILE_MASK is not None and "profile_mask" in ml_filtered.columns:
-    ml_filtered = ml_filtered[ml_filtered["profile_mask"] == PROFILE_MASK]
 
 ens_filtered = ens_df[ens_df["vote_method"] == VOTE_METHOD] if not ens_df.empty else ens_df
 
 print(f"Metalearner rows after filter: {len(ml_filtered)}")
 print(f"Ensemble rows after filter:    {len(ens_filtered)}")
 
+if not ml_filtered.empty:
+    group_cols = ["meta_type", "feature_type", "profile_mask"] if "profile_mask" in ml_filtered.columns else ["meta_type", "feature_type"]
+    counts = (
+        ml_filtered.groupby(group_cols)
+        .size()
+        .reset_index(name="n")
+        .sort_values(group_cols)
+    )
+    for _, row in counts.iterrows():
+        label = " / ".join(str(row[c]) for c in group_cols)
+        print(f"  {label}, n={row['n']}")
+
 # %% AGGREGATE
-# Metalearner: mean ± std of holdout accuracy per (rho_numeric, feature_type, meta_type)
+# Metalearner: mean ± std per (rho_numeric, meta_type, feature_type, profile_mask)
+GROUP_COLS = ["rho_numeric", "meta_type", "feature_type"]
+if not ml_filtered.empty and "profile_mask" in ml_filtered.columns:
+    GROUP_COLS.append("profile_mask")
+
 if not ml_filtered.empty:
     ml_agg = (
         ml_filtered
-        .groupby(["rho_numeric", "feature_type", "meta_type"])["accuracy"]
+        .groupby(GROUP_COLS)["accuracy"]
         .agg(["mean", "std"])
         .reset_index()
         .rename(columns={"mean": "acc_mean", "std": "acc_std"})
     )
     ml_agg["acc_std"] = ml_agg["acc_std"].fillna(0)
 else:
-    ml_agg = pd.DataFrame(columns=["rho_numeric", "feature_type", "meta_type", "acc_mean", "acc_std"])
+    ml_agg = pd.DataFrame(columns=GROUP_COLS + ["acc_mean", "acc_std"])
 
-# Ensemble baseline: mean ± std of accuracy per rho_numeric
+# Ensemble baseline: mean ± std per rho_numeric
 if not ens_filtered.empty:
     ens_agg = (
         ens_filtered
@@ -75,7 +94,7 @@ if not ens_filtered.empty:
     )
     ens_agg["ens_std"] = ens_agg["ens_std"].fillna(0)
 
-    # Component mean accuracy baseline
+    comp_agg = None
     if "comp_mean_acc" in ens_filtered.columns:
         comp_agg = (
             ens_filtered
@@ -85,8 +104,6 @@ if not ens_filtered.empty:
             .rename(columns={"mean": "comp_mean", "std": "comp_std"})
         )
         comp_agg["comp_std"] = comp_agg["comp_std"].fillna(0)
-    else:
-        comp_agg = None
 else:
     ens_agg = pd.DataFrame()
     comp_agg = None
@@ -102,19 +119,19 @@ RHO_TICK_TEXT = ["0", "0.008", "0.04", "0.2", "1.0", "5.0"]
 
 fig = go.Figure()
 
-# One trace per (feature_type, meta_type)
+# One trace per (meta_type, feature_type, profile_mask)
+label_cols = [c for c in ["meta_type", "feature_type", "profile_mask"] if c in ml_agg.columns]
 if not ml_agg.empty:
-    groups = ml_agg.groupby(["feature_type", "meta_type"])
-    for (feat, mtype), grp in groups:
+    for key, grp in ml_agg.groupby(label_cols):
+        key = (key,) if isinstance(key, str) else key
+        label = " / ".join(str(k) for k in key)
         grp = grp.sort_values("rho_numeric")
-        label = f"{feat} / {mtype}"
-        x = grp["rho_numeric"].tolist()
-        y = grp["acc_mean"].tolist()
-        err = grp["acc_std"].tolist()
-
         fig.add_trace(go.Scatter(
-            x=x, y=y, name=label, mode="lines+markers",
-            error_y=dict(type="data", array=err, visible=True),
+            x=grp["rho_numeric"].tolist(),
+            y=grp["acc_mean"].tolist(),
+            name=label,
+            mode="lines+markers",
+            error_y=dict(type="data", array=grp["acc_std"].tolist(), visible=True),
         ))
 
 # Soft ensemble baseline
@@ -126,10 +143,7 @@ if not ens_agg.empty:
         name=f"ensemble ({VOTE_METHOD})",
         mode="lines+markers",
         line=dict(color="black", dash="dash"),
-        error_y=dict(
-            type="data", array=ens_agg["ens_std"].tolist(), visible=True,
-            color="black",
-        ),
+        error_y=dict(type="data", array=ens_agg["ens_std"].tolist(), visible=True, color="black"),
     ))
 
 # Component mean baseline
@@ -141,10 +155,7 @@ if comp_agg is not None:
         name="component mean",
         mode="lines+markers",
         line=dict(color="gray", dash="dot"),
-        error_y=dict(
-            type="data", array=comp_agg["comp_std"].tolist(), visible=True,
-            color="gray",
-        ),
+        error_y=dict(type="data", array=comp_agg["comp_std"].tolist(), visible=True, color="gray"),
     ))
 
 fig.update_layout(
@@ -159,6 +170,4 @@ fig.update_layout(
     legend=dict(orientation="v", x=1.02, xanchor="left"),
     template="plotly_white",
 )
-
-# %% SHOW
 fig.show()

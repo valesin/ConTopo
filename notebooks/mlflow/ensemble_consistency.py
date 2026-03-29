@@ -1,35 +1,34 @@
-# type: ignore
 # %%
-import mlflow
 import polars as pl
-import json
 
-# Set the backend store to your local SSH tunnel endpoint
-mlflow.set_tracking_uri("http://localhost:5000")
+from src.config.notebook import setup_environment
+
+cfg, experiment = setup_environment()
+
+import notebooks.mlflow.mlflow_helpers as mh
+print("experiment:", experiment.name)
+
 # %%
-# Retrieve ensembles
-experiment = mlflow.get_experiment_by_name("contopo")
-models_pd = mlflow.search_runs(
-    experiment_ids=[experiment.experiment_id], filter_string="tags.kind = 'ensemble'"
-)
-ensembles = pl.from_pandas(models_pd)
+ensembles = mh.get_ensemble_list(experiment)
 ensembles = ensembles.filter(pl.col("params.method") == "soft")
-ensembles = ensembles.filter(pl.col("tags.num_components") == "10")
+ensembles = ensembles.filter(pl.col("params.num_components") == "10")
 ensembles
+
 # %%
 ensembles.columns
-# %%
 
 # %%
-cons_pd = mlflow.search_runs(
-    experiment_ids=[experiment.experiment_id], filter_string="tags.kind = 'consistency'"
-)
-cons = pl.from_pandas(cons_pd)
+cons = mh.get_consistency_list(experiment)
+print("consistency runs:", cons.height)
 cons.columns
+
 # %%
-merged = ensembles.join(cons, on="tags.component_set_hash", how="inner", suffix="_cons")
-merged.columns
-# %%
-ens_cons = merged[["run_id", "run_id_cons", "tags.rho", "metrics.mean_rsa_correlation"]]
-ens_cons.sort("tags.rho")
-# %%
+if cons.height == 0 or "tags.component_set_hash" not in cons.columns:
+    print("No consistency runs found — skipping join.")
+else:
+    merged = ensembles.join(cons, on="tags.component_set_hash", how="inner", suffix="_cons")
+    print("merged rows:", merged.height)
+    display(merged.columns)
+
+    ens_cons = merged[["run_id", "run_id_cons", "tags.rho", "metrics.mean_rsa_correlation"]]
+    display(ens_cons.sort("tags.rho"))

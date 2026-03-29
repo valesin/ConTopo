@@ -179,6 +179,86 @@ def _assert_valid_feature_tensor(
         raise ValueError(f"{name} contains NaN/Inf values")
 
 
+# ─── HYBRID PROFILE MASKS ───
+
+_HYBRID_MASKS = {
+    "hybrid_trueclass_argmaxlogits": ("true_class", "argmax_logits"),
+    "hybrid_trueclass_argmaxsimilarity": ("true_class", "argmax_similarity"),
+}
+
+
+def _apply_profile_mask(
+    P: torch.Tensor,
+    mask_type: str,
+    labels: torch.Tensor,
+    component_logit_preds: list[torch.Tensor | None],
+    indices: np.ndarray | None = None,
+) -> torch.Tensor:
+    """Apply a single profile mask to P (N, M, C) → (N, M, C-1) or (N, M, C)."""
+    N, M, C = P.shape
+
+    if mask_type == "true_class":
+        mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
+        mask[torch.arange(N), labels] = False
+        mask_3d = mask.unsqueeze(1).expand(N, M, C)
+        return P[mask_3d].view(N, M, C - 1)
+
+    elif mask_type == "argmax_similarity":
+        preds = P.argmax(dim=2)
+        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
+        mask[
+            torch.arange(N).unsqueeze(1),
+            torch.arange(M).unsqueeze(0),
+            preds,
+        ] = False
+        return P[mask].view(N, M, C - 1)
+
+    elif mask_type == "argmax_logits":
+        if any(p is None for p in component_logit_preds):
+            raise ValueError(
+                "Cannot use argmax_logits profile mask because not all components have cached logits."
+            )
+        if indices is not None:
+            preds = torch.stack(
+                [p[indices] for p in component_logit_preds], dim=1
+            ).to(P.device)
+        else:
+            preds = torch.stack(component_logit_preds, dim=1).to(P.device)
+        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
+        mask[
+            torch.arange(N).unsqueeze(1),
+            torch.arange(M).unsqueeze(0),
+            preds,
+        ] = False
+        return P[mask].view(N, M, C - 1)
+
+    elif mask_type == "none":
+        return P
+
+    else:
+        raise ValueError(f"Unknown profile_mask: {mask_type}")
+
+
+def _compute_rdm_features(P_masked: torch.Tensor) -> torch.Tensor:
+    """Compute upper-triangular RDM features from masked profiles.
+
+    Args:
+        P_masked: (N, M, C') tensor of masked profiles
+    Returns:
+        S: (N, K*(K-1)/2) tensor of pairwise dissimilarities
+    """
+    Pc = P_masked - P_masked.mean(dim=2, keepdim=True)
+    P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
+    P_n = Pc / P_norm
+
+    corr = torch.bmm(P_n, P_n.transpose(1, 2))
+    rdm = 1.0 - corr
+
+    K = P_n.size(1)
+    idx = torch.triu_indices(K, K, offset=1)
+    return rdm[:, idx[0], idx[1]]
+
+
 # ─── MAIN ───
 
 
@@ -410,74 +490,60 @@ def main(cfg: DictConfig) -> None:
                 X_base = torch.cat(base_tensors, dim=1)
                 _assert_valid_feature_tensor("X_base", X_base, total_examples)
 
-                if use_profiles:
-                    # P shape: (N, M, C)
-                    P = torch.stack(profile_tensors, dim=1)
-                    N, M, C = P.shape
-
-                    if profile_mask == "true_class":
-                        # Dynamically mask out the true class for each example
-                        mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
-                        mask[torch.arange(N), labels_tensor] = False
-                        mask_3d = mask.unsqueeze(1).expand(N, M, C)
-                        P_masked = P[mask_3d].view(N, M, C - 1)
-                    elif profile_mask == "argmax_similarity":
-                        preds = P.argmax(dim=2)
-                        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
-                        mask[
-                            torch.arange(N).unsqueeze(1),
-                            torch.arange(M).unsqueeze(0),
-                            preds,
-                        ] = False
-                        P_masked = P[mask].view(N, M, C - 1)
-                    elif profile_mask == "argmax_logits":
-                        if any(p is None for p in component_logit_preds):
-                            raise ValueError(
-                                "Cannot use argmax_logits profile mask because not all components have cached logits."
-                            )
-                        preds = torch.stack(component_logit_preds, dim=1).to(P.device)
-                        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
-                        mask[
-                            torch.arange(N).unsqueeze(1),
-                            torch.arange(M).unsqueeze(0),
-                            preds,
-                        ] = False
-                        P_masked = P[mask].view(N, M, C - 1)
-                    elif profile_mask == "none":
-                        P_masked = P
-                    else:
-                        raise ValueError(f"Unknown profile_mask: {profile_mask}")
-
-                    # Compute RDM on masked profiles
-                    Pc = P_masked - P_masked.mean(dim=2, keepdim=True)
-                    P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
-                    P_n = Pc / P_norm
-
-                    corr = torch.bmm(P_n, P_n.transpose(1, 2))
-                    rdm = 1.0 - corr
-
-                    K = P_n.size(1)
-                    idx = torch.triu_indices(K, K, offset=1)
-                    S = rdm[:, idx[0], idx[1]]
-                    profile_feature_dim = int(S.shape[1])
-
-                    X_all = torch.cat([X_base, S], dim=1)
-                else:
-                    profile_feature_dim = 0
-                    X_all = X_base
-
-                _assert_valid_feature_tensor("X_all", X_all, total_examples)
-                y_all = labels_tensor
-
-                # 4. Construct Data Splits
+                # 4. Construct Data Splits (needed before masking for hybrid modes)
                 train_idx, val_idx, holdout_idx = _three_way_split(
                     total_examples, meta_split_cfg.fractions, meta_split_cfg.seed
                 )
+                y_all = labels_tensor
 
-                # Split data
-                X_train = X_all[train_idx]
-                X_val = X_all[val_idx]
-                X_holdout = X_all[holdout_idx]
+                if use_profiles:
+                    # P shape: (N, M, C)
+                    P = torch.stack(profile_tensors, dim=1)
+
+                    if profile_mask in _HYBRID_MASKS:
+                        # Hybrid: true_class on train/val, argmax on holdout
+                        tv_mask, ho_mask = _HYBRID_MASKS[profile_mask]
+
+                        P_train = _apply_profile_mask(
+                            P[train_idx], tv_mask, labels_tensor[train_idx],
+                            component_logit_preds, train_idx,
+                        )
+                        P_val = _apply_profile_mask(
+                            P[val_idx], tv_mask, labels_tensor[val_idx],
+                            component_logit_preds, val_idx,
+                        )
+                        P_hold = _apply_profile_mask(
+                            P[holdout_idx], ho_mask, labels_tensor[holdout_idx],
+                            component_logit_preds, holdout_idx,
+                        )
+
+                        S_train = _compute_rdm_features(P_train)
+                        S_val = _compute_rdm_features(P_val)
+                        S_hold = _compute_rdm_features(P_hold)
+                        profile_feature_dim = int(S_train.shape[1])
+
+                        X_train = torch.cat([X_base[train_idx], S_train], dim=1)
+                        X_val = torch.cat([X_base[val_idx], S_val], dim=1)
+                        X_holdout = torch.cat([X_base[holdout_idx], S_hold], dim=1)
+                    else:
+                        # Uniform mask on full dataset
+                        P_masked = _apply_profile_mask(
+                            P, profile_mask, labels_tensor,
+                            component_logit_preds,
+                        )
+                        S = _compute_rdm_features(P_masked)
+                        profile_feature_dim = int(S.shape[1])
+
+                        X_all = torch.cat([X_base, S], dim=1)
+                        _assert_valid_feature_tensor("X_all", X_all, total_examples)
+                        X_train = X_all[train_idx]
+                        X_val = X_all[val_idx]
+                        X_holdout = X_all[holdout_idx]
+                else:
+                    profile_feature_dim = 0
+                    X_train = X_base[train_idx]
+                    X_val = X_base[val_idx]
+                    X_holdout = X_base[holdout_idx]
 
                 # Capture standardization stats for traceability
                 standardize_mean = X_train.mean(dim=0, keepdim=True)

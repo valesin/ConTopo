@@ -1,27 +1,22 @@
-# type: ignore
 # %%
-import mlflow
 import polars as pl
+import plotly.express as px
 
-# Set the backend store to your local SSH tunnel endpoint
-mlflow.set_tracking_uri("http://localhost:5000")
+from src.config.notebook import setup_environment
+
+cfg, experiment = setup_environment()
+
+import notebooks.mlflow.mlflow_helpers as mh
+print("experiment:", experiment.name)
+
 # %%
-# List all experiments to verify connection
-# experiments = mlflow.search_experiments(view_type=mlflow.entities.ViewType.ALL)
-experiment = mlflow.get_experiment_by_name("contopo")
-models_pd = mlflow.search_runs(
-    experiment_ids=[experiment.experiment_id], filter_string="tags.kind = 'model'"
-)
-# Convert to Polars and select columns
-training_runs = pl.from_pandas(models_pd).select(["run_id", "tags.rho"])
+training_runs = mh.get_base_model_list(experiment).select(["run_id", "tags.rho"])
 print(f"Found {training_runs.height} training runs with 'rho' tag.")
-# %%
-inference_runs_pd = mlflow.search_runs(
-    experiment_ids=[experiment.experiment_id], filter_string="tags.kind = 'inference'"
-)
-inference_runs = pl.from_pandas(inference_runs_pd).select(
+
+inference_runs = mh.get_inference_list(experiment).select(
     ["tags.trained_model_run_id", "metrics.accuracy"]
 )
+
 # %%
 merged_runs = (
     training_runs.join(
@@ -32,15 +27,13 @@ merged_runs = (
     )
     .group_by("tags.rho")
     .agg(pl.col("metrics.accuracy").mean().alias("avg_accuracy"))
-    .rename({"tags.rho": "rho"})  # Clean up the column name
+    .rename({"tags.rho": "rho"})
     .sort("rho")
 )
 
 print(merged_runs.head())
-# %%
-import plotly.express as px
 
-# Create an interactive scatter plot
+# %%
 fig = px.scatter(
     merged_runs,
     x="rho",
@@ -48,9 +41,6 @@ fig = px.scatter(
     title="Average Inference Accuracy by Rho",
     labels={"rho": "Rho", "avg_accuracy": "Average Accuracy"},
 )
-
-# Optional: Improve the visual styling
 fig.update_traces(marker=dict(size=10, opacity=0.8))
 fig.update_layout(template="simple_white")
-
 fig.show()
