@@ -317,8 +317,14 @@ def main(cfg: DictConfig) -> None:
         # initialisation and DataLoader shuffles are independent of the order
         # in which other ensembles were processed.
         set_torch_seed(init_seed)
+        profile_info = (
+            f" | Sim: {similarity_metric} | Mask: {profile_mask}"
+            if use_profiles else ""
+        )
         print(
-            f"\n{'=' * 60}\nAdapters: {ens_name} | Meta: {meta_type} | Feat: {feature_type}"
+            f"\n{'=' * 60}\n"
+            f"Adapters: {ens_name} | Meta: {meta_type} | Feat: {feature_type}"
+            f"{profile_info} | Seed: {init_seed}"
         )
 
         cs_hash = component_set_hash(run_ids)
