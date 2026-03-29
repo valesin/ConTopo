@@ -342,3 +342,28 @@ def load_inference_results_from_model_run_id(
     return load_inference_results(
         run_id=runs_pd.iloc[0].run_id, artifact_path=artifact_path
     )
+
+
+# ── Plot saving ──────────────────────────────────────────────────────────────
+
+_DEFAULT_PLOT_DIR = Path("notebooks/mlflow/saved_plots")
+
+
+def save_plot(
+    fig,
+    name: str,
+    directory: str | Path = _DEFAULT_PLOT_DIR,
+    include_plotlyjs: str = "cdn",
+) -> Path:
+    """Save a Plotly figure as a standalone HTML file.
+
+    Returns the path to the saved file.
+    """
+    d = Path(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    if not name.endswith(".html"):
+        name = f"{name}.html"
+    path = d / name
+    fig.write_html(str(path), include_plotlyjs=include_plotlyjs, full_html=True, auto_open=False)
+    print(f"Plot saved: {path}")
+    return path

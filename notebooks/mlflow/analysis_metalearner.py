@@ -15,7 +15,7 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-from notebooks.mlflow.mlflow_helpers import get_metalearner_results, get_ensemble_results
+from notebooks.mlflow.mlflow_helpers import get_metalearner_results, get_ensemble_results, save_plot
 print(f"Experiment: {experiment.name}")
 
 # %% LOAD
@@ -113,28 +113,39 @@ print(ml_agg.to_string(index=False) if not ml_agg.empty else "  (empty)")
 
 # %% PLOT
 import plotly.graph_objects as go
+import plotly.express as _px
 
 RHO_TICKS = [0, 0.008, 0.04, 0.2, 1.0, 5.0]
 RHO_TICK_TEXT = ["0", "0.008", "0.04", "0.2", "1.0", "5.0"]
 
 fig = go.Figure()
 
-# One trace per (meta_type, feature_type, profile_mask)
+# Jitter: on a log-scale x-axis, apply a small multiplicative offset per trace
+# so error bars at the same nominal rho don't overlap.
 label_cols = [c for c in ["meta_type", "feature_type", "profile_mask"] if c in ml_agg.columns]
+_colors = _px.colors.qualitative.Plotly
+
 if not ml_agg.empty:
-    for key, grp in ml_agg.groupby(label_cols):
+    n_groups = ml_agg.groupby(label_cols).ngroups
+    # Spread traces symmetrically around the nominal x; total span ~±8% in log space
+    jitter_factors = [1.0 + (i - (n_groups - 1) / 2) * 0.04 for i in range(n_groups)]
+
+    for i, (key, grp) in enumerate(ml_agg.groupby(label_cols)):
         key = (key,) if isinstance(key, str) else key
         label = " / ".join(str(k) for k in key)
         grp = grp.sort_values("rho_numeric")
+        x = [v * jitter_factors[i] if v > 0 else v for v in grp["rho_numeric"].tolist()]
+        y_mean = grp["acc_mean"].tolist()
+        y_std = grp["acc_std"].tolist()
+        color = _colors[i % len(_colors)]
+
         fig.add_trace(go.Scatter(
-            x=grp["rho_numeric"].tolist(),
-            y=grp["acc_mean"].tolist(),
-            name=label,
-            mode="lines+markers",
-            error_y=dict(type="data", array=grp["acc_std"].tolist(), visible=True),
+            x=x, y=y_mean, name=label, mode="lines+markers",
+            line=dict(color=color), marker=dict(color=color, size=7),
+            error_y=dict(type="data", array=y_std, visible=True, color=color, thickness=1.5),
         ))
 
-# Soft ensemble baseline
+# Soft ensemble baseline with error bars (no jitter — baseline sits at nominal x)
 if not ens_agg.empty:
     ens_agg = ens_agg.sort_values("rho_numeric")
     fig.add_trace(go.Scatter(
@@ -143,10 +154,14 @@ if not ens_agg.empty:
         name=f"ensemble ({VOTE_METHOD})",
         mode="lines+markers",
         line=dict(color="black", dash="dash"),
-        error_y=dict(type="data", array=ens_agg["ens_std"].tolist(), visible=True, color="black"),
+        marker=dict(color="black", size=7),
+        error_y=dict(
+            type="data", array=ens_agg["ens_std"].tolist(),
+            visible=True, color="black", thickness=1.5,
+        ),
     ))
 
-# Component mean baseline
+# Component mean baseline with error bars
 if comp_agg is not None:
     comp_agg = comp_agg.sort_values("rho_numeric")
     fig.add_trace(go.Scatter(
@@ -155,7 +170,11 @@ if comp_agg is not None:
         name="component mean",
         mode="lines+markers",
         line=dict(color="gray", dash="dot"),
-        error_y=dict(type="data", array=comp_agg["comp_std"].tolist(), visible=True, color="gray"),
+        marker=dict(color="gray", size=7),
+        error_y=dict(
+            type="data", array=comp_agg["comp_std"].tolist(),
+            visible=True, color="gray", thickness=1.5,
+        ),
     ))
 
 fig.update_layout(
@@ -171,3 +190,4 @@ fig.update_layout(
     template="plotly_white",
 )
 fig.show()
+save_plot(fig, "analysis_metalearner")

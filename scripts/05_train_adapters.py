@@ -45,7 +45,12 @@ from src.mlflow_utils import (
 )
 
 # ─── MODELS ───
-from src.networks.heads import LinearAdapter, TwoLayerMLPAdapter, ThreeLayerMLPAdapter, FourLayerMLPAdapter
+from src.networks.heads import (
+    LinearAdapter,
+    TwoLayerMLPAdapter,
+    ThreeLayerMLPAdapter,
+    FourLayerMLPAdapter,
+)
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -197,6 +202,9 @@ def _apply_profile_mask(
     """Apply a single profile mask to P (N, M, C) → (N, M, C-1) or (N, M, C)."""
     N, M, C = P.shape
 
+    if not torch.isfinite(P).all():
+        raise ValueError("Profile tensor P contains NaN/Inf values")
+
     if mask_type == "true_class":
         mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
         mask[torch.arange(N), labels] = False
@@ -204,12 +212,13 @@ def _apply_profile_mask(
         return P[mask_3d].view(N, M, C - 1)
 
     elif mask_type == "argmax_similarity":
-        preds = P.argmax(dim=2)
+        mean_similarity = P.mean(dim=1)
+        preds = mean_similarity.argmax(dim=1)
         mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
         mask[
             torch.arange(N).unsqueeze(1),
             torch.arange(M).unsqueeze(0),
-            preds,
+            preds.unsqueeze(1),
         ] = False
         return P[mask].view(N, M, C - 1)
 
@@ -218,17 +227,30 @@ def _apply_profile_mask(
             raise ValueError(
                 "Cannot use argmax_logits profile mask because not all components have cached logits."
             )
+
+        if any(
+            not torch.isfinite(p).all() for p in component_logit_preds if p is not None
+        ):
+            raise ValueError(
+                "Cannot use argmax_logits profile mask because logits contain NaN/Inf values."
+            )
+
         if indices is not None:
-            preds = torch.stack(
-                [p[indices] for p in component_logit_preds], dim=1
-            ).to(P.device)
+            mean_logits = (
+                torch.stack([p[indices] for p in component_logit_preds], dim=1)
+                .to(P.device)
+                .mean(dim=1)
+            )
         else:
-            preds = torch.stack(component_logit_preds, dim=1).to(P.device)
+            mean_logits = (
+                torch.stack(component_logit_preds, dim=1).to(P.device).mean(dim=1)
+            )
+        preds = mean_logits.argmax(dim=1)
         mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
         mask[
             torch.arange(N).unsqueeze(1),
             torch.arange(M).unsqueeze(0),
-            preds,
+            preds.unsqueeze(1),
         ] = False
         return P[mask].view(N, M, C - 1)
 
@@ -319,7 +341,8 @@ def main(cfg: DictConfig) -> None:
         set_torch_seed(init_seed)
         profile_info = (
             f" | Sim: {similarity_metric} | Mask: {profile_mask}"
-            if use_profiles else ""
+            if use_profiles
+            else ""
         )
         print(
             f"\n{'=' * 60}\n"
@@ -467,9 +490,7 @@ def main(cfg: DictConfig) -> None:
                     )
 
                     if "logits" in data:
-                        component_logit_preds.append(
-                            torch.from_numpy(data["logits"]).argmax(dim=1)
-                        )
+                        component_logit_preds.append(torch.from_numpy(data["logits"]))
                     else:
                         component_logit_preds.append(None)
 
@@ -511,16 +532,25 @@ def main(cfg: DictConfig) -> None:
                         tv_mask, ho_mask = _HYBRID_MASKS[profile_mask]
 
                         P_train = _apply_profile_mask(
-                            P[train_idx], tv_mask, labels_tensor[train_idx],
-                            component_logit_preds, train_idx,
+                            P[train_idx],
+                            tv_mask,
+                            labels_tensor[train_idx],
+                            component_logit_preds,
+                            train_idx,
                         )
                         P_val = _apply_profile_mask(
-                            P[val_idx], tv_mask, labels_tensor[val_idx],
-                            component_logit_preds, val_idx,
+                            P[val_idx],
+                            tv_mask,
+                            labels_tensor[val_idx],
+                            component_logit_preds,
+                            val_idx,
                         )
                         P_hold = _apply_profile_mask(
-                            P[holdout_idx], ho_mask, labels_tensor[holdout_idx],
-                            component_logit_preds, holdout_idx,
+                            P[holdout_idx],
+                            ho_mask,
+                            labels_tensor[holdout_idx],
+                            component_logit_preds,
+                            holdout_idx,
                         )
 
                         S_train = _compute_rdm_features(P_train)
@@ -534,7 +564,9 @@ def main(cfg: DictConfig) -> None:
                     else:
                         # Uniform mask on full dataset
                         P_masked = _apply_profile_mask(
-                            P, profile_mask, labels_tensor,
+                            P,
+                            profile_mask,
+                            labels_tensor,
                             component_logit_preds,
                         )
                         S = _compute_rdm_features(P_masked)
