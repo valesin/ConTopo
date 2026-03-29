@@ -9,6 +9,7 @@
 SPLIT = "test"          # inference split used by ensemble runs
 VOTE_METHOD = "soft"    # ensemble voting method to use as baseline
 SIM_METRIC = "cosine"   # similarity metric filter for metalearner runs (None = no filter)
+EXCLUDE_META_TYPES = ["meta_mlp_3"]  # set to [] to include all
 
 # %% SETUP
 from src.config.notebook import setup_environment
@@ -47,6 +48,9 @@ if "profile_mask" in ml_filtered.columns:
 
 if SIM_METRIC is not None and "similarity_metric" in ml_filtered.columns:
     ml_filtered = ml_filtered[ml_filtered["similarity_metric"] == SIM_METRIC]
+
+if EXCLUDE_META_TYPES and "meta_type" in ml_filtered.columns:
+    ml_filtered = ml_filtered[~ml_filtered["meta_type"].isin(EXCLUDE_META_TYPES)]
 
 ens_filtered = ens_df[ens_df["vote_method"] == VOTE_METHOD] if not ens_df.empty else ens_df
 
@@ -115,79 +119,94 @@ print(ml_agg.to_string(index=False) if not ml_agg.empty else "  (empty)")
 import plotly.graph_objects as go
 import plotly.express as _px
 
-RHO_TICKS = [0, 0.008, 0.04, 0.2, 1.0, 5.0]
-RHO_TICK_TEXT = ["0", "0.008", "0.04", "0.2", "1.0", "5.0"]
+_colors = _px.colors.qualitative.Plotly
+
+pairs = (
+    sorted(ml_agg.groupby(["meta_type", "feature_type"]).groups.keys())
+    if not ml_agg.empty else []
+)
+profile_masks = (
+    sorted(ml_agg["profile_mask"].dropna().unique().tolist())
+    if not ml_agg.empty and "profile_mask" in ml_agg.columns else []
+)
+
+# Build equally-spaced positions from all rho values across ml_agg + baselines
+all_rhos = sorted(set(
+    ml_agg["rho_numeric"].dropna().tolist()
+    + (ens_agg["rho_numeric"].dropna().tolist() if not ens_agg.empty else [])
+    + (comp_agg["rho_numeric"].dropna().tolist() if comp_agg is not None else [])
+))
+rho_to_pos = {v: i for i, v in enumerate(all_rhos)}
+rho_labels = [str(int(v) if v == int(v) else v) for v in all_rhos]
+
+# Jitter: symmetric additive offsets on integer positions so error bars don't stack
+n_masks = len(profile_masks)
+jitter_offsets = [(i - (n_masks - 1) / 2) * 0.08 for i in range(n_masks)]
 
 fig = go.Figure()
 
-# Jitter: on a log-scale x-axis, apply a small multiplicative offset per trace
-# so error bars at the same nominal rho don't overlap.
-label_cols = [c for c in ["meta_type", "feature_type", "profile_mask"] if c in ml_agg.columns]
-_colors = _px.colors.qualitative.Plotly
+for pair_idx, (meta_type, feature_type) in enumerate(pairs):
+    group_name = f"{meta_type} / {feature_type}"
+    pair_df = ml_agg[(ml_agg["meta_type"] == meta_type) & (ml_agg["feature_type"] == feature_type)]
+    is_first_pair = pair_idx == 0
 
-if not ml_agg.empty:
-    n_groups = ml_agg.groupby(label_cols).ngroups
-    # Spread traces symmetrically around the nominal x; total span ~±8% in log space
-    jitter_factors = [1.0 + (i - (n_groups - 1) / 2) * 0.04 for i in range(n_groups)]
-
-    for i, (key, grp) in enumerate(ml_agg.groupby(label_cols)):
-        key = (key,) if isinstance(key, str) else key
-        label = " / ".join(str(k) for k in key)
-        grp = grp.sort_values("rho_numeric")
-        x = [v * jitter_factors[i] if v > 0 else v for v in grp["rho_numeric"].tolist()]
-        y_mean = grp["acc_mean"].tolist()
-        y_std = grp["acc_std"].tolist()
-        color = _colors[i % len(_colors)]
+    for mask_idx, pm in enumerate(profile_masks):
+        mask_df = pair_df[pair_df["profile_mask"] == pm].sort_values("rho_numeric")
+        if mask_df.empty:
+            continue
+        color = _colors[mask_idx % len(_colors)]
+        x = [rho_to_pos[v] + jitter_offsets[mask_idx] for v in mask_df["rho_numeric"].tolist()]
 
         fig.add_trace(go.Scatter(
-            x=x, y=y_mean, name=label, mode="lines+markers",
-            line=dict(color=color), marker=dict(color=color, size=7),
-            error_y=dict(type="data", array=y_std, visible=True, color=color, thickness=1.5),
+            x=x, y=mask_df["acc_mean"].tolist(),
+            name=pm,
+            legendgroup=group_name,
+            legendgrouptitle_text=group_name if mask_idx == 0 else None,
+            showlegend=True,
+            visible=True if is_first_pair else "legendonly",
+            mode="lines+markers",
+            line=dict(color=color), marker=dict(color=color, size=6),
+            error_y=dict(type="data", array=mask_df["acc_std"].tolist(), visible=True, color=color, thickness=1.5),
         ))
 
-# Soft ensemble baseline with error bars (no jitter — baseline sits at nominal x)
+# Baselines — always visible, own legend group
 if not ens_agg.empty:
-    ens_agg = ens_agg.sort_values("rho_numeric")
+    ens_sorted = ens_agg.sort_values("rho_numeric")
     fig.add_trace(go.Scatter(
-        x=ens_agg["rho_numeric"].tolist(),
-        y=ens_agg["ens_mean"].tolist(),
+        x=[rho_to_pos[v] for v in ens_sorted["rho_numeric"].tolist()],
+        y=ens_sorted["ens_mean"].tolist(),
         name=f"ensemble ({VOTE_METHOD})",
-        mode="lines+markers",
-        line=dict(color="black", dash="dash"),
-        marker=dict(color="black", size=7),
-        error_y=dict(
-            type="data", array=ens_agg["ens_std"].tolist(),
-            visible=True, color="black", thickness=1.5,
-        ),
+        legendgroup="baselines", legendgrouptitle_text="baselines",
+        showlegend=True, visible=True,
+        mode="lines+markers", line=dict(color="black", dash="dash"),
+        marker=dict(color="black", size=6),
+        error_y=dict(type="data", array=ens_sorted["ens_std"].tolist(), visible=True, color="black", thickness=1.5),
     ))
 
-# Component mean baseline with error bars
 if comp_agg is not None:
-    comp_agg = comp_agg.sort_values("rho_numeric")
+    comp_sorted = comp_agg.sort_values("rho_numeric")
     fig.add_trace(go.Scatter(
-        x=comp_agg["rho_numeric"].tolist(),
-        y=comp_agg["comp_mean"].tolist(),
+        x=[rho_to_pos[v] for v in comp_sorted["rho_numeric"].tolist()],
+        y=comp_sorted["comp_mean"].tolist(),
         name="component mean",
-        mode="lines+markers",
-        line=dict(color="gray", dash="dot"),
-        marker=dict(color="gray", size=7),
-        error_y=dict(
-            type="data", array=comp_agg["comp_std"].tolist(),
-            visible=True, color="gray", thickness=1.5,
-        ),
+        legendgroup="baselines",
+        showlegend=True, visible=True,
+        mode="lines+markers", line=dict(color="gray", dash="dot"),
+        marker=dict(color="gray", size=6),
+        error_y=dict(type="data", array=comp_sorted["comp_std"].tolist(), visible=True, color="gray", thickness=1.5),
     ))
 
 fig.update_layout(
     title="Meta-learner holdout accuracy vs ρ",
     xaxis=dict(
-        title="ρ (topographic regularisation weight)",
-        type="log",
-        tickvals=RHO_TICKS,
-        ticktext=RHO_TICK_TEXT,
+        tickvals=list(range(len(all_rhos))),
+        ticktext=rho_labels,
+        title="ρ",
     ),
     yaxis=dict(title="Accuracy"),
-    legend=dict(orientation="v", x=1.02, xanchor="left"),
+    legend=dict(orientation="v", x=1.02, xanchor="left", groupclick="toggleitem"),
     template="plotly_white",
+    height=600,
 )
 fig.show()
 save_plot(fig, "analysis_metalearner")

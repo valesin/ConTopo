@@ -50,3 +50,39 @@ fig.update_layout(
     template="simple_white",
 )
 fig.show()
+
+# %%
+gain_df = (
+    plot_df
+    .with_columns([
+        pl.col("tags.rho").cast(pl.Float64).alias("rho_numeric"),
+        (pl.col("metrics.ensemble_accuracy") - pl.col("metrics.comp_mean_acc")).alias("gain"),
+    ])
+    .sort("rho_numeric")
+    .select(["tags.rho", "metrics.comp_mean_acc", "metrics.ensemble_accuracy", "gain"])
+    .rename({
+        "tags.rho": "ρ",
+        "metrics.comp_mean_acc": "component mean",
+        "metrics.ensemble_accuracy": "ensemble acc",
+        "gain": "gain (ens − comp)",
+    })
+)
+
+fig_table = go.Figure(go.Table(
+    header=dict(
+        values=list(gain_df.columns),
+        align="left",
+        font=dict(size=13),
+    ),
+    cells=dict(
+        values=[gain_df[c].to_list() for c in gain_df.columns],
+        align="left",
+        format=["", ".4f", ".4f", "+.4f"],
+    ),
+))
+fig_table.update_layout(
+    title="Performance gain from ensembling per ρ",
+    margin=dict(t=50, b=10, l=10, r=10),
+    height=60 + 30 * gain_df.height,
+)
+fig_table.show()
