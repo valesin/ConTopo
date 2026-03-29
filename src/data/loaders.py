@@ -15,7 +15,7 @@ from src.data.transforms import get_transforms
 def _cifar10(*args, **kwargs):
     """Wrapper around CIFAR10 that suppresses the 'Files already downloaded' stdout noise."""
     with contextlib.redirect_stdout(io.StringIO()):
-        return _cifar10(*args, **kwargs)
+        return datasets.CIFAR10(*args, **kwargs)
 
 DATASET_NUM_CLASSES: dict[str, int] = {
     "cifar10": 10,
