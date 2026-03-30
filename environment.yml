@@ -1,7 +1,7 @@
 name: contopo
 channels:
   - pytorch
-  - nvidia         # Added to provide CUDA dependencies
+  - nvidia         # provide CUDA runtime / libraries
   - conda-forge
   - nodefaults
 
@@ -9,7 +9,7 @@ dependencies:
   - python=3.11
   - pytorch::pytorch=2.5.1
   - pytorch::torchvision=0.20.1
-  - pytorch::pytorch-cuda=12.1
+  - pytorch::pytorch-cuda=13.2
   - packaging
   - pillow
   - pandas
