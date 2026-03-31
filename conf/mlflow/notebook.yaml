@@ -3,5 +3,6 @@
 # instead of the local SQLite database used by pipeline scripts.
 tracking_uri: http://localhost:5000
 artifact_location: ${hydra:runtime.cwd}/outputs/mlruns
+artifact_cache_dir: ${hydra:runtime.cwd}/outputs/mlflow_artifact_cache
 experiment_name: contopo
 enable_system_metrics: false
