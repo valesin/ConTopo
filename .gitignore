@@ -63,3 +63,5 @@ uv.lock
 
 # Local secrets
 .env.secrets
+
+*.pdf
