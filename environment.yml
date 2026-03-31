@@ -9,7 +9,8 @@ dependencies:
   - python=3.11
   - pytorch::pytorch=2.5.1
   - pytorch::torchvision=0.20.1
-  - pytorch::pytorch-cuda=13.2
+  - pytorch::pytorch-cuda=12.1
+  - nvidia::cuda-version=12.1
   - packaging
   - pillow
   - pandas
