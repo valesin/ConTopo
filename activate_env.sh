@@ -12,6 +12,18 @@ fi
 conda activate contopo
 
 if [ $? -eq 0 ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SECRETS_FILE="$SCRIPT_DIR/.env.secrets"
+
+    if [ -f "$SECRETS_FILE" ]; then
+        set -a
+        source "$SECRETS_FILE"
+        set +a
+        echo "✓ Loaded environment secrets from .env.secrets"
+    else
+        echo "⚠ No .env.secrets found (MLflow/S3 auth env vars not loaded)"
+    fi
+
     echo "✓ ConTopo conda environment activated"
     echo "Environment: $(basename $CONDA_PREFIX)"
     echo "Python: $(python --version)"

@@ -60,3 +60,6 @@ __marimo__/
 
 # UV
 uv.lock
+
+# Local secrets
+.env.secrets
