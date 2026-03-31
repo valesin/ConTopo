@@ -126,6 +126,7 @@ def main(cfg: DictConfig) -> None:
                 f"inference_data/{split}_inference_results.parquet",
                 file_type="parquet",
                 strict=True,
+                cache_dir=cfg.mlflow.artifact_cache_dir,
             )
             preds_list.append(torch.tensor(df["prediction"].values))
 
@@ -135,6 +136,7 @@ def main(cfg: DictConfig) -> None:
                     f"inference_data/{split}_tensors.npz",
                     file_type="numpy",
                     strict=True,
+                    cache_dir=cfg.mlflow.artifact_cache_dir,
                 )
                 logits_list.append(torch.from_numpy(data["logits"]))
 

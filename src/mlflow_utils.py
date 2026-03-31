@@ -34,6 +34,60 @@ from src.config.hash import (  # noqa: F401
 )
 from src.config.paths import ensure_output_dirs
 
+
+def _resolve_artifact_cache_dir(cache_dir: str | None = None) -> str:
+    if not cache_dir:
+        raise ValueError(
+            "cache_dir must be provided when use_cache=True. "
+            "Pass cfg.mlflow.artifact_cache_dir from Hydra config."
+        )
+    resolved = os.path.abspath(os.path.expanduser(str(cache_dir)))
+    os.makedirs(resolved, exist_ok=True)
+    return resolved
+
+
+def _sanitize_artifact_path(artifact_path: str) -> str:
+    if not artifact_path:
+        raise ValueError("artifact_path must be non-empty")
+
+    normalized = os.path.normpath(artifact_path).replace("\\", "/")
+    if normalized.startswith("../") or normalized == ".." or os.path.isabs(normalized):
+        raise ValueError(f"Unsafe artifact_path: {artifact_path}")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
+def _load_artifact_from_local_path(
+    local_path: str,
+    run_id: str,
+    artifact_path: str,
+    file_type: str,
+    strict: bool,
+) -> Any:
+    if file_type == "numpy":
+        return np.load(local_path)
+    if file_type == "torch":
+        try:
+            return torch.load(local_path, weights_only=False)
+        except Exception as e:
+            if strict:
+                raise RuntimeError(
+                    f"Failed to load torch artifact {artifact_path} for run {run_id}. {e}"
+                )
+            raise
+    if file_type == "parquet":
+        try:
+            return pd.read_parquet(local_path)
+        except Exception as e:
+            if strict:
+                raise RuntimeError(
+                    f"Failed to load parquet artifact {artifact_path} for run {run_id}. {e}"
+                )
+            raise
+    raise ValueError(f"Unsupported file_type: {file_type}")
+
+
 # ───────────────── setup ─────────────────
 
 
@@ -91,7 +145,15 @@ def log_resolved_config(cfg: DictConfig) -> None:
 
 
 def load_mlflow_artifact(
-    run_id: str, artifact_path: str, file_type: str = "auto", strict: bool = True
+    run_id: str,
+    artifact_path: str,
+    file_type: str = "auto",
+    strict: bool = True,
+    *,
+    cache_dir: str | None = None,
+    use_cache: bool = True,
+    refresh_cache: bool = False,
+    validate_cache: bool = True,
 ) -> Any:
     """
     Download and load a specific artifact from an MLflow run.
@@ -99,40 +161,82 @@ def load_mlflow_artifact(
     If strict=True, raises RuntimeError natively on failure to simplify caller scripts.
     """
     artifact_uri = f"runs:/{run_id}/{artifact_path}"
-    local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri)
+
+    cache_root = None
+    normalized_artifact_path = _sanitize_artifact_path(artifact_path)
+
+    if use_cache:
+        cache_root = _resolve_artifact_cache_dir(cache_dir)
+        local_path = os.path.join(cache_root, run_id, normalized_artifact_path)
+
+        if (not refresh_cache) and os.path.exists(local_path):
+            pass
+        else:
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            downloaded = mlflow.artifacts.download_artifacts(
+                artifact_uri=artifact_uri,
+                dst_path=os.path.dirname(local_path),
+            )
+            if os.path.exists(local_path):
+                pass
+            else:
+                local_path = downloaded
+    else:
+        local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri)
 
     if file_type == "auto":
-        if artifact_path.endswith(".npz") or artifact_path.endswith(".npy"):
+        if normalized_artifact_path.endswith(
+            ".npz"
+        ) or normalized_artifact_path.endswith(".npy"):
             file_type = "numpy"
-        elif artifact_path.endswith(".pt") or artifact_path.endswith(".pth"):
+        elif normalized_artifact_path.endswith(
+            ".pt"
+        ) or normalized_artifact_path.endswith(".pth"):
             file_type = "torch"
-        elif artifact_path.endswith(".parquet"):
+        elif normalized_artifact_path.endswith(".parquet"):
             file_type = "parquet"
         else:
             return local_path  # Return the downloaded path if type is unknown
 
-    if file_type == "numpy":
-        return np.load(local_path)
-    if file_type == "torch":
-        try:
-            return torch.load(local_path, weights_only=False)
-        except Exception as e:
-            if strict:
-                raise RuntimeError(
-                    f"Failed to load torch artifact {artifact_path} for run {run_id}. {e}"
-                )
+    try:
+        return _load_artifact_from_local_path(
+            local_path=local_path,
+            run_id=run_id,
+            artifact_path=artifact_path,
+            file_type=file_type,
+            strict=strict,
+        )
+    except Exception:
+        if not (use_cache and validate_cache and cache_root is not None):
             raise
-    elif file_type == "parquet":
-        try:
-            return pd.read_parquet(local_path)
-        except Exception as e:
-            if strict:
-                raise RuntimeError(
-                    f"Failed to load parquet artifact {artifact_path} for run {run_id}. {e}"
-                )
-            raise
-    else:
-        raise ValueError(f"Unsupported file_type: {file_type}")
+
+        # Retry once after cache refresh; intended for corrupted local cache files.
+        if os.path.exists(local_path):
+            try:
+                if os.path.isdir(local_path):
+                    import shutil
+
+                    shutil.rmtree(local_path)
+                else:
+                    os.unlink(local_path)
+            except OSError:
+                pass
+        local_path = os.path.join(cache_root, run_id, normalized_artifact_path)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        downloaded = mlflow.artifacts.download_artifacts(
+            artifact_uri=artifact_uri,
+            dst_path=os.path.dirname(local_path),
+        )
+        if not os.path.exists(local_path):
+            local_path = downloaded
+
+        return _load_artifact_from_local_path(
+            local_path=local_path,
+            run_id=run_id,
+            artifact_path=artifact_path,
+            file_type=file_type,
+            strict=strict,
+        )
 
 
 def safe_to_numpy_float64(tensor_or_numpy):
@@ -257,7 +361,6 @@ def find_finished_identity_run(
         output_format="list",
     )
     return runs[0] if runs else None
-
 
 
 def find_finished_model_run(
@@ -479,6 +582,3 @@ def get_profile_run(
         experiment_ids=experiment_ids,
         filter_string=filter_str,
     )
-
-
-
