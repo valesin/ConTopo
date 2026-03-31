@@ -84,6 +84,7 @@ def _load_inference_artifacts(run_ids, exp_id, split="test"):
             f"inference_data/{split}_tensors.npz",
             file_type="numpy",
             strict=True,
+            cache_dir=cfg.mlflow.artifact_cache_dir,
         )
 
         # Map predictions to torch format matching old syntax

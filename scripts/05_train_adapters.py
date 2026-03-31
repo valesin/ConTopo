@@ -472,6 +472,7 @@ def main(cfg: DictConfig) -> None:
                             f"profiles/{split}_{similarity_metric}_profiles.pt",
                             file_type="torch",
                             strict=True,
+                            cache_dir=cfg.mlflow.artifact_cache_dir,
                         ).cpu()
 
                         if not torch.isfinite(inf_prof_node).all():
@@ -487,6 +488,7 @@ def main(cfg: DictConfig) -> None:
                         f"inference_data/{split}_tensors.npz",
                         file_type="numpy",
                         strict=True,
+                        cache_dir=cfg.mlflow.artifact_cache_dir,
                     )
 
                     if "logits" in data:

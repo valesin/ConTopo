@@ -126,6 +126,7 @@ def main(cfg: DictConfig) -> None:
                 f"inference_data/{split}_tensors.npz",
                 file_type="numpy",
                 strict=True,
+                cache_dir=cfg.mlflow.artifact_cache_dir,
             )
             embeddings = torch.from_numpy(data["embeddings"])
 
