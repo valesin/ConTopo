@@ -18,19 +18,23 @@ RUN uv pip install --system --no-cache-dir \
     --index-strategy unsafe-best-match \
     -r requirements-training.txt
 
-# Copy dataset as a separate layer so updates to code won't invalidate it.
-# If you prefer to download during build instead, keep the fallback below.
-COPY dataset/ dataset/
+# Dataset root — where CIFAR-10 is downloaded at build time and read at runtime.
+# Override at build time:  docker build --build-arg CONTOPO_DATA_ROOT=mydata .
+# Override at runtime:     docker run -e CONTOPO_DATA_ROOT=/data -v /host/data:/data ...
+ARG CONTOPO_DATA_ROOT=./dataset
+ENV CONTOPO_DATA_ROOT=${CONTOPO_DATA_ROOT}
 
-# Download CIFAR-10 if dataset was not provided in build context
-RUN if [ ! -d "dataset/cifar-10-batches-py" ]; then \
-    python -c "import torchvision; torchvision.datasets.CIFAR10('dataset', download=True)"; \
-    fi
+# Download CIFAR-10 into its own layer. Docker caches this layer by
+# (command text + previous layer hash), so it only re-runs if dependencies
+# change. Once pushed to the registry, any machine pulls the cached layer.
+RUN python -c "import torchvision; torchvision.datasets.CIFAR10('${CONTOPO_DATA_ROOT}', download=True)"
 
-# Copy rest of project (code) — `.dockerignore` excludes dataset/ so this
-# COPY won't include the dataset layer again and won't bust the dataset layer
-# when code changes.
-COPY . .
+# Code in a separate layer — changes here don't re-push the dataset
+COPY src/ src/
+COPY scripts/ scripts/
+COPY conf/ conf/
+COPY tests/ tests/
+COPY main.py __init__.py pyproject.toml ./
 
 ENV PYTHONPATH=/workspace/ConTopo
 

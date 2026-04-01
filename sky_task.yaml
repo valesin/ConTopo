@@ -1,22 +1,35 @@
+cloud: runpod
+
 resources:
-  accelerators: A10G:1  # adjust to target GPU type
+  accelerators: RTX5090:1  # adjust to target GPU type
   use_spot: true
   image_id: docker:ghcr.io/${SKYPILOT_DOCKER_USERNAME}/contopo:latest
 
 envs:
-  LOSS_RHO: "0.0"   # overridden per-job at launch time via --env
-  TRIAL: "0"        # overridden per-job at launch time via --env
-  SKYPILOT_DOCKER_USERNAME: null  # read from local shell (set in .env.secrets)
-  SKYPILOT_DOCKER_SERVER: null    # read from local shell (set in .env.secrets)
-
-secrets:
-  # MLflow + S3 credentials
-  AWS_ACCESS_KEY_ID: null
-  AWS_SECRET_ACCESS_KEY: null
+  # Per-job overrides — set at launch time via --env
+  LOSS_RHO: "0.0"
+  TRIAL: "0"
+  # Docker registry — non-sensitive, read from local shell
+  SKYPILOT_DOCKER_USERNAME: null
+  SKYPILOT_DOCKER_SERVER: null
+  # MLflow non-sensitive config — read from local shell, or override with --env
   MLFLOW_S3_ENDPOINT_URL: null
   MLFLOW_TRACKING_USERNAME: null
+  MLFLOW_TRACKING_URI: "https://dagshub.com/valesin/ConTopoTEST.mlflow"
+  MLFLOW_ARTIFACT_LOCATION: "s3://contopotesting/mlruns"
+  MLFLOW_EXPERIMENT_NAME: "contopo2"
+  # Runtime tuning — GPU cloud defaults; override with --env for different hardware
+  CONTOPO_DEVICE: "cuda"
+  CONTOPO_NUM_WORKERS: "4"
+  CONTOPO_PERSISTENT_WORKERS: "true"
+  CONTOPO_INFERENCE_BATCH_SIZE: "512"
+  CONTOPO_INFERENCE_NUM_WORKERS: "4"
+
+secrets:
+  # Credentials — redacted in logs, read from local shell
+  AWS_ACCESS_KEY_ID: null
+  AWS_SECRET_ACCESS_KEY: null
   MLFLOW_TRACKING_PASSWORD: null
-  # GitHub Container Registry PAT — read:packages scope
   SKYPILOT_DOCKER_PASSWORD: null
 
 run: |
