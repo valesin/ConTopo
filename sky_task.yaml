@@ -1,18 +1,24 @@
 resources:
   accelerators: A10G:1  # adjust to target GPU type
   use_spot: true
-
-file_mounts:
-  # Mounts local secrets file into the container at runtime (never baked into image)
-  /workspace/ConTopo/.env.secrets: ~/.env.secrets.contopo
+  image_id: docker:ghcr.io/${SKYPILOT_DOCKER_USERNAME}/contopo:latest
 
 envs:
   LOSS_RHO: "0.0"   # overridden per-job at launch time via --env
   TRIAL: "0"        # overridden per-job at launch time via --env
-  # RunPod-specific workaround: SkyPilot cannot auto-detect the login user for
-  # non-root Docker images on RunPod. Must match the USER in the Dockerfile
-  # (mambaorg/micromamba default login user: mambauser).
-  SKYPILOT_RUNPOD_DOCKER_USERNAME: mambauser
+  SKYPILOT_DOCKER_USERNAME: null  # read from local shell (set in .env.secrets)
+  SKYPILOT_DOCKER_SERVER: null    # read from local shell (set in .env.secrets)
+
+secrets:
+  # MLflow + S3 credentials
+  AWS_ACCESS_KEY_ID: null
+  AWS_SECRET_ACCESS_KEY: null
+  MLFLOW_S3_ENDPOINT_URL: null
+  MLFLOW_TRACKING_USERNAME: null
+  MLFLOW_TRACKING_PASSWORD: null
+  # GitHub Container Registry PAT — read:packages scope
+  SKYPILOT_DOCKER_PASSWORD: null
 
 run: |
+  cd /workspace/ConTopo
   python scripts/01_train_models.py loss.rho=${LOSS_RHO} trial=${TRIAL}

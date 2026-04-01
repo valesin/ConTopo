@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=69.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contopo"
+version = "0.1.0"
+description = "Topographic representations in neural networks — CE training, profiling, ensembles"
+requires-python = ">=3.13"
+dependencies = [
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+    "pillow",
+    "pandas",
+    "mlflow",
+    "scikit-learn",
+    "hydra-core==1.3.2",
+    "omegaconf==2.3.0",
+    "boto3==1.42.80",
+]
+
+[dependency-groups]
+analysis = [
+    "matplotlib",
+    "ipython==8.28.0",
+    "jupyter==1.0.0",
+    "polars==1.12.0",
+]
+dev = [
+    "pytest==9.0.2",
+    "pytest-cov",
+]
+sky = [
+    "skypilot[runpod]",
+]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126" }]
+torchvision = [{ index = "pytorch-cu126" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.setuptools.packages.find]
+include = ["src*", "conf*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

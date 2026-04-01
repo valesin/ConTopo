@@ -15,16 +15,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
+from hydra import compose, initialize_config_dir
+from omegaconf import OmegaConf
 
 
 def resolve_tracking_uri(project_root: Path) -> str:
-    config_path = project_root / "conf" / "mlflow" / "default.yaml"
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    conf_dir = project_root / "conf" / "mlflow"
+    with initialize_config_dir(config_dir=str(conf_dir), version_base=None):
+        cfg = compose(config_name="default")
 
-    raw_uri = config["tracking_uri"]
-    # Resolve the Hydra ${hydra:runtime.cwd} interpolation manually
+    # `cfg` is an OmegaConf object; access tracking_uri as a string
+    raw_uri = str(cfg.get("tracking_uri"))
+    # If Hydra runtime interpolation remains, substitute project root
     resolved = raw_uri.replace("${hydra:runtime.cwd}", str(project_root))
     return resolved
 
