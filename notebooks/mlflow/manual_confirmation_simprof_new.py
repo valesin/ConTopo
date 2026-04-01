@@ -214,7 +214,7 @@ for rec in linked.to_dicts():
     prof_run_id = rec["profile_run_id"]
     try:
         _, inf_tensors = mh.load_inference_results(
-            inf_run_id, artifact_path="inference_data"
+            inf_run_id, artifact_path="inference"
         )
         if "embeddings" not in inf_tensors:
             raise KeyError(f"embeddings missing for inference run {inf_run_id}")
@@ -316,7 +316,7 @@ for run_id in run_ids:
     inf_run_id = inf_runs.iloc[0].run_id
 
     _, inf_tensors = mh.load_inference_results(
-        inf_run_id, artifact_path="inference_data"
+        inf_run_id, artifact_path="inference"
     )
     if "embeddings" not in inf_tensors:
         raise KeyError(f"Missing embeddings for inference run {inf_run_id}")
@@ -559,7 +559,7 @@ artifact_inputs_available = False
 
 try:
     infos = mlflow.artifacts.list_artifacts(
-        run_id=meta_run_id, artifact_path="adapter_inputs"
+        run_id=meta_run_id, artifact_path="inputs"
     )
     paths = [i.path for i in infos]
     npz_candidates = [p for p in paths if p.endswith(".npz") and "adapter_inputs_" in p]
@@ -596,7 +596,7 @@ for run_id_ref in run_ids_ref:
     inf_run_id_ref = inf_runs_ref.iloc[0].run_id
 
     _, inf_tensors_ref = mh.load_inference_results(
-        inf_run_id_ref, artifact_path="inference_data"
+        inf_run_id_ref, artifact_path="inference"
     )
     emb_ref = torch.from_numpy(inf_tensors_ref["embeddings"]).float().cpu()
     base_vecs_ref.append(emb_ref[manual_idx])

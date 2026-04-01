@@ -17,6 +17,7 @@ import copy
 import hydra
 import mlflow
 from mlflow.models.signature import infer_signature
+from numpy.exceptions import VisibleDeprecationWarning
 import torch
 import torch.backends.cudnn as cudnn
 from omegaconf import DictConfig
@@ -46,6 +47,10 @@ from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
 )
+import warnings
+
+# Filter out the specific NumPy deprecation warning
+warnings.filterwarnings("ignore", category=VisibleDeprecationWarning, module="numpy")
 
 
 def _build_optimiser(cfg: DictConfig, model):
@@ -75,7 +80,6 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
         return Global_Topographic_Loss(weight=1.0, emb_dim=emb_dim)
     else:
         raise ValueError(f"Unknown topography_type: {topo_type}")
-
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
@@ -283,7 +287,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # ── Periodic checkpoint ──
-                if epoch % save_freq == 0:
+                if cfg.training.save_checkpoints and epoch % save_freq == 0:
                     checkpoint_name = f"checkpoint_epoch{epoch:04d}"
                     mlflow.pytorch.log_model(
                         unwrap(model),

@@ -32,7 +32,7 @@ from omegaconf import DictConfig
 import tempfile
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
-    log_resolved_config,
+
     setup_mlflow,
     load_finished_model,
     resolve_seed,
@@ -111,7 +111,6 @@ def _log_diagnostic_run(
                     if os.path.isfile(fpath):
                         mlflow.log_artifact(fpath, artifact_path="diagnostics")
 
-        log_resolved_config(cfg)
 
     metric_str = "  ".join(f"{k}={v:.4f}" for k, v in metrics.items())
     print(f"    {metric_name}: {metric_str}  run_id={diag_run.info.run_id}")
@@ -202,7 +201,7 @@ def main(cfg: DictConfig) -> None:
         if "morans_i" in needed:
             data = load_mlflow_artifact(
                 inf_run_id,
-                f"inference_data/{split}_tensors.npz",
+                f"inference/{split}_tensors.npz",
                 file_type="numpy",
                 strict=True,
                 cache_dir=cfg.mlflow.artifact_cache_dir,

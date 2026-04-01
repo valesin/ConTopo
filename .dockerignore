@@ -1,0 +1,13 @@
+.git/
+.venv/
+outputs/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env.secrets
+*.sif
+*.simg
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/

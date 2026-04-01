@@ -14,6 +14,7 @@ import json
 import os
 import tempfile
 import numpy as np
+from numpy.exceptions import VisibleDeprecationWarning
 import pandas as pd
 
 import hydra
@@ -56,6 +57,11 @@ from src.mlflow_schema_logger import (
     start_run as schema_start_run,
     log_tags as schema_log_tags,
 )
+
+import warnings
+
+# Filter out the specific NumPy deprecation warning
+warnings.filterwarnings("ignore", category=VisibleDeprecationWarning, module="numpy")
 
 # ─── LOGIC ───
 
@@ -485,7 +491,7 @@ def main(cfg: DictConfig) -> None:
 
                     data = load_mlflow_artifact(
                         inf_run_id,
-                        f"inference_data/{split}_tensors.npz",
+                        f"inference/{split}_tensors.npz",
                         file_type="numpy",
                         strict=True,
                         cache_dir=cfg.mlflow.artifact_cache_dir,
@@ -499,13 +505,13 @@ def main(cfg: DictConfig) -> None:
                     if "logits" in feature_type:
                         if "logits" not in data:
                             raise KeyError(
-                                f"Missing logits in inference_data/{split}_tensors.npz for run {inf_run_id}"
+                                f"Missing logits in inference/{split}_tensors.npz for run {inf_run_id}"
                             )
                         base_tensor = torch.from_numpy(data["logits"])
                     elif "embeddings" in feature_type:
                         if "embeddings" not in data:
                             raise KeyError(
-                                f"Missing embeddings in inference_data/{split}_tensors.npz for run {inf_run_id}"
+                                f"Missing embeddings in inference/{split}_tensors.npz for run {inf_run_id}"
                             )
                         base_tensor = torch.from_numpy(data["embeddings"])
                     else:
@@ -739,12 +745,12 @@ def main(cfg: DictConfig) -> None:
                     df_hold.to_parquet(tabular_path, index=False)
                     np.savez_compressed(tensors_path, probs=hold_probs.numpy())
 
-                    mlflow.log_artifact(inputs_path, artifact_path="adapter_inputs")
+                    mlflow.log_artifact(inputs_path, artifact_path="inputs")
                     mlflow.log_artifact(
-                        split_trace_path, artifact_path="adapter_inputs"
+                        split_trace_path, artifact_path="inputs"
                     )
-                    mlflow.log_artifact(tabular_path, artifact_path="adapter_data")
-                    mlflow.log_artifact(tensors_path, artifact_path="adapter_data")
+                    mlflow.log_artifact(tabular_path, artifact_path="data")
+                    mlflow.log_artifact(tensors_path, artifact_path="data")
 
                 log_dataset_lineage(
                     y_all[train_idx],

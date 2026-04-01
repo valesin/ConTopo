@@ -116,7 +116,7 @@ def main(cfg: DictConfig) -> None:
     try:
         data = load_mlflow_artifact(
             inf_run_id,
-            f"inference_data/{split}_tensors.npz",
+            f"inference/{split}_tensors.npz",
             file_type="numpy",
             strict=True,
             cache_dir=cfg.mlflow.artifact_cache_dir,

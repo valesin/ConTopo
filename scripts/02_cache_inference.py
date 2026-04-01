@@ -26,7 +26,7 @@ from omegaconf import DictConfig
 from src.data.loaders import get_cifar10_eval_loader, shutdown_dataloader_workers
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
-    log_resolved_config,
+
     setup_mlflow,
     find_finished_model_run,
     resolve_seed,
@@ -142,11 +142,6 @@ def main(cfg: DictConfig) -> None:
                     ),
                     "label": safe_to_numpy_float64(results["labels"]),
                     "prediction": safe_to_numpy_float64(results["preds"]),
-                    "confidence": safe_to_numpy_float64(
-                        results["probs"].numpy().max(axis=1)
-                        if hasattr(results["probs"], "numpy")
-                        else results["probs"].max(axis=1)
-                    ),
                 }
             )
 
@@ -156,7 +151,7 @@ def main(cfg: DictConfig) -> None:
                     tmpdir, f"{split}_inference_results.parquet"
                 )
                 eval_df.to_parquet(tabular_path, index=False)
-                mlflow.log_artifact(tabular_path, artifact_path="inference_data")
+                mlflow.log_artifact(tabular_path, artifact_path="inference")
 
                 # ─── 2. Save Heavy Matrices (Embeddings, Logits, Probs) ───
                 tensors_path = os.path.join(tmpdir, f"{split}_tensors.npz")
@@ -166,7 +161,7 @@ def main(cfg: DictConfig) -> None:
                     logits=results["logits"],
                     probs=results["probs"],  # The full Nx10 probability matrix
                 )
-                mlflow.log_artifact(tensors_path, artifact_path="inference_data")
+                mlflow.log_artifact(tensors_path, artifact_path="inference")
 
             # ─── 3. Quick Accuracy Logging ───
             acc = float((preds_np == labels_np).mean())
@@ -174,7 +169,6 @@ def main(cfg: DictConfig) -> None:
 
             print(f"Inference cached! Accuracy: {acc:.4f}")
 
-            log_resolved_config(cfg)
     finally:
         shutdown_dataloader_workers(loader)
 

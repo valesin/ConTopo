@@ -13,9 +13,7 @@ missing one — previously computed metrics are never recalculated.
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 
 import hydra
 import mlflow
@@ -26,7 +24,6 @@ from src.data.loaders import get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
-    log_resolved_config,
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
@@ -123,7 +120,7 @@ def main(cfg: DictConfig) -> None:
             # We can download predictions efficiently via tabular tracking
             df = load_mlflow_artifact(
                 inf_run_id,
-                f"inference_data/{split}_inference_results.parquet",
+                f"inference/{split}_inference_results.parquet",
                 file_type="parquet",
                 strict=True,
                 cache_dir=cfg.mlflow.artifact_cache_dir,
@@ -133,7 +130,7 @@ def main(cfg: DictConfig) -> None:
             if has_logits:
                 data = load_mlflow_artifact(
                     inf_run_id,
-                    f"inference_data/{split}_tensors.npz",
+                    f"inference/{split}_tensors.npz",
                     file_type="numpy",
                     strict=True,
                     cache_dir=cfg.mlflow.artifact_cache_dir,
@@ -157,11 +154,14 @@ def main(cfg: DictConfig) -> None:
                 split=split,
             )
 
+            component_run_ids_csv = ",".join(run_ids)
+
             tags = {
                 "ensemble_name": ens_name,
                 "component_set_hash": cs_hash,
                 "identity_hash": step_identity_hash,
                 "run_name": f"{ens_name}_{metric_name}",
+                "component_run_ids_csv": component_run_ids_csv,
             }
 
             with schema_start_run(
@@ -179,24 +179,9 @@ def main(cfg: DictConfig) -> None:
                 )
                 mlflow.log_metric(metric_name, float(value))
 
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    # Save metric file
-                    metric_path = os.path.join(tmpdir, f"{metric_name}.json")
-                    with open(metric_path, "w") as f:
-                        json.dump({metric_name: float(value)}, f, indent=2)
-                    mlflow.log_artifact(metric_path, artifact_path="diversity")
-
-                    # Log component IDs
-                    comp_path = os.path.join(tmpdir, "component_run_ids.json")
-                    with open(comp_path, "w") as f:
-                        json.dump({"component_run_ids": run_ids}, f, indent=2)
-                    mlflow.log_artifact(comp_path, artifact_path="diversity")
-
                 log_dataset_lineage(
                     labels, split, cfg.dataset.name, context="evaluation"
                 )
-
-                log_resolved_config(cfg)
 
             print(f"    {metric_name}={float(value):.4f}  run_id={div_run.info.run_id}")
 

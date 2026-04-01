@@ -7,7 +7,8 @@ weight_decay: 0.0
 momentum: 0.9             # only used for SGD
 scheduler: none           # none (extend later: cosine, step, ...)
 amp: false                # automatic mixed precision — changes numerics
-save_freq_epochs: 20      # save checkpoint every N epochs
+save_freq_epochs: 20      # save checkpoint every N epochs (only used when save_checkpoints=true)
+save_checkpoints: false   # set true to save periodic checkpoints; e2e_best is always saved
 early_stopping_patience: 25
 
 # Grad-norm balancer for topographic loss
