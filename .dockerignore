@@ -37,7 +37,9 @@ Thumbs.db
 
 # Repo-specific
 save/
-# DO NOT IGNORE dataset/*
+# Ignore datasets in the general build context copy; the Dockerfile will
+# COPY dataset/ explicitly into its own layer so code edits don't invalidate it.
+dataset/
 # But do NOT ignore conf/dataset/ (configs)
 !conf/dataset/
 
