@@ -21,6 +21,11 @@ RUN uv pip install --system --no-cache \
 # Copy full project (code + dataset)
 COPY . .
 
+# Download CIFAR-10 if not present in build context
+RUN if [ ! -d "dataset/cifar-10-batches-py" ]; then \
+    python -c "import torchvision; torchvision.datasets.CIFAR10('dataset', download=True)"; \
+    fi
+
 ENV PYTHONPATH=/workspace/ConTopo
 
 CMD ["bash"]
