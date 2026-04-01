@@ -17,14 +17,6 @@ set -e
 RHOS=(0.0 0.008 0.04 0.2 1.0 5.0)
 TRIALS=(0 1 2 3 4 5 6 7 8 9)
 
-SECRETS=(
-  --secret AWS_ACCESS_KEY_ID
-  --secret AWS_SECRET_ACCESS_KEY
-  --secret MLFLOW_S3_ENDPOINT_URL
-  --secret MLFLOW_TRACKING_USERNAME
-  --secret MLFLOW_TRACKING_PASSWORD
-)
-
 SUBMITTED=0
 
 for RHO in "${RHOS[@]}"; do
@@ -35,7 +27,6 @@ for RHO in "${RHOS[@]}"; do
       --name "$JOB_NAME" \
       --env LOSS_RHO="$RHO" \
       --env TRIAL="$TRIAL" \
-      "${SECRETS[@]}" \
       -y
     SUBMITTED=$((SUBMITTED + 1))
   done
