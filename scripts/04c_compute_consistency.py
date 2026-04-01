@@ -32,7 +32,7 @@ from src.config.paths import get_anchors_dir
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     component_set_hash,
-    log_resolved_config,
+
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
@@ -123,7 +123,7 @@ def main(cfg: DictConfig) -> None:
             # 2. Download the tracked tensor artifact
             data = load_mlflow_artifact(
                 inf_run_id,
-                f"inference_data/{split}_tensors.npz",
+                f"inference/{split}_tensors.npz",
                 file_type="numpy",
                 strict=True,
                 cache_dir=cfg.mlflow.artifact_cache_dir,
@@ -206,7 +206,6 @@ def main(cfg: DictConfig) -> None:
                 context="evaluation",
             )
 
-            log_resolved_config(cfg)
 
         print(f"  Done. mean_rsa={mean_rsa:.4f}  run_id={cons_run.info.run_id}")
 

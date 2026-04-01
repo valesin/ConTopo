@@ -39,7 +39,7 @@ from src.mlflow_utils import (
     behaviour_tags,
     component_set_hash,
     find_finished_ensemble_run,
-    log_resolved_config,
+
     setup_mlflow,
     get_inference_run,
     load_mlflow_artifact,
@@ -81,7 +81,7 @@ def _load_inference_artifacts(run_ids, exp_id, split="test"):
         # 2. Download the tracked tensor artifact
         data = load_mlflow_artifact(
             inf_run_id,
-            f"inference_data/{split}_tensors.npz",
+            f"inference/{split}_tensors.npz",
             file_type="numpy",
             strict=True,
             cache_dir=cfg.mlflow.artifact_cache_dir,
@@ -189,7 +189,7 @@ def _run_votes(
                 composition_path = os.path.join(tmpdir, "composition_map.json")
                 with open(composition_path, "w") as f:
                     json.dump(composition_map, f, indent=4)
-                mlflow.log_artifact(composition_path, artifact_path="ensemble_data")
+                mlflow.log_artifact(composition_path, artifact_path="ensemble")
 
             # ── Ensemble Inference Tracking Parity (Parquet/NPZ) ──
             eval_df = pd.DataFrame(
@@ -197,11 +197,6 @@ def _run_votes(
                     "original_index": safe_to_numpy_float64(torch.arange(len(labels))),
                     "label": safe_to_numpy_float64(labels),
                     "prediction": safe_to_numpy_float64(preds),
-                    "confidence": safe_to_numpy_float64(
-                        probs.numpy().max(axis=1)
-                        if hasattr(probs, "numpy")
-                        else probs.max(axis=1)
-                    ),
                 }
             )
 
@@ -219,14 +214,13 @@ def _run_votes(
                     probs=probs.numpy() if hasattr(probs, "numpy") else probs,
                 )
 
-                mlflow.log_artifact(tabular_path, artifact_path="ensemble_data")
-                mlflow.log_artifact(tensors_path, artifact_path="ensemble_data")
+                mlflow.log_artifact(tabular_path, artifact_path="ensemble")
+                mlflow.log_artifact(tensors_path, artifact_path="ensemble")
 
             log_dataset_lineage(
                 labels, split_name, cfg.dataset.name, context="evaluation"
             )
 
-            log_resolved_config(cfg)
             print(
                 f"  vote/{method}: acc={acc:.4f} (comp_mean={comp['mean_acc']:.4f})  run_id={run.info.run_id}"
             )

@@ -58,6 +58,68 @@ def _sanitize_artifact_path(artifact_path: str) -> str:
     return normalized
 
 
+# ── Backward-compatibility: artifact path rename map ──────────────────────
+# In April 2025 the pipeline artifact paths were normalised:
+#   inference_data/ → inference/   (matches run kind)
+#   ensemble_data/  → ensemble/    (matches run kind)
+#   adapter_inputs/ → inputs/      (drop redundant prefix inside metalearner run)
+#   adapter_data/   → data/        (drop redundant prefix inside metalearner run)
+#
+# Runs executed *before* that change still store artifacts under the old names.
+# _legacy_artifact_path() maps a new-style path to its old equivalent so that
+# load_mlflow_artifact() can transparently fall back when the primary URI is absent.
+_LEGACY_ARTIFACT_PATHS: dict[str, str] = {
+    "inference/": "inference_data/",
+    "ensemble/": "ensemble_data/",
+    "inputs/": "adapter_inputs/",
+    "data/": "adapter_data/",
+}
+
+
+def _legacy_artifact_path(artifact_path: str) -> str | None:
+    """Return the pre-rename equivalent of *artifact_path*, or None if no mapping exists."""
+    for new_prefix, old_prefix in _LEGACY_ARTIFACT_PATHS.items():
+        if artifact_path.startswith(new_prefix):
+            return old_prefix + artifact_path[len(new_prefix):]
+    return None
+
+
+def _download_artifact_uri(artifact_uri: str, dst_path: str | None = None) -> str:
+    """Download an artifact by URI, falling back to the pre-rename path on MlflowException.
+
+    This is the single choke-point for all artifact downloads inside
+    load_mlflow_artifact().  Callers never need to know about legacy paths.
+    """
+    from mlflow.exceptions import MlflowException
+
+    kwargs: dict = {"artifact_uri": artifact_uri}
+    if dst_path is not None:
+        kwargs["dst_path"] = dst_path
+
+    try:
+        return mlflow.artifacts.download_artifacts(**kwargs)
+    except MlflowException:
+        # Extract the artifact_path portion from "runs:/{run_id}/{artifact_path}"
+        prefix = "runs:/"
+        if not artifact_uri.startswith(prefix):
+            raise  # Not a run-relative URI — nothing we can do
+
+        run_id_part, _, artifact_path_part = artifact_uri[len(prefix):].partition("/")
+        legacy_path = _legacy_artifact_path(artifact_path_part)
+        if legacy_path is None:
+            raise  # No mapping for this path — re-raise the original error
+
+        legacy_uri = f"runs:/{run_id_part}/{legacy_path}"
+        logging.getLogger(__name__).warning(
+            "Artifact not found at '%s'; retrying with legacy path '%s'. "
+            "Consider re-running the producing script to migrate this run.",
+            artifact_uri,
+            legacy_uri,
+        )
+        kwargs["artifact_uri"] = legacy_uri
+        return mlflow.artifacts.download_artifacts(**kwargs)
+
+
 def _load_artifact_from_local_path(
     local_path: str,
     run_id: str,
@@ -173,16 +235,15 @@ def load_mlflow_artifact(
             pass
         else:
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            downloaded = mlflow.artifacts.download_artifacts(
-                artifact_uri=artifact_uri,
-                dst_path=os.path.dirname(local_path),
+            downloaded = _download_artifact_uri(
+                artifact_uri, dst_path=os.path.dirname(local_path)
             )
             if os.path.exists(local_path):
                 pass
             else:
                 local_path = downloaded
     else:
-        local_path = mlflow.artifacts.download_artifacts(artifact_uri=artifact_uri)
+        local_path = _download_artifact_uri(artifact_uri)
 
     if file_type == "auto":
         if normalized_artifact_path.endswith(
@@ -223,9 +284,8 @@ def load_mlflow_artifact(
                 pass
         local_path = os.path.join(cache_root, run_id, normalized_artifact_path)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        downloaded = mlflow.artifacts.download_artifacts(
-            artifact_uri=artifact_uri,
-            dst_path=os.path.dirname(local_path),
+        downloaded = _download_artifact_uri(
+            artifact_uri, dst_path=os.path.dirname(local_path)
         )
         if not os.path.exists(local_path):
             local_path = downloaded

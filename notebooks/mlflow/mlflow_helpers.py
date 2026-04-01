@@ -204,9 +204,9 @@ def get_run_artifact_uri(run_id: str) -> str:
 
 
 def download_inference_artifacts(
-    run_id: str, artifact_path: str = "inference_data", dst_path: str | None = None
+    run_id: str, artifact_path: str = "inference", dst_path: str | None = None
 ) -> dict:
-    """Download inference_data artifacts and return local paths dict."""
+    """Download inference artifacts and return local paths dict."""
     local_dir = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path, dst_path=dst_path
     )
@@ -220,7 +220,7 @@ def download_inference_artifacts(
 
 
 def load_inference_results(
-    run_id: str, artifact_path: str = "inference_data"
+    run_id: str, artifact_path: str = "inference"
 ) -> tuple[pl.DataFrame, dict]:
     """Download and load inference artifacts. Returns (results_df, tensors_dict)."""
     import numpy as _np
@@ -275,7 +275,7 @@ def load_profile_results(
 def download_adapter_inputs(
     run_id: str,
     behaviour_input_hash: str | None = None,
-    artifact_path: str = "adapter_inputs",
+    artifact_path: str = "inputs",
     dst_path: str | None = None,
 ) -> dict:
     """Download adapter inputs and return local paths dict."""
@@ -301,7 +301,7 @@ def download_adapter_inputs(
 def load_adapter_inputs(
     run_id: str,
     behaviour_input_hash: str | None = None,
-    artifact_path: str = "adapter_inputs",
+    artifact_path: str = "inputs",
 ) -> tuple[dict, dict]:
     """Download and load adapter inputs. Returns (paths_dict, inputs_dict)."""
     import numpy as _np
@@ -321,7 +321,7 @@ def load_inference_results_from_model_run_id(
     experiment: mlflow.entities.Experiment,
     trained_model_run_id: str,
     split: str = "test",
-    artifact_path: str = "inference_data",
+    artifact_path: str = "inference",
 ) -> tuple[pl.DataFrame, dict]:
     """Find the FINISHED inference run for a model and load its data."""
     filter_string = (

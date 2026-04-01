@@ -185,7 +185,7 @@ for rec in linked.to_dicts():
     try:
         if inf_run_id not in embeddings_cache:
             _, inf_tensors = mh.load_inference_results(
-                inf_run_id, artifact_path="inference_data"
+                inf_run_id, artifact_path="inference"
             )
             embeddings_cache[inf_run_id] = inf_tensors["embeddings"]
         if prof_run_id not in profiles_cache:
@@ -403,7 +403,7 @@ artifact_inputs_available = False
 
 try:
     infos = mlflow.artifacts.list_artifacts(
-        run_id=meta_run_id, artifact_path="adapter_inputs"
+        run_id=meta_run_id, artifact_path="inputs"
     )
     paths = [i.path for i in infos]
     npz_candidates = [p for p in paths if p.endswith(".npz") and "adapter_inputs_" in p]
