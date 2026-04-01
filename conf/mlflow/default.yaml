@@ -5,8 +5,8 @@
 # tracking_uri: sqlite:///${hydra:runtime.cwd}/outputs/mlflow.db
 # artifact_location: ${hydra:runtime.cwd}/outputs/mlruns
 
-tracking_uri: https://dagshub.com/valesin/ConTopo.mlflow
-artifact_location: s3://contopotest/mlruns
+tracking_uri: https://dagshub.com/valesin/ConTopoTEST.mlflow
+artifact_location: s3://contopotesting/mlruns
 artifact_cache_dir: ${hydra:runtime.cwd}/outputs/mlflow_artifact_cache
 experiment_name: contopo2
 enable_system_metrics: false
