@@ -16,7 +16,6 @@ import pandas as pd
 import polars as pl
 from pathlib import Path
 
-
 # ── Raw list functions ────────────────────────────────────────────────────────
 # Return the full search_runs result as a Polars DataFrame.
 # Use for ad-hoc exploration, schema inspection, or joins across kinds.
@@ -30,7 +29,9 @@ def _search_kind(experiment: mlflow.entities.Experiment, kind: str) -> pl.DataFr
         )
     )
     if df.is_empty():
-        warnings.warn(f"No runs found for kind='{kind}' in experiment '{experiment.name}'.")
+        warnings.warn(
+            f"No runs found for kind='{kind}' in experiment '{experiment.name}'."
+        )
     return df
 
 
@@ -46,7 +47,9 @@ def get_base_model_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
     return _search_kind(experiment, "model")
 
 
-def get_category_similarity_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
+def get_category_similarity_list(
+    experiment: mlflow.entities.Experiment,
+) -> pl.DataFrame:
     return _search_kind(experiment, "category_similarity_profile")
 
 
@@ -146,10 +149,7 @@ def get_metalearner_results(
     if exp is None:
         return pd.DataFrame()
 
-    filter_str = (
-        "tags.kind = 'metalearner' and "
-        "attributes.status = 'FINISHED'"
-    )
+    filter_str = "tags.kind = 'metalearner' and " "attributes.status = 'FINISHED'"
     runs = mlflow.search_runs(
         experiment_ids=[exp.experiment_id],
         filter_string=filter_str,
@@ -263,7 +263,9 @@ def load_profile_results(
     import torch as _torch
 
     paths = download_profile_artifacts(
-        run_id=run_id, split=split, similarity_metric=similarity_metric,
+        run_id=run_id,
+        split=split,
+        similarity_metric=similarity_metric,
         artifact_path=artifact_path,
     )
     profile_tensor = None
@@ -307,7 +309,8 @@ def load_adapter_inputs(
     import numpy as _np
 
     paths = download_adapter_inputs(
-        run_id=run_id, behaviour_input_hash=behaviour_input_hash,
+        run_id=run_id,
+        behaviour_input_hash=behaviour_input_hash,
         artifact_path=artifact_path,
     )
     inputs_dict: dict = {}
@@ -364,6 +367,8 @@ def save_plot(
     if not name.endswith(".html"):
         name = f"{name}.html"
     path = d / name
-    fig.write_html(str(path), include_plotlyjs=include_plotlyjs, full_html=True, auto_open=False)
+    fig.write_html(
+        str(path), include_plotlyjs=include_plotlyjs, full_html=True, auto_open=False
+    )
     print(f"Plot saved: {path}")
     return path

@@ -26,6 +26,7 @@ import notebooks.mlflow.mlflow_helpers as mh
 from src.ensemble.selector import discover_ensembles
 from src.mlflow_utils import get_inference_run, get_profile_run, component_set_hash
 from src.data.loaders import get_split_labels
+
 print("experiment:", exp.name)
 
 # %% [markdown]
@@ -50,6 +51,7 @@ print(
 
 # %% [markdown]
 # ## 3) Normalize columns and build linked table (model → inference → profile)
+
 
 # %%
 # helpers
@@ -402,9 +404,7 @@ artifact_first_train_original_idx = None
 artifact_inputs_available = False
 
 try:
-    infos = mlflow.artifacts.list_artifacts(
-        run_id=meta_run_id, artifact_path="inputs"
-    )
+    infos = mlflow.artifacts.list_artifacts(run_id=meta_run_id, artifact_path="inputs")
     paths = [i.path for i in infos]
     npz_candidates = [p for p in paths if p.endswith(".npz") and "adapter_inputs_" in p]
     if npz_candidates:

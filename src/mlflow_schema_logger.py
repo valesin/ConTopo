@@ -6,7 +6,6 @@ from typing import Any, Mapping
 
 import mlflow
 
-
 # ───────────────── timed upload helpers ─────────────────
 
 
@@ -46,7 +45,11 @@ def timed_log_artifact(local_path: str, **kwargs) -> None:
 
     artifact_path = kwargs.get("artifact_path", "")
     fname = os.path.basename(local_path)
-    desc = f"Logging artifact: {artifact_path}/{fname}" if artifact_path else f"Logging artifact: {fname}"
+    desc = (
+        f"Logging artifact: {artifact_path}/{fname}"
+        if artifact_path
+        else f"Logging artifact: {fname}"
+    )
     with _timed_log(desc):
         mlflow.log_artifact(local_path, **kwargs)
 
@@ -56,6 +59,7 @@ def timed_log_model(model, **kwargs) -> None:
     name = kwargs.get("name", "model")
     with _timed_log(f"Logging PyTorch model: {name}"):
         mlflow.pytorch.log_model(model, **kwargs)
+
 
 ALLOWED_PARAMS: dict[str, set[str]] = {
     "model": {
@@ -254,11 +258,15 @@ def start_run(kind: str, run_name: str, tags: Mapping[str, Any] | None = None):
     merged_tags = {"kind": kind, **(tags or {})}
     _check_keys(kind, merged_tags, ALLOWED_TAGS[kind], "tag")
     start = datetime.now()
-    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})")
+    print(
+        f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})"
+    )
     result = mlflow.start_run(run_name=run_name, tags=_clean_tags(merged_tags))
     end = datetime.now()
     elapsed = (end - start).total_seconds()
-    print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind}) completed in {elapsed:.1f}s")
+    print(
+        f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind}) completed in {elapsed:.1f}s"
+    )
     return result
 
 
@@ -278,4 +286,3 @@ def log_tags(kind: str, tags: Mapping[str, Any]) -> None:
     if cleaned:
         with _timed_log(f"Logging tags (kind={kind}, n={len(cleaned)})"):
             mlflow.set_tags(cleaned)
-

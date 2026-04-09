@@ -128,7 +128,9 @@ class TestCfgHash:
         c1 = _make_cfg()
         c2 = OmegaConf.merge(
             _make_cfg(),
-            OmegaConf.create({"groups": {"group_by": ["topology"], "min_components": 5}}),
+            OmegaConf.create(
+                {"groups": {"group_by": ["topology"], "min_components": 5}}
+            ),
         )
         assert cfg_hash(c1) == cfg_hash(c2)
 

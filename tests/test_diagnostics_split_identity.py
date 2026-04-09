@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from src.config.hash import identity_hash
 
-
 _BASE = {
     "parent_run_id": "run_abc123",
     "diagnostic_metric": "morans_i",

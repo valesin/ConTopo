@@ -51,6 +51,7 @@ def model_identity_fields(cfg: DictConfig, seed: int) -> dict[str, str]:
     fields.update(flatten_identity_section("training", cfg.training))
     return fields
 
+
 EXCLUDED_KEYS = frozenset(
     {
         "runtime",

@@ -20,6 +20,7 @@ import notebooks.mlflow.mlflow_helpers as mh
 from src.ensemble.selector import discover_ensembles
 from src.mlflow_utils import get_inference_run, get_profile_run, component_set_hash
 from src.data.loaders import get_split_labels
+
 print("experiment:", exp.name)
 
 # %% [markdown]
@@ -85,6 +86,7 @@ target_metric = "cosine"
 profiles = mh.get_category_similarity_list(exp)
 
 print("models:", models.shape, "inference:", inf.shape, "profiles:", profiles.shape)
+
 
 # %%
 # 5.2 Normalize run tables
@@ -315,9 +317,7 @@ for run_id in run_ids:
         raise RuntimeError(f"Missing '{split}' inference for {run_id}")
     inf_run_id = inf_runs.iloc[0].run_id
 
-    _, inf_tensors = mh.load_inference_results(
-        inf_run_id, artifact_path="inference"
-    )
+    _, inf_tensors = mh.load_inference_results(inf_run_id, artifact_path="inference")
     if "embeddings" not in inf_tensors:
         raise KeyError(f"Missing embeddings for inference run {inf_run_id}")
     emb_all = torch.from_numpy(inf_tensors["embeddings"]).float().cpu()
@@ -503,9 +503,26 @@ meta_component_set_hash = str(_first_val(metal_ref, ["tags.component_set_hash"],
 
 print("meta_run_id:", meta_run_id)
 print("selected feature_type:", _first_val(metal_ref, ["feature_type_sel"], "?"))
-print("selected rho:", _first_val(metal_ref, ["rho_sel"], "?"), "| desired_rho:", desired_rho)
-print("selected split:", _first_val(metal_ref, ["split_sel"], "?"), "| desired_split:", desired_split)
-print("meta_split_seed:", meta_split_seed, "| train:", meta_split_train, "| val:", meta_split_val)
+print(
+    "selected rho:",
+    _first_val(metal_ref, ["rho_sel"], "?"),
+    "| desired_rho:",
+    desired_rho,
+)
+print(
+    "selected split:",
+    _first_val(metal_ref, ["split_sel"], "?"),
+    "| desired_split:",
+    desired_split,
+)
+print(
+    "meta_split_seed:",
+    meta_split_seed,
+    "| train:",
+    meta_split_train,
+    "| val:",
+    meta_split_val,
+)
 print("meta_similarity_metric:", meta_similarity_metric)
 print("component_set_hash (selected):", meta_component_set_hash)
 if expected_component_set_hash is not None:
@@ -558,9 +575,7 @@ artifact_first_train_original_idx = None
 artifact_inputs_available = False
 
 try:
-    infos = mlflow.artifacts.list_artifacts(
-        run_id=meta_run_id, artifact_path="inputs"
-    )
+    infos = mlflow.artifacts.list_artifacts(run_id=meta_run_id, artifact_path="inputs")
     paths = [i.path for i in infos]
     npz_candidates = [p for p in paths if p.endswith(".npz") and "adapter_inputs_" in p]
     if npz_candidates:

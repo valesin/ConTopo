@@ -14,7 +14,11 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-from notebooks.mlflow.mlflow_helpers import get_metalearner_results, get_ensemble_results
+from notebooks.mlflow.mlflow_helpers import (
+    get_metalearner_results,
+    get_ensemble_results,
+)
+
 print("experiment:", experiment.name)
 
 # %%
@@ -51,7 +55,11 @@ plot_df = merged.melt(
 )
 
 plot_df["line_type"] = plot_df.apply(
-    lambda r: "Ensemble Accuracy" if r["metric_type"] == "ensemble_accuracy" else r["meta_type"],
+    lambda r: (
+        "Ensemble Accuracy"
+        if r["metric_type"] == "ensemble_accuracy"
+        else r["meta_type"]
+    ),
     axis=1,
 )
 

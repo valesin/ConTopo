@@ -6,9 +6,11 @@
 # all values of the topographic regularisation weight ρ.
 
 # %% CONFIG
-SPLIT = "test"          # inference split used by ensemble runs
-VOTE_METHOD = "soft"    # ensemble voting method to use as baseline
-SIM_METRIC = "cosine"   # similarity metric filter for metalearner runs (None = no filter)
+SPLIT = "test"  # inference split used by ensemble runs
+VOTE_METHOD = "soft"  # ensemble voting method to use as baseline
+SIM_METRIC = (
+    "cosine"  # similarity metric filter for metalearner runs (None = no filter)
+)
 EXCLUDE_META_TYPES = ["meta_mlp_3"]  # set to [] to include all
 
 # %% SETUP
@@ -16,7 +18,12 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-from notebooks.mlflow.mlflow_helpers import get_metalearner_results, get_ensemble_results, save_plot
+from notebooks.mlflow.mlflow_helpers import (
+    get_metalearner_results,
+    get_ensemble_results,
+    save_plot,
+)
+
 print(f"Experiment: {experiment.name}")
 
 # %% LOAD
@@ -28,14 +35,28 @@ print(f"Metalearner runs:  {len(ml_df)}")
 print(f"Ensemble runs:     {len(ens_df)}")
 
 if not ml_df.empty:
-    print("\nUnique rho values:     ", sorted(ml_df["rho_numeric"].dropna().unique().tolist()))
-    print("Unique feature_type:   ", sorted(ml_df["feature_type"].dropna().unique().tolist()))
-    print("Unique meta_type:      ", sorted(ml_df["meta_type"].dropna().unique().tolist()))
+    print(
+        "\nUnique rho values:     ",
+        sorted(ml_df["rho_numeric"].dropna().unique().tolist()),
+    )
+    print(
+        "Unique feature_type:   ",
+        sorted(ml_df["feature_type"].dropna().unique().tolist()),
+    )
+    print(
+        "Unique meta_type:      ", sorted(ml_df["meta_type"].dropna().unique().tolist())
+    )
     if "profile_mask" in ml_df.columns:
-        print("Unique profile_mask:   ", sorted(ml_df["profile_mask"].dropna().unique().tolist()))
+        print(
+            "Unique profile_mask:   ",
+            sorted(ml_df["profile_mask"].dropna().unique().tolist()),
+        )
 
 if not ens_df.empty:
-    print("\nUnique vote_method:    ", sorted(ens_df["vote_method"].dropna().unique().tolist()))
+    print(
+        "\nUnique vote_method:    ",
+        sorted(ens_df["vote_method"].dropna().unique().tolist()),
+    )
 
 # %% FILTER
 import pandas as pd
@@ -52,13 +73,19 @@ if SIM_METRIC is not None and "similarity_metric" in ml_filtered.columns:
 if EXCLUDE_META_TYPES and "meta_type" in ml_filtered.columns:
     ml_filtered = ml_filtered[~ml_filtered["meta_type"].isin(EXCLUDE_META_TYPES)]
 
-ens_filtered = ens_df[ens_df["vote_method"] == VOTE_METHOD] if not ens_df.empty else ens_df
+ens_filtered = (
+    ens_df[ens_df["vote_method"] == VOTE_METHOD] if not ens_df.empty else ens_df
+)
 
 print(f"Metalearner rows after filter: {len(ml_filtered)}")
 print(f"Ensemble rows after filter:    {len(ens_filtered)}")
 
 if not ml_filtered.empty:
-    group_cols = ["meta_type", "feature_type", "profile_mask"] if "profile_mask" in ml_filtered.columns else ["meta_type", "feature_type"]
+    group_cols = (
+        ["meta_type", "feature_type", "profile_mask"]
+        if "profile_mask" in ml_filtered.columns
+        else ["meta_type", "feature_type"]
+    )
     counts = (
         ml_filtered.groupby(group_cols)
         .size()
@@ -77,8 +104,7 @@ if not ml_filtered.empty and "profile_mask" in ml_filtered.columns:
 
 if not ml_filtered.empty:
     ml_agg = (
-        ml_filtered
-        .groupby(GROUP_COLS)["accuracy"]
+        ml_filtered.groupby(GROUP_COLS)["accuracy"]
         .agg(["mean", "std"])
         .reset_index()
         .rename(columns={"mean": "acc_mean", "std": "acc_std"})
@@ -90,8 +116,7 @@ else:
 # Ensemble baseline: mean ± std per rho_numeric
 if not ens_filtered.empty:
     ens_agg = (
-        ens_filtered
-        .groupby("rho_numeric")["accuracy"]
+        ens_filtered.groupby("rho_numeric")["accuracy"]
         .agg(["mean", "std"])
         .reset_index()
         .rename(columns={"mean": "ens_mean", "std": "ens_std"})
@@ -101,8 +126,7 @@ if not ens_filtered.empty:
     comp_agg = None
     if "comp_mean_acc" in ens_filtered.columns:
         comp_agg = (
-            ens_filtered
-            .groupby("rho_numeric")["comp_mean_acc"]
+            ens_filtered.groupby("rho_numeric")["comp_mean_acc"]
             .agg(["mean", "std"])
             .reset_index()
             .rename(columns={"mean": "comp_mean", "std": "comp_std"})
@@ -123,19 +147,23 @@ _colors = _px.colors.qualitative.Plotly
 
 pairs = (
     sorted(ml_agg.groupby(["meta_type", "feature_type"]).groups.keys())
-    if not ml_agg.empty else []
+    if not ml_agg.empty
+    else []
 )
 profile_masks = (
     sorted(ml_agg["profile_mask"].dropna().unique().tolist())
-    if not ml_agg.empty and "profile_mask" in ml_agg.columns else []
+    if not ml_agg.empty and "profile_mask" in ml_agg.columns
+    else []
 )
 
 # Build equally-spaced positions from all rho values across ml_agg + baselines
-all_rhos = sorted(set(
-    ml_agg["rho_numeric"].dropna().tolist()
-    + (ens_agg["rho_numeric"].dropna().tolist() if not ens_agg.empty else [])
-    + (comp_agg["rho_numeric"].dropna().tolist() if comp_agg is not None else [])
-))
+all_rhos = sorted(
+    set(
+        ml_agg["rho_numeric"].dropna().tolist()
+        + (ens_agg["rho_numeric"].dropna().tolist() if not ens_agg.empty else [])
+        + (comp_agg["rho_numeric"].dropna().tolist() if comp_agg is not None else [])
+    )
+)
 rho_to_pos = {v: i for i, v in enumerate(all_rhos)}
 rho_labels = [str(int(v) if v == int(v) else v) for v in all_rhos]
 
@@ -147,7 +175,9 @@ fig = go.Figure()
 
 for pair_idx, (meta_type, feature_type) in enumerate(pairs):
     group_name = f"{meta_type} / {feature_type}"
-    pair_df = ml_agg[(ml_agg["meta_type"] == meta_type) & (ml_agg["feature_type"] == feature_type)]
+    pair_df = ml_agg[
+        (ml_agg["meta_type"] == meta_type) & (ml_agg["feature_type"] == feature_type)
+    ]
     is_first_pair = pair_idx == 0
 
     for mask_idx, pm in enumerate(profile_masks):
@@ -155,46 +185,80 @@ for pair_idx, (meta_type, feature_type) in enumerate(pairs):
         if mask_df.empty:
             continue
         color = _colors[mask_idx % len(_colors)]
-        x = [rho_to_pos[v] + jitter_offsets[mask_idx] for v in mask_df["rho_numeric"].tolist()]
+        x = [
+            rho_to_pos[v] + jitter_offsets[mask_idx]
+            for v in mask_df["rho_numeric"].tolist()
+        ]
 
-        fig.add_trace(go.Scatter(
-            x=x, y=mask_df["acc_mean"].tolist(),
-            name=pm,
-            legendgroup=group_name,
-            legendgrouptitle_text=group_name if mask_idx == 0 else None,
-            showlegend=True,
-            visible=True if is_first_pair else "legendonly",
-            mode="lines+markers",
-            line=dict(color=color), marker=dict(color=color, size=6),
-            error_y=dict(type="data", array=mask_df["acc_std"].tolist(), visible=True, color=color, thickness=1.5),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=mask_df["acc_mean"].tolist(),
+                name=pm,
+                legendgroup=group_name,
+                legendgrouptitle_text=group_name if mask_idx == 0 else None,
+                showlegend=True,
+                visible=True if is_first_pair else "legendonly",
+                mode="lines+markers",
+                line=dict(color=color),
+                marker=dict(color=color, size=6),
+                error_y=dict(
+                    type="data",
+                    array=mask_df["acc_std"].tolist(),
+                    visible=True,
+                    color=color,
+                    thickness=1.5,
+                ),
+            )
+        )
 
 # Baselines — always visible, own legend group
 if not ens_agg.empty:
     ens_sorted = ens_agg.sort_values("rho_numeric")
-    fig.add_trace(go.Scatter(
-        x=[rho_to_pos[v] for v in ens_sorted["rho_numeric"].tolist()],
-        y=ens_sorted["ens_mean"].tolist(),
-        name=f"ensemble ({VOTE_METHOD})",
-        legendgroup="baselines", legendgrouptitle_text="baselines",
-        showlegend=True, visible=True,
-        mode="lines+markers", line=dict(color="black", dash="dash"),
-        marker=dict(color="black", size=6),
-        error_y=dict(type="data", array=ens_sorted["ens_std"].tolist(), visible=True, color="black", thickness=1.5),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[rho_to_pos[v] for v in ens_sorted["rho_numeric"].tolist()],
+            y=ens_sorted["ens_mean"].tolist(),
+            name=f"ensemble ({VOTE_METHOD})",
+            legendgroup="baselines",
+            legendgrouptitle_text="baselines",
+            showlegend=True,
+            visible=True,
+            mode="lines+markers",
+            line=dict(color="black", dash="dash"),
+            marker=dict(color="black", size=6),
+            error_y=dict(
+                type="data",
+                array=ens_sorted["ens_std"].tolist(),
+                visible=True,
+                color="black",
+                thickness=1.5,
+            ),
+        )
+    )
 
 if comp_agg is not None:
     comp_sorted = comp_agg.sort_values("rho_numeric")
-    fig.add_trace(go.Scatter(
-        x=[rho_to_pos[v] for v in comp_sorted["rho_numeric"].tolist()],
-        y=comp_sorted["comp_mean"].tolist(),
-        name="component mean",
-        legendgroup="baselines",
-        showlegend=True, visible=True,
-        mode="lines+markers", line=dict(color="gray", dash="dot"),
-        marker=dict(color="gray", size=6),
-        error_y=dict(type="data", array=comp_sorted["comp_std"].tolist(), visible=True, color="gray", thickness=1.5),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[rho_to_pos[v] for v in comp_sorted["rho_numeric"].tolist()],
+            y=comp_sorted["comp_mean"].tolist(),
+            name="component mean",
+            legendgroup="baselines",
+            showlegend=True,
+            visible=True,
+            mode="lines+markers",
+            line=dict(color="gray", dash="dot"),
+            marker=dict(color="gray", size=6),
+            error_y=dict(
+                type="data",
+                array=comp_sorted["comp_std"].tolist(),
+                visible=True,
+                color="gray",
+                thickness=1.5,
+            ),
+        )
+    )
 
 fig.update_layout(
     title="Meta-learner holdout accuracy vs ρ",
