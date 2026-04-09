@@ -26,20 +26,21 @@ from omegaconf import DictConfig
 from src.data.loaders import get_cifar10_eval_loader, shutdown_dataloader_workers
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
-
     setup_mlflow,
     find_finished_model_run,
     resolve_seed,
     resolve_device,
     get_run_context,
     safe_to_numpy_float64,
-    get_inference_run,
+    find_finished_identity_run,
     log_dataset_lineage,
 )
 from src.config.hash import cfg_hash, identity_hash
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
+    timed_log_artifact,
+    timed_log_metric,
 )
 
 
@@ -53,7 +54,9 @@ def main(cfg: DictConfig) -> None:
 
     # ── Find parent model run ──
     hash_val = cfg_hash(cfg)  # kept for tagging the inference run
-    model_run, model_hash = find_finished_model_run(cfg.mlflow.experiment_name, cfg, seed)
+    model_run, model_hash = find_finished_model_run(
+        cfg.mlflow.experiment_name, cfg, seed
+    )
     if model_run is None:
         print(
             f"No trained model found (identity_hash={model_hash}). "
@@ -74,11 +77,16 @@ def main(cfg: DictConfig) -> None:
 
     split = cfg.execution.split
     device = resolve_device(cfg.runtime.device)
+    inf_identity_hash = identity_hash(
+        "inference", trained_model_run_id=run_id, split=split
+    )
 
     # Check if this specific inference run already exists
     if not cfg.execution.force:
-        inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
-        if not inf_runs.empty:
+        existing = find_finished_identity_run(
+            cfg.mlflow.experiment_name, "inference", inf_identity_hash
+        )
+        if existing is not None:
             print(
                 f"Inference already cached for model {run_id} on split {split}. Skipping."
             )
@@ -101,9 +109,7 @@ def main(cfg: DictConfig) -> None:
             "trained_model_run_id": run_id,  # Link back to the trained model
             "parent_run_name": parent_run_name,
             "cfg_hash": hash_val,
-            "identity_hash": identity_hash(
-                "inference", trained_model_run_id=run_id, split=split
-            ),
+            "identity_hash": inf_identity_hash,
         }
 
         with schema_start_run(
@@ -151,7 +157,7 @@ def main(cfg: DictConfig) -> None:
                     tmpdir, f"{split}_inference_results.parquet"
                 )
                 eval_df.to_parquet(tabular_path, index=False)
-                mlflow.log_artifact(tabular_path, artifact_path="inference")
+                timed_log_artifact(tabular_path, artifact_path="inference")
 
                 # ─── 2. Save Heavy Matrices (Embeddings, Logits, Probs) ───
                 tensors_path = os.path.join(tmpdir, f"{split}_tensors.npz")
@@ -161,11 +167,11 @@ def main(cfg: DictConfig) -> None:
                     logits=results["logits"],
                     probs=results["probs"],  # The full Nx10 probability matrix
                 )
-                mlflow.log_artifact(tensors_path, artifact_path="inference")
+                timed_log_artifact(tensors_path, artifact_path="inference")
 
             # ─── 3. Quick Accuracy Logging ───
             acc = float((preds_np == labels_np).mean())
-            mlflow.log_metric("accuracy", acc)
+            timed_log_metric("accuracy", acc)
 
             print(f"Inference cached! Accuracy: {acc:.4f}")
 

@@ -14,11 +14,15 @@ Usage:
 from __future__ import annotations
 
 import copy
+import warnings
 import hydra
 import mlflow
 from mlflow.models.signature import infer_signature
 from numpy.exceptions import VisibleDeprecationWarning
 import torch
+
+# Suppress torchvision's NumPy 2.4 deprecation warning in CIFAR dataset loading
+warnings.filterwarnings("ignore", category=VisibleDeprecationWarning)
 import torch.backends.cudnn as cudnn
 from omegaconf import DictConfig
 from torch.amp import GradScaler
@@ -46,11 +50,10 @@ from src.training.train_ce import train_one_epoch, validate
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
+    timed_log_metrics,
+    timed_log_metric,
+    timed_log_model,
 )
-import warnings
-
-# Filter out the specific NumPy deprecation warning
-warnings.filterwarnings("ignore", category=VisibleDeprecationWarning, module="numpy")
 
 
 def _build_optimiser(cfg: DictConfig, model):
@@ -111,11 +114,12 @@ def main(cfg: DictConfig) -> None:
     try:
         # ── Device ──
         device = resolve_device(cfg.runtime.device)
-        print(f"Using device: {device}")
 
         # ── Model ──
         model = build_model(cfg, ret_emb=True)
         model = model.to(device)
+
+        # ── Data Parallel on multi-GPU setups ──
         if (
             cfg.runtime.data_parallel
             and device.type == "cuda"
@@ -273,7 +277,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # ── Log metrics to MLflow ──
-                mlflow.log_metrics(
+                timed_log_metrics(
                     {
                         "train_total_loss": metrics["total_loss"],
                         "train_task_loss": metrics["task_loss"],
@@ -289,7 +293,7 @@ def main(cfg: DictConfig) -> None:
                 # ── Periodic checkpoint ──
                 if cfg.training.save_checkpoints and epoch % save_freq == 0:
                     checkpoint_name = f"checkpoint_epoch{epoch:04d}"
-                    mlflow.pytorch.log_model(
+                    timed_log_model(
                         unwrap(model),
                         name=checkpoint_name,
                         signature=signature,
@@ -324,12 +328,12 @@ def main(cfg: DictConfig) -> None:
             )
 
             # Log final metrics
-            mlflow.log_metric("test_accuracy", test_acc)
-            mlflow.log_metric("test_loss", test_loss)
-            mlflow.log_metric("best_val_acc", best_val_acc)
+            timed_log_metric("test_accuracy", test_acc)
+            timed_log_metric("test_loss", test_loss)
+            timed_log_metric("best_val_acc", best_val_acc)
 
             # ── Log the finalized best model artifact ONCE ──
-            mlflow.pytorch.log_model(
+            timed_log_model(
                 unwrap(model),
                 name="e2e_best",
                 signature=signature,

@@ -99,10 +99,11 @@ def get_cifar10_loaders(cfg: DictConfig):
         root=root, train=False, transform=eval_transform, download=True
     )
 
-    bs = cfg.training.batch_size
-    nw = cfg.runtime.num_workers
-    pin = cfg.runtime.pin_memory
-    persistent = cfg.runtime.persistent_workers and nw > 0
+    bs = int(cfg.training.batch_size)
+    nw = int(cfg.runtime.num_workers)
+    pin = bool(cfg.runtime.pin_memory) if isinstance(cfg.runtime.pin_memory, str) else cfg.runtime.pin_memory
+    persistent = bool(cfg.runtime.persistent_workers) if isinstance(cfg.runtime.persistent_workers, str) else cfg.runtime.persistent_workers
+    persistent = persistent and nw > 0
 
     train_loader = DataLoader(
         Subset(train_ds, train_indices),

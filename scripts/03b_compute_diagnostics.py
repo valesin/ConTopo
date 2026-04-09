@@ -24,7 +24,6 @@ from __future__ import annotations
 import os
 import hydra
 import mlflow
-import mlflow.artifacts
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
@@ -32,12 +31,11 @@ from omegaconf import DictConfig
 import tempfile
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
-
     setup_mlflow,
-    load_finished_model,
+    find_finished_model_run,
     resolve_seed,
     resolve_device,
-    get_inference_run,
+    find_finished_identity_run,
     load_mlflow_artifact,
     find_finished_diagnostic_run,
     get_run_context,
@@ -50,6 +48,8 @@ from src.data.loaders import get_split_labels
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
+    timed_log_metric,
+    timed_log_artifact,
 )
 
 
@@ -94,7 +94,7 @@ def _log_diagnostic_run(
         schema_log_params("diagnostics", params)
 
         for k, v in metrics.items():
-            mlflow.log_metric(k, v)
+            timed_log_metric(k, v)
 
         log_dataset_lineage(
             get_split_labels(cfg, cfg.execution.split),
@@ -109,8 +109,7 @@ def _log_diagnostic_run(
                 if fname.startswith(metric_name):
                     fpath = os.path.join(artifact_dir, fname)
                     if os.path.isfile(fpath):
-                        mlflow.log_artifact(fpath, artifact_path="diagnostics")
-
+                        timed_log_artifact(fpath, artifact_path="diagnostics")
 
     metric_str = "  ".join(f"{k}={v:.4f}" for k, v in metrics.items())
     print(f"    {metric_name}: {metric_str}  run_id={diag_run.info.run_id}")
@@ -138,13 +137,15 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Target specific model by ID ──
-    model, run_id = load_finished_model(cfg.mlflow.experiment_name, cfg, seed)
+    model_run, _ = find_finished_model_run(cfg.mlflow.experiment_name, cfg, seed)
 
-    if run_id is None:
+    if model_run is None:
         print(
             "No trained model found for this config. Please run 01_train_models.py first."
         )
         return
+
+    run_id = model_run.info.run_id
 
     split = cfg.execution.split
     force = cfg.execution.force
@@ -186,10 +187,15 @@ def main(cfg: DictConfig) -> None:
     # ── Fetch corresponding Inference Run (for Moran's I) ──
     inf_run_id = None
     if "morans_i" in needed:
-        inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
+        inf_identity = identity_hash(
+            "inference", trained_model_run_id=run_id, split=split
+        )
+        inf_run = find_finished_identity_run(
+            cfg.mlflow.experiment_name, "inference", inf_identity
+        )
 
-        if len(inf_runs) > 0:
-            inf_run_id = inf_runs.iloc[0].run_id
+        if inf_run is not None:
+            inf_run_id = inf_run.info.run_id
         else:
             print(
                 f"  WARN: No inference run found for split '{split}'. Skipping morans_i."
@@ -228,6 +234,8 @@ def main(cfg: DictConfig) -> None:
             m for m in needed if m in ("weight_norms", "unit_distance_correlation")
         ]
         if weight_needed:
+            # Load model weights only when needed for weight-based diagnostics
+            model = mlflow.pytorch.load_model(f"runs:/{run_id}/e2e_best")
             # Safely unwrap model to target the `fc` layer directly
             base_model = unwrap(model).to(device)
             fc_layer = getattr(base_model, "fc", None)

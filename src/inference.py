@@ -43,11 +43,8 @@ def run_combined_model_inference(
         bs = labs.size(0)
 
         out = model(images)
-        if isinstance(out, (tuple, list)):
-            embeddings_batch, logits = out[0], out[-1]
-        else:
-            logits = out
-            embeddings_batch = out  # if no separate embeddings
+        # Expects (embeddings, logits) — fails loudly if model output shape is wrong.
+        embeddings_batch, logits = out[0], out[1]
 
         batch_preds = logits.argmax(dim=1)
         logits_cpu = logits.detach().cpu()

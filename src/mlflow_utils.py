@@ -16,6 +16,7 @@ import os
 import logging
 import tempfile
 import pandas as pd
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 import mlflow
@@ -202,7 +203,12 @@ def log_resolved_config(cfg: DictConfig) -> None:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(OmegaConf.to_yaml(cfg, resolve=True))
         f.flush()
+        start = datetime.now()
+        print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml")
         mlflow.log_artifact(f.name, artifact_path="config")
+        end = datetime.now()
+        elapsed = (end - start).total_seconds()
+        print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml completed in {elapsed:.1f}s")
         os.unlink(f.name)
 
 
@@ -327,7 +333,12 @@ def log_dataset_lineage(
     eval_dataset = mlflow.data.from_pandas(
         dataset_df, targets="label", name=f"{dataset_name}_{split}"
     )
+    start = datetime.now()
+    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context})")
     mlflow.log_input(eval_dataset, context=context)
+    end = datetime.now()
+    elapsed = (end - start).total_seconds()
+    print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context}) completed in {elapsed:.1f}s")
 
 
 # ───────────────── idempotency ─────────────────
@@ -609,36 +620,4 @@ def find_finished_similarity_profile_run(
     """Check if a category_similarity_profile run already exists."""
     return find_finished_identity_run(
         experiment_name, "category_similarity_profile", identity_hash_val
-    )
-
-
-def get_profile_run(
-    experiment_id_or_name: str | list[str],
-    trained_model_run_id: str,
-    similarity_metric: str,
-    split: str = "test",
-) -> pd.DataFrame:
-    """
-    Fetch the corresponding FINISHED profile run for a given model run and split.
-    Returns a pandas DataFrame of matching runs.
-    """
-    if isinstance(experiment_id_or_name, str):
-        exp = mlflow.get_experiment_by_name(experiment_id_or_name)
-        if exp is None:
-            return pd.DataFrame()
-        experiment_ids = [exp.experiment_id]
-    else:
-        # Assume it's an iterable of experiment IDs
-        experiment_ids = list(experiment_id_or_name)
-
-    filter_str = (
-        f"tags.kind = 'category_similarity_profile' and "
-        f"tags.parent_run_id = '{trained_model_run_id}' and "
-        f"params.similarity_metric = '{similarity_metric}' and "
-        f"params.split = '{split}' and "
-        f"attributes.status = 'FINISHED'"
-    )
-    return mlflow.search_runs(
-        experiment_ids=experiment_ids,
-        filter_string=filter_str,
     )

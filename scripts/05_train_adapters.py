@@ -10,14 +10,19 @@ appended as additional features.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import tempfile
+import warnings
 import numpy as np
 from numpy.exceptions import VisibleDeprecationWarning
 import pandas as pd
 
 import hydra
+
+# Suppress torchvision's NumPy 2.4 deprecation warning in CIFAR dataset loading
+warnings.filterwarnings("ignore", category=VisibleDeprecationWarning)
 import mlflow
 import torch.backends.cudnn as cudnn
 from mlflow.models.signature import infer_signature
@@ -35,8 +40,7 @@ from src.mlflow_utils import (
     find_finished_metalearner_run,
     log_resolved_config,
     setup_mlflow,
-    get_inference_run,
-    get_profile_run,
+    find_finished_identity_run,
     load_mlflow_artifact,
     set_torch_seed,
     resolve_device,
@@ -56,12 +60,11 @@ from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
     log_tags as schema_log_tags,
+    timed_log_metrics,
+    timed_log_artifact,
+    timed_log_model,
 )
 
-import warnings
-
-# Filter out the specific NumPy deprecation warning
-warnings.filterwarnings("ignore", category=VisibleDeprecationWarning, module="numpy")
 
 # ─── LOGIC ───
 
@@ -115,6 +118,8 @@ def _train_adapter(
     criterion = nn.CrossEntropyLoss()
 
     history = []
+    best_val_acc = -1.0
+    best_state: dict | None = None
 
     for epoch in range(epochs):
         model.train()
@@ -142,15 +147,23 @@ def _train_adapter(
                 val_correct += (torch.argmax(out, dim=1) == y).sum().item()
                 val_total += X.size(0)
 
+        val_acc = val_correct / max(val_total, 1)
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_state = copy.deepcopy(model.state_dict())
+
         history.append(
             {
                 "epoch": epoch,
                 "train_loss": train_loss / max(train_total, 1),
                 "train_acc": train_correct / max(train_total, 1),
                 "val_loss": val_loss / max(val_total, 1),
-                "val_acc": val_correct / max(val_total, 1),
+                "val_acc": val_acc,
             }
         )
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
     return model, history
 
 
@@ -205,7 +218,25 @@ def _apply_profile_mask(
     component_logit_preds: list[torch.Tensor | None],
     indices: np.ndarray | None = None,
 ) -> torch.Tensor:
-    """Apply a single profile mask to P (N, M, C) → (N, M, C-1) or (N, M, C)."""
+    """Apply a single profile mask to P (N, M, C) → (N, M, C-1) or (N, M, C).
+
+    Removes one class dimension per sample before RDM computation so that the
+    resulting features reflect inter-model agreement structure rather than
+    raw class affinity.
+
+    Modes:
+      true_class          - removes the ground-truth class (requires labels;
+                            causes label leakage if applied to holdout).
+      argmax_similarity   - removes the class with highest mean similarity across
+                            models (label-free, safe at inference time).
+      argmax_logits       - removes the class with highest mean ensemble logit
+                            (label-free, safe at inference time).
+      none                - no masking; returns P unchanged.
+
+    Hybrid modes (defined in _HYBRID_MASKS) apply true_class to train/val and
+    an argmax variant to holdout, eliminating leakage at evaluation while
+    preserving a stronger training signal.
+    """
     N, M, C = P.shape
 
     if not torch.isfinite(P).all():
@@ -456,23 +487,34 @@ def main(cfg: DictConfig) -> None:
                 component_logit_preds = []
 
                 for run_id in run_ids:
-                    inf_runs = get_inference_run(
-                        cfg.mlflow.experiment_name, run_id, split
+                    inf_identity = identity_hash(
+                        "inference", trained_model_run_id=run_id, split=split
                     )
-                    if inf_runs.empty:
+                    inf_run = find_finished_identity_run(
+                        cfg.mlflow.experiment_name, "inference", inf_identity
+                    )
+                    if inf_run is None:
                         raise RuntimeError(f"Missing '{split}' inference for {run_id}")
-                    inf_run_id = inf_runs.iloc[0].run_id
+                    inf_run_id = inf_run.info.run_id
 
                     if use_profiles:
-                        prof_runs = get_profile_run(
-                            cfg.mlflow.experiment_name, run_id, similarity_metric, split
+                        prof_identity = identity_hash(
+                            "category_similarity_profile",
+                            parent_run_id=run_id,
+                            anchor_spec_hash=anchor_spec_hash,
+                            similarity_metric=similarity_metric,
+                            split=split,
                         )
-                        if prof_runs.empty:
+                        prof_run = find_finished_identity_run(
+                            cfg.mlflow.experiment_name,
+                            "category_similarity_profile",
+                            prof_identity,
+                        )
+                        if prof_run is None:
                             raise RuntimeError(
                                 f"Missing '{similarity_metric}' profile for {run_id}"
                             )
-
-                        prof_run_id = prof_runs.iloc[0].run_id
+                        prof_run_id = prof_run.info.run_id
                         inf_prof_node = load_mlflow_artifact(
                             prof_run_id,
                             f"profiles/{split}_{similarity_metric}_profiles.pt",
@@ -513,7 +555,9 @@ def main(cfg: DictConfig) -> None:
                             raise KeyError(
                                 f"Missing embeddings in inference/{split}_tensors.npz for run {inf_run_id}"
                             )
-                        base_tensor = torch.from_numpy(data["embeddings"])
+                        base_tensor = torch.nn.functional.normalize(
+                            torch.from_numpy(data["embeddings"]).float(), p=2, dim=1
+                        )
                     else:
                         raise ValueError(f"Unknown feature_type: {feature_type}")
 
@@ -661,7 +705,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # 6. Logging
-                mlflow.log_metrics(
+                timed_log_metrics(
                     {
                         "holdout_loss": hold_loss,
                         "holdout_acc": hold_acc,
@@ -745,12 +789,10 @@ def main(cfg: DictConfig) -> None:
                     df_hold.to_parquet(tabular_path, index=False)
                     np.savez_compressed(tensors_path, probs=hold_probs.numpy())
 
-                    mlflow.log_artifact(inputs_path, artifact_path="inputs")
-                    mlflow.log_artifact(
-                        split_trace_path, artifact_path="inputs"
-                    )
-                    mlflow.log_artifact(tabular_path, artifact_path="data")
-                    mlflow.log_artifact(tensors_path, artifact_path="data")
+                    timed_log_artifact(inputs_path, artifact_path="inputs")
+                    timed_log_artifact(split_trace_path, artifact_path="inputs")
+                    timed_log_artifact(tabular_path, artifact_path="data")
+                    timed_log_artifact(tensors_path, artifact_path="data")
 
                 log_dataset_lineage(
                     y_all[train_idx],
@@ -778,7 +820,7 @@ def main(cfg: DictConfig) -> None:
 
                 signature = infer_signature(input_example_np, output_example_np)
 
-                mlflow.pytorch.log_model(
+                timed_log_model(
                     model,
                     name="model",
                     signature=signature,
