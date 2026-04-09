@@ -17,6 +17,7 @@ def _cifar10(*args, **kwargs):
     with contextlib.redirect_stdout(io.StringIO()):
         return datasets.CIFAR10(*args, **kwargs)
 
+
 DATASET_NUM_CLASSES: dict[str, int] = {
     "cifar10": 10,
 }
@@ -89,20 +90,22 @@ def get_cifar10_loaders(cfg: DictConfig):
     val_per_class = cfg.dataset.split.val_per_class
     train_indices, val_indices = _split_train_val_indices(root, val_per_class)
 
-    train_ds = _cifar10(
-        root=root, train=True, transform=train_transform, download=True
-    )
-    val_ds = _cifar10(
-        root=root, train=True, transform=eval_transform, download=True
-    )
-    test_ds = _cifar10(
-        root=root, train=False, transform=eval_transform, download=True
-    )
+    train_ds = _cifar10(root=root, train=True, transform=train_transform, download=True)
+    val_ds = _cifar10(root=root, train=True, transform=eval_transform, download=True)
+    test_ds = _cifar10(root=root, train=False, transform=eval_transform, download=True)
 
     bs = int(cfg.training.batch_size)
     nw = int(cfg.runtime.num_workers)
-    pin = bool(cfg.runtime.pin_memory) if isinstance(cfg.runtime.pin_memory, str) else cfg.runtime.pin_memory
-    persistent = bool(cfg.runtime.persistent_workers) if isinstance(cfg.runtime.persistent_workers, str) else cfg.runtime.persistent_workers
+    pin = (
+        bool(cfg.runtime.pin_memory)
+        if isinstance(cfg.runtime.pin_memory, str)
+        else cfg.runtime.pin_memory
+    )
+    persistent = (
+        bool(cfg.runtime.persistent_workers)
+        if isinstance(cfg.runtime.persistent_workers, str)
+        else cfg.runtime.persistent_workers
+    )
     persistent = persistent and nw > 0
 
     train_loader = DataLoader(
@@ -180,9 +183,7 @@ def get_cifar10_eval_loader(
     _, eval_transform = get_transforms(preset)
 
     if split == "test":
-        ds = _cifar10(
-            root=root, train=False, download=True, transform=eval_transform
-        )
+        ds = _cifar10(root=root, train=False, download=True, transform=eval_transform)
         return DataLoader(
             ds,
             batch_size=batch_size,

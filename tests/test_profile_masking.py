@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 import torch
 
-
 _SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "05_train_adapters.py"
 _SPEC = importlib.util.spec_from_file_location("train_adapters_script", _SCRIPT_PATH)
 _MODULE = importlib.util.module_from_spec(_SPEC)

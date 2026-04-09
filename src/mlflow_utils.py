@@ -81,7 +81,7 @@ def _legacy_artifact_path(artifact_path: str) -> str | None:
     """Return the pre-rename equivalent of *artifact_path*, or None if no mapping exists."""
     for new_prefix, old_prefix in _LEGACY_ARTIFACT_PATHS.items():
         if artifact_path.startswith(new_prefix):
-            return old_prefix + artifact_path[len(new_prefix):]
+            return old_prefix + artifact_path[len(new_prefix) :]
     return None
 
 
@@ -105,7 +105,7 @@ def _download_artifact_uri(artifact_uri: str, dst_path: str | None = None) -> st
         if not artifact_uri.startswith(prefix):
             raise  # Not a run-relative URI — nothing we can do
 
-        run_id_part, _, artifact_path_part = artifact_uri[len(prefix):].partition("/")
+        run_id_part, _, artifact_path_part = artifact_uri[len(prefix) :].partition("/")
         legacy_path = _legacy_artifact_path(artifact_path_part)
         if legacy_path is None:
             raise  # No mapping for this path — re-raise the original error
@@ -204,11 +204,15 @@ def log_resolved_config(cfg: DictConfig) -> None:
         f.write(OmegaConf.to_yaml(cfg, resolve=True))
         f.flush()
         start = datetime.now()
-        print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml")
+        print(
+            f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml"
+        )
         mlflow.log_artifact(f.name, artifact_path="config")
         end = datetime.now()
         elapsed = (end - start).total_seconds()
-        print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml completed in {elapsed:.1f}s")
+        print(
+            f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml completed in {elapsed:.1f}s"
+        )
         os.unlink(f.name)
 
 
@@ -334,11 +338,15 @@ def log_dataset_lineage(
         dataset_df, targets="label", name=f"{dataset_name}_{split}"
     )
     start = datetime.now()
-    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context})")
+    print(
+        f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context})"
+    )
     mlflow.log_input(eval_dataset, context=context)
     end = datetime.now()
     elapsed = (end - start).total_seconds()
-    print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context}) completed in {elapsed:.1f}s")
+    print(
+        f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context}) completed in {elapsed:.1f}s"
+    )
 
 
 # ───────────────── idempotency ─────────────────

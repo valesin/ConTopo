@@ -7,6 +7,7 @@ cfg, experiment = setup_environment()
 
 import notebooks.mlflow.mlflow_helpers as mh
 from notebooks.mlflow.mlflow_helpers import save_plot
+
 print("experiment:", experiment.name)
 
 # %%
@@ -27,11 +28,15 @@ cons.columns
 if cons.height == 0 or "tags.component_set_hash" not in cons.columns:
     print("No consistency runs found — skipping join.")
 else:
-    merged = ensembles.join(cons, on="tags.component_set_hash", how="inner", suffix="_cons")
+    merged = ensembles.join(
+        cons, on="tags.component_set_hash", how="inner", suffix="_cons"
+    )
     print("merged rows:", merged.height)
     display(merged.columns)
 
-    ens_cons = merged[["run_id", "run_id_cons", "tags.rho", "metrics.mean_rsa_correlation"]]
+    ens_cons = merged[
+        ["run_id", "run_id_cons", "tags.rho", "metrics.mean_rsa_correlation"]
+    ]
     display(ens_cons.sort("tags.rho"))
 
 # %% PLOT
@@ -43,8 +48,7 @@ else:
     import pandas as pd
 
     agg = (
-        ens_cons
-        .with_columns(pl.col("tags.rho").cast(pl.Float64).alias("rho_numeric"))
+        ens_cons.with_columns(pl.col("tags.rho").cast(pl.Float64).alias("rho_numeric"))
         .to_pandas()
         .groupby("rho_numeric")["metrics.mean_rsa_correlation"]
         .agg(["mean", "std", "count"])
@@ -58,14 +62,23 @@ else:
     x_pos = list(range(len(rho_vals)))
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x_pos, y=agg["mean"].tolist(),
-        mode="lines+markers",
-        marker=dict(size=8, color="steelblue"),
-        line=dict(color="steelblue"),
-        error_y=dict(type="data", array=agg["std"].tolist(), visible=True, color="steelblue", thickness=1.5),
-        name="mean RSA correlation",
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=x_pos,
+            y=agg["mean"].tolist(),
+            mode="lines+markers",
+            marker=dict(size=8, color="steelblue"),
+            line=dict(color="steelblue"),
+            error_y=dict(
+                type="data",
+                array=agg["std"].tolist(),
+                visible=True,
+                color="steelblue",
+                thickness=1.5,
+            ),
+            name="mean RSA correlation",
+        )
+    )
     fig.update_layout(
         title="Ensemble consistency (RSA correlation) vs ρ",
         xaxis=dict(tickvals=x_pos, ticktext=rho_labels, title="ρ"),

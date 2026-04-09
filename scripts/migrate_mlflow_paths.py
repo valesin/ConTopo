@@ -23,14 +23,21 @@ def migrate(db_path: Path, new_root: str, dry_run: bool) -> None:
     for table in all_tables:
         cur.execute(f"PRAGMA table_info({table})")  # noqa: S608
         columns = [(row[1], row[2]) for row in cur.fetchall()]  # (name, type)
-        text_columns = [name for name, typ in columns if "TEXT" in typ.upper() or "CHAR" in typ.upper() or "CLOB" in typ.upper()]
+        text_columns = [
+            name
+            for name, typ in columns
+            if "TEXT" in typ.upper() or "CHAR" in typ.upper() or "CLOB" in typ.upper()
+        ]
 
         # Find primary key
         cur.execute(f"PRAGMA table_info({table})")  # noqa: S608
         pk_col = next((row[1] for row in cur.fetchall() if row[5] == 1), None)
 
         for column in text_columns:
-            cur.execute(f"SELECT {pk_col}, {column} FROM {table} WHERE {column} LIKE ?", (f"%{OLD_ROOT}%",))  # noqa: S608
+            cur.execute(
+                f"SELECT {pk_col}, {column} FROM {table} WHERE {column} LIKE ?",
+                (f"%{OLD_ROOT}%",),
+            )  # noqa: S608
             rows = cur.fetchall()
 
             if not rows:
@@ -41,7 +48,10 @@ def migrate(db_path: Path, new_root: str, dry_run: bool) -> None:
                 new_val = old_val.replace(OLD_ROOT, new_root)
                 print(f"  {old_val!r}\n  -> {new_val!r}")
                 if not dry_run:
-                    cur.execute(f"UPDATE {table} SET {column} = ? WHERE {pk_col} = ?", (new_val, row_id))  # noqa: S608
+                    cur.execute(
+                        f"UPDATE {table} SET {column} = ? WHERE {pk_col} = ?",
+                        (new_val, row_id),
+                    )  # noqa: S608
 
     if dry_run:
         print("\n[dry-run] No changes written.")
@@ -54,7 +64,9 @@ def migrate(db_path: Path, new_root: str, dry_run: bool) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview changes without writing"
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[1]

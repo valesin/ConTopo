@@ -42,6 +42,7 @@ When you make a schema change, edit ONE OR BOTH of the following:
     # Apply:
     uv run scripts/migrate_model_identity_hashes.py --experiment contopo --apply
 """
+
 from __future__ import annotations
 
 import argparse
@@ -162,7 +163,9 @@ def compute_model_identity_from_cfg(cfg: dict) -> tuple[str, Dict[str, str]]:
 
     model_section = _canonical_section(cfg.get("model", {}), ModelConfig)
     loss_section = _canonical_section(cfg.get("loss", {}), LossConfig)
-    dataset_section = _canonical_section(_normalise_dataset(cfg.get("dataset", {})), DatasetConfig)
+    dataset_section = _canonical_section(
+        _normalise_dataset(cfg.get("dataset", {})), DatasetConfig
+    )
     training_section = _canonical_section(cfg.get("training", {}), TrainingConfig)
 
     fields: Dict[str, str] = {}
@@ -171,7 +174,12 @@ def compute_model_identity_from_cfg(cfg: dict) -> tuple[str, Dict[str, str]]:
     fields.update(_flatten_section("dataset", dataset_section))
     fields.update(_flatten_section("training", training_section))
 
-    all_fields = {"schema_version": schema_version, "trial": trial, "seed": seed, **fields}
+    all_fields = {
+        "schema_version": schema_version,
+        "trial": trial,
+        "seed": seed,
+        **fields,
+    }
     h = identity_hash("model", **all_fields)
     return h, all_fields
 
@@ -189,7 +197,9 @@ def main():
     )
     parser.add_argument("--tracking-uri", default=None, help="MLflow tracking URI")
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Print computed identity fields for each patched run",
     )
     args = parser.parse_args()
@@ -234,7 +244,9 @@ def main():
         try:
             new_identity, identity_fields = compute_model_identity_from_cfg(cfg)
         except Exception as e:
-            logging.warning("Hash computation failed for run %s: %s; skipping", run_id, e)
+            logging.warning(
+                "Hash computation failed for run %s: %s; skipping", run_id, e
+            )
             skipped += 1
             continue
 
