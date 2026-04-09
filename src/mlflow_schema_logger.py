@@ -1,8 +1,61 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from datetime import datetime
 from typing import Any, Mapping
 
 import mlflow
+
+
+# ───────────────── timed upload helpers ─────────────────
+
+
+@contextmanager
+def _timed_log(description: str):
+    """Context manager that prints wall-clock start/end timestamps around an MLflow upload."""
+    start = datetime.now()
+    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — {description}")
+    try:
+        yield
+    finally:
+        end = datetime.now()
+        elapsed = (end - start).total_seconds()
+        print(
+            f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — {description} "
+            f"completed in {elapsed:.1f}s"
+        )
+
+
+def timed_log_metrics(metrics: dict, **kwargs) -> None:
+    """Wrapper around ``mlflow.log_metrics`` with timing output."""
+    step = kwargs.get("step", "")
+    desc = f"Logging metrics (step={step})" if step != "" else "Logging metrics"
+    with _timed_log(desc):
+        mlflow.log_metrics(metrics, **kwargs)
+
+
+def timed_log_metric(key: str, value: float, **kwargs) -> None:
+    """Wrapper around ``mlflow.log_metric`` with timing output."""
+    with _timed_log(f"Logging metric: {key}={value}"):
+        mlflow.log_metric(key, value, **kwargs)
+
+
+def timed_log_artifact(local_path: str, **kwargs) -> None:
+    """Wrapper around ``mlflow.log_artifact`` with timing output."""
+    import os
+
+    artifact_path = kwargs.get("artifact_path", "")
+    fname = os.path.basename(local_path)
+    desc = f"Logging artifact: {artifact_path}/{fname}" if artifact_path else f"Logging artifact: {fname}"
+    with _timed_log(desc):
+        mlflow.log_artifact(local_path, **kwargs)
+
+
+def timed_log_model(model, **kwargs) -> None:
+    """Wrapper around ``mlflow.pytorch.log_model`` with timing output."""
+    name = kwargs.get("name", "model")
+    with _timed_log(f"Logging PyTorch model: {name}"):
+        mlflow.pytorch.log_model(model, **kwargs)
 
 ALLOWED_PARAMS: dict[str, set[str]] = {
     "model": {
@@ -200,7 +253,13 @@ def start_run(kind: str, run_name: str, tags: Mapping[str, Any] | None = None):
     _ensure_known_kind(kind)
     merged_tags = {"kind": kind, **(tags or {})}
     _check_keys(kind, merged_tags, ALLOWED_TAGS[kind], "tag")
-    return mlflow.start_run(run_name=run_name, tags=_clean_tags(merged_tags))
+    start = datetime.now()
+    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})")
+    result = mlflow.start_run(run_name=run_name, tags=_clean_tags(merged_tags))
+    end = datetime.now()
+    elapsed = (end - start).total_seconds()
+    print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind}) completed in {elapsed:.1f}s")
+    return result
 
 
 def log_params(kind: str, params: Mapping[str, Any]) -> None:
@@ -208,7 +267,8 @@ def log_params(kind: str, params: Mapping[str, Any]) -> None:
     cleaned = _clean_params(params)
     _check_keys(kind, cleaned, ALLOWED_PARAMS[kind], "param")
     if cleaned:
-        mlflow.log_params(cleaned)
+        with _timed_log(f"Logging params (kind={kind}, n={len(cleaned)})"):
+            mlflow.log_params(cleaned)
 
 
 def log_tags(kind: str, tags: Mapping[str, Any]) -> None:
@@ -216,4 +276,6 @@ def log_tags(kind: str, tags: Mapping[str, Any]) -> None:
     cleaned = _clean_tags(tags)
     _check_keys(kind, cleaned, ALLOWED_TAGS[kind], "tag")
     if cleaned:
-        mlflow.set_tags(cleaned)
+        with _timed_log(f"Logging tags (kind={kind}, n={len(cleaned)})"):
+            mlflow.set_tags(cleaned)
+

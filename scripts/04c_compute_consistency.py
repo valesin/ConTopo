@@ -20,7 +20,6 @@ import os
 import tempfile
 
 import hydra
-import mlflow
 import numpy as np
 import torch
 from omegaconf import DictConfig
@@ -32,9 +31,8 @@ from src.config.paths import get_anchors_dir
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     component_set_hash,
-
     setup_mlflow,
-    get_inference_run,
+    find_finished_identity_run,
     load_mlflow_artifact,
     find_finished_consistency_run,
     log_dataset_lineage,
@@ -43,6 +41,8 @@ from src.profiling.rdm import pearson_rdm, rsa_correlation
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
+    timed_log_metric,
+    timed_log_artifact,
 )
 
 
@@ -109,16 +109,21 @@ def main(cfg: DictConfig) -> None:
 
         for run_id in run_ids:
             # Find the corresponding inference run
-            inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
+            inf_identity = identity_hash(
+                "inference", trained_model_run_id=run_id, split=split
+            )
+            inf_run = find_finished_identity_run(
+                cfg.mlflow.experiment_name, "inference", inf_identity
+            )
 
-            if inf_runs.empty:
+            if inf_run is None:
                 print(
                     f"  SKIP: embeddings not cached for {run_id} via related inference logs"
                 )
                 skip = True
                 break
 
-            inf_run_id = inf_runs.iloc[0].run_id
+            inf_run_id = inf_run.info.run_id
 
             # 2. Download the tracked tensor artifact
             data = load_mlflow_artifact(
@@ -179,7 +184,7 @@ def main(cfg: DictConfig) -> None:
                     "anchors_per_class": anchors_cfg.per_class,
                 },
             )
-            mlflow.log_metric("mean_rsa_correlation", mean_rsa)
+            timed_log_metric("mean_rsa_correlation", mean_rsa)
 
             # Save and log all artifacts via tmpdir
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -196,7 +201,7 @@ def main(cfg: DictConfig) -> None:
                 for fname in os.listdir(tmpdir):
                     fpath = os.path.join(tmpdir, fname)
                     if os.path.isfile(fpath):
-                        mlflow.log_artifact(fpath, artifact_path="consistency")
+                        timed_log_artifact(fpath, artifact_path="consistency")
 
             labels_subset = labels[anchor_indices]
             log_dataset_lineage(
@@ -205,7 +210,6 @@ def main(cfg: DictConfig) -> None:
                 f"{cfg.dataset.name}_consistency_anchors",
                 context="evaluation",
             )
-
 
         print(f"  Done. mean_rsa={mean_rsa:.4f}  run_id={cons_run.info.run_id}")
 

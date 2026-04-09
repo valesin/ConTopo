@@ -26,7 +26,6 @@ import os
 import tempfile
 import hydra
 import mlflow
-import mlflow.artifacts
 import torch
 from omegaconf import DictConfig
 
@@ -41,9 +40,9 @@ from src.mlflow_utils import (
     find_finished_similarity_profile_run,
     log_resolved_config,
     setup_mlflow,
-    load_finished_model,
+    find_finished_model_run,
     resolve_seed,
-    get_inference_run,
+    find_finished_identity_run,
     load_mlflow_artifact,
     get_run_context,
     log_dataset_lineage,
@@ -52,6 +51,7 @@ from src.config.hash import identity_hash
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
+    timed_log_artifact,
 )
 
 
@@ -68,28 +68,32 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Target specific model by ID ──
-    model, run_id = load_finished_model(cfg.mlflow.experiment_name, cfg, seed)
+    model_run, _ = find_finished_model_run(cfg.mlflow.experiment_name, cfg, seed)
 
-    if run_id is None:
+    if model_run is None:
         print(
             "No trained model found for this config. Please run 01_train_models.py first."
         )
         return
+    run_id = model_run.info.run_id
 
     split = cfg.execution.split
     force = cfg.execution.force
     anchors_dir = get_anchors_dir(cfg)
 
     # ── Fetch corresponding Inference Run ──
-    inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
+    inf_identity = identity_hash("inference", trained_model_run_id=run_id, split=split)
+    inf_run = find_finished_identity_run(
+        cfg.mlflow.experiment_name, "inference", inf_identity
+    )
 
-    if len(inf_runs) == 0:
+    if inf_run is None:
         print(
             f"No inference run found for model {run_id} on split '{split}'. Please run 02_cache_inference.py first."
         )
         return
 
-    inf_run_id = inf_runs.iloc[0].run_id
+    inf_run_id = inf_run.info.run_id
 
     # ── Labels & Anchors ──
     labels = get_split_labels(cfg, split)
@@ -128,6 +132,11 @@ def main(cfg: DictConfig) -> None:
         )
         return
 
+    # Anchor embeddings are sliced from the same inference run as the profiled samples,
+    # so source_split must equal execution.split. Using train-split anchors (to avoid
+    # anchors appearing among the profiled samples) is not implemented: it would require
+    # a separate inference run for the train split, loading its embeddings independently,
+    # and using those as anchor_embeddings instead.
     anchor_embeddings = embeddings[anchor_indices]
 
     # Get parent model tags for logging
@@ -207,7 +216,7 @@ def main(cfg: DictConfig) -> None:
                     tmpdir, f"{split}_{similarity_metric}_profiles.pt"
                 )
                 torch.save(profiles, profile_path)
-                mlflow.log_artifact(profile_path, artifact_path="profiles")
+                timed_log_artifact(profile_path, artifact_path="profiles")
 
             log_dataset_lineage(labels, split, cfg.dataset.name, context="profiling")
 

@@ -13,10 +13,7 @@ missing one — previously computed metrics are never recalculated.
 
 from __future__ import annotations
 
-import os
-
 import hydra
-import mlflow
 import torch
 from omegaconf import DictConfig
 
@@ -25,7 +22,7 @@ from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     setup_mlflow,
-    get_inference_run,
+    find_finished_identity_run,
     load_mlflow_artifact,
     component_set_hash,
     find_finished_diversity_run,
@@ -35,6 +32,7 @@ from src.profiling.diversity import EvalContext, compute_metrics
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
+    timed_log_metric,
 )
 
 
@@ -99,23 +97,20 @@ def main(cfg: DictConfig) -> None:
 
         for i, run_id in enumerate(run_ids):
             # Find the corresponding inference run
-            inf_runs = get_inference_run(
-                [
-                    mlflow.get_experiment_by_name(
-                        cfg.mlflow.experiment_name
-                    ).experiment_id
-                ],
-                run_id,
-                split,
+            inf_identity = identity_hash(
+                "inference", trained_model_run_id=run_id, split=split
+            )
+            inf_run = find_finished_identity_run(
+                cfg.mlflow.experiment_name, "inference", inf_identity
             )
 
-            if inf_runs.empty:
+            if inf_run is None:
                 raise RuntimeError(
                     f"HARD FAIL: Could not find FINISHED '{split}' inference run for "
                     f"model {run_id}. Run scripts/02_cache_inference.py first."
                 )
 
-            inf_run_id = inf_runs.iloc[0].run_id
+            inf_run_id = inf_run.info.run_id
 
             # We can download predictions efficiently via tabular tracking
             df = load_mlflow_artifact(
@@ -177,7 +172,7 @@ def main(cfg: DictConfig) -> None:
                         "diversity_metric": metric_name,
                     },
                 )
-                mlflow.log_metric(metric_name, float(value))
+                timed_log_metric(metric_name, float(value))
 
                 log_dataset_lineage(
                     labels, split, cfg.dataset.name, context="evaluation"

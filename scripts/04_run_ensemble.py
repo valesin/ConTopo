@@ -24,7 +24,6 @@ import tempfile
 
 import hydra
 import mlflow
-import mlflow.artifacts
 import torch
 import numpy as np
 import pandas as pd
@@ -39,9 +38,8 @@ from src.mlflow_utils import (
     behaviour_tags,
     component_set_hash,
     find_finished_ensemble_run,
-
     setup_mlflow,
-    get_inference_run,
+    find_finished_identity_run,
     load_mlflow_artifact,
     get_run_context,
     safe_to_numpy_float64,
@@ -51,32 +49,37 @@ from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
     log_tags as schema_log_tags,
+    timed_log_metric,
+    timed_log_artifact,
 )
 
 
-def _load_inference_artifacts(run_ids, exp_id, split="test"):
+def _load_inference_artifacts(cfg, run_ids, split="test"):
     """
     Dynamically fetch MLflow artifacts for each component.
     Returns:
-       - logits_list: List of logits arrays across the ensemble
-       - labels: Ground truth array
+       - logits_list: List of logits tensors across the ensemble
        - composition_map: Dictionary tracking exact inference run ID per model
     """
     logits_list = []
-    labels = None
     composition_map = {}
 
     for i, model_run_id in enumerate(run_ids):
         # 1. Ask MLflow to find the exact inference run for this target model
-        inf_runs = get_inference_run([exp_id], model_run_id, split)
+        inf_identity = identity_hash(
+            "inference", trained_model_run_id=model_run_id, split=split
+        )
+        inf_run = find_finished_identity_run(
+            cfg.mlflow.experiment_name, "inference", inf_identity
+        )
 
-        if len(inf_runs) == 0:
+        if inf_run is None:
             raise RuntimeError(
                 f"HARD FAIL: inference run not found for target model {model_run_id} on split '{split}'. "
                 f"Please ensure 02_cache_inference.py was executed on the group."
             )
 
-        inf_run_id = inf_runs.iloc[0].run_id
+        inf_run_id = inf_run.info.run_id
 
         # 2. Download the tracked tensor artifact
         data = load_mlflow_artifact(
@@ -178,18 +181,18 @@ def _run_votes(
                 "ensemble", {"component_run_ids_csv": component_run_ids_csv}
             )
 
-            mlflow.log_metric("ensemble_accuracy", acc)
+            timed_log_metric("ensemble_accuracy", acc)
 
             comp = component_accuracies(logits_list, labels)
-            mlflow.log_metric("comp_mean_acc", comp["mean_acc"])
-            mlflow.log_metric("comp_max_acc", comp["max_acc"])
+            timed_log_metric("comp_mean_acc", comp["mean_acc"])
+            timed_log_metric("comp_max_acc", comp["max_acc"])
 
             # ── Link the Component Composition Artifact ──
             with tempfile.TemporaryDirectory() as tmpdir:
                 composition_path = os.path.join(tmpdir, "composition_map.json")
                 with open(composition_path, "w") as f:
                     json.dump(composition_map, f, indent=4)
-                mlflow.log_artifact(composition_path, artifact_path="ensemble")
+                timed_log_artifact(composition_path, artifact_path="ensemble")
 
             # ── Ensemble Inference Tracking Parity (Parquet/NPZ) ──
             eval_df = pd.DataFrame(
@@ -214,8 +217,8 @@ def _run_votes(
                     probs=probs.numpy() if hasattr(probs, "numpy") else probs,
                 )
 
-                mlflow.log_artifact(tabular_path, artifact_path="ensemble")
-                mlflow.log_artifact(tensors_path, artifact_path="ensemble")
+                timed_log_artifact(tabular_path, artifact_path="ensemble")
+                timed_log_artifact(tensors_path, artifact_path="ensemble")
 
             log_dataset_lineage(
                 labels, split_name, cfg.dataset.name, context="evaluation"
@@ -268,9 +271,7 @@ def main(cfg: DictConfig) -> None:
         print(f"  Components matched: {len(run_ids)} runs")
 
         # Load logits matrices + composition tracking metadata
-        logits_list, composition_map = _load_inference_artifacts(
-            run_ids, exp.experiment_id, split
-        )
+        logits_list, composition_map = _load_inference_artifacts(cfg, run_ids, split)
 
         # Determine Rho (unanimous or mixed)
         rhos = set()
