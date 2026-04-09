@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -38,4 +38,4 @@ COPY main.py __init__.py pyproject.toml ./
 
 ENV PYTHONPATH=/workspace/ConTopo
 
-CMD ["bash"]
+CMD ["bash", "-lc", "sleep infinity"]

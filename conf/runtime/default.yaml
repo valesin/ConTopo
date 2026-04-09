@@ -1,13 +1,13 @@
 # ── Runtime parameters (do NOT affect results → excluded from cfg_hash) ──
-device: ${oc.env:CONTOPO_DEVICE,cuda}            # auto | cuda | cpu
+device: cuda                                     # auto | cuda | cpu
 data_parallel: false                             # hardcoded: single-GPU per job only
-num_workers: ${oc.env:CONTOPO_NUM_WORKERS,1}
-pin_memory: ${oc.env:CONTOPO_PIN_MEMORY,true}
-persistent_workers: ${oc.env:CONTOPO_PERSISTENT_WORKERS,false}
+num_workers: 1
+pin_memory: true
+persistent_workers: false
 print_freq: 20
 
 # Paths (platform-specific)
-data_root: ${oc.env:CONTOPO_DATA_ROOT,./dataset}
+data_root: ./dataset
 outputs_root: outputs
 
 # Centralized output paths (all relative to outputs_root)
@@ -16,5 +16,5 @@ paths:
 
 # Inference caching
 inference:
-  batch_size: ${oc.env:CONTOPO_INFERENCE_BATCH_SIZE,256}
-  num_workers: ${oc.env:CONTOPO_INFERENCE_NUM_WORKERS,1}
+  batch_size: 256
+  num_workers: 1

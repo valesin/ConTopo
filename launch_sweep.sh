@@ -9,7 +9,7 @@
 #
 # Prerequisites:
 #   - sky is installed and configured
-#   - .env.secrets is sourced in the current shell (secrets are read from env vars)
+#   - .env.secrets is sourced in the current shell (null-valued envs/secrets are read from env vars)
 #   - Docker image is built and accessible (update sky_task.yaml with image_id)
 
 set -e
@@ -27,6 +27,17 @@ for RHO in "${RHOS[@]}"; do
       --name "$JOB_NAME" \
       --env LOSS_RHO="$RHO" \
       --env TRIAL="$TRIAL" \
+      --env MLFLOW_TRACKING_URI \
+      --env MLFLOW_ARTIFACT_LOCATION \
+      --env MLFLOW_EXPERIMENT_NAME \
+      --env MLFLOW_S3_ENDPOINT_URL \
+      --env MLFLOW_TRACKING_USERNAME \
+      --secret AWS_ACCESS_KEY_ID \
+      --secret AWS_SECRET_ACCESS_KEY \
+      --secret MLFLOW_TRACKING_PASSWORD \
+      --secret SKYPILOT_DOCKER_USERNAME \
+      --secret SKYPILOT_DOCKER_SERVER \
+      --secret SKYPILOT_DOCKER_PASSWORD \
       -y
     SUBMITTED=$((SUBMITTED + 1))
   done
