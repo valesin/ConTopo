@@ -58,7 +58,7 @@ def timed_log_model(model, **kwargs) -> None:
     """Wrapper around ``mlflow.pytorch.log_model`` with timing output."""
     name = kwargs.get("name", "model")
     with _timed_log(f"Logging PyTorch model: {name}"):
-        mlflow.pytorch.log_model(model, **kwargs)
+        mlflow.pytorch.log_model(model, pip_requirements=[], **kwargs)
 
 
 ALLOWED_PARAMS: dict[str, set[str]] = {
