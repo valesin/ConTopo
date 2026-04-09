@@ -6,8 +6,12 @@ anchors:
   per_class: 100                   # N anchors per class; total = per_class * num_classes
   strategy: per_class_first_n      # selection strategy
   order_by: example_id             # stable ordering key: example_id | original_index
-  source_split: test               # which dataset split to draw anchors from
-                                   # NOTE: independent of execution.split
+  source_split: test               # which dataset split to draw anchors from.
+                                   # Must match execution.split (both "test").
+                                   # NOTE: using train-split anchors is not implemented.
+                                   # To do so, a separate inference run for the train split
+                                   # would be needed so that anchor embeddings can be sliced
+                                   # from train embeddings independently of the profiled split.
 
 profiles:
   skip: false                      # set true to explicitly skip profile computation

@@ -2,8 +2,10 @@
 
 # Note: we use ${hydra:runtime.cwd} to ensure paths are always absolute from the root
 # regardless of whether the script is run from root or a subfolder like notebooks/
-tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,sqlite:///${hydra:runtime.cwd}/outputs/mlflow.db}
-artifact_location: ${oc.env:MLFLOW_ARTIFACT_LOCATION,${hydra:runtime.cwd}/outputs/mlruns}
+# To use remote tracking/storage, pass as Hydra CLI overrides:
+#   mlflow.tracking_uri="$MLFLOW_TRACKING_URI" mlflow.artifact_location="$MLFLOW_ARTIFACT_LOCATION"
+tracking_uri: sqlite:///${hydra:runtime.cwd}/outputs/mlflow.db
+artifact_location: ${hydra:runtime.cwd}/outputs/mlruns
 artifact_cache_dir: ${hydra:runtime.cwd}/outputs/mlflow_artifact_cache
-experiment_name: ${oc.env:MLFLOW_EXPERIMENT_NAME,contopo}
+experiment_name: contopo
 enable_system_metrics: false

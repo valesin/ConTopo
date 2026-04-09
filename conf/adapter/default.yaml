@@ -12,8 +12,24 @@ feature_type: logits          # logits | embeddings | embeddings+profiles
 similarity_metric: cosine     # cosine | l2 (used when feature_type includes profiles)
 
 # ── Profile Masking ──
-profile_mask: true_class      # true_class | argmax_similarity | argmax_logits | none | hybrid_trueclass_argmaxlogits | hybrid_trueclass_argmaxsimilarity
-# hybrid_* modes use true_class on train/val and the argmax variant on holdout (no label leakage)
+# Removes one class entry from each sample's profile before RDM computation,
+# so that RDM features encode relative inter-model agreement rather than
+# the raw class-preference signal.
+#
+#   true_class              - removes the ground-truth class. Requires labels;
+#                             use only for train/val (label leakage at test time).
+#   argmax_similarity       - removes the class with highest mean profile similarity
+#                             across all models. Label-free; safe at test time.
+#   argmax_logits           - removes the class with highest mean ensemble logit.
+#                             Label-free; safe at test time.
+#   none                    - no masking; full C-dimensional profiles used.
+#   hybrid_trueclass_argmaxlogits     - true_class on train/val, argmax_logits on holdout.
+#   hybrid_trueclass_argmaxsimilarity - true_class on train/val, argmax_similarity on holdout.
+#
+# Hybrid modes eliminate label leakage on the holdout while keeping a stronger
+# training signal on the train/val partition. Note: val_acc during training will
+# be inflated relative to holdout when a hybrid or true_class mask is used.
+profile_mask: true_class
 
 # ── Reproducibility seed for adapter weight init + training ──
 init_seed: 42                 # seeds torch.manual_seed() before adapter training

@@ -31,7 +31,7 @@ dev = [
     "pytest-cov",
 ]
 sky = [
-    "skypilot[runpod]",
+    "skypilot-nightly[runpod]",
 ]
 
 [tool.uv.sources]
