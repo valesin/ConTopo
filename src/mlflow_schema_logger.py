@@ -59,6 +59,9 @@ def timed_log_model(model, **kwargs) -> None:
     name = kwargs.get("name", "model")
     with _timed_log(f"Logging PyTorch model: {name}"):
         mlflow.pytorch.log_model(model, pip_requirements=[], **kwargs)
+    # MLflow 3.x uploads artifacts asynchronously by default.
+    # Flush to ensure the model is fully on S3 before the run is marked FINISHED.
+    mlflow.flush_artifact_async_logging()
 
 
 ALLOWED_PARAMS: dict[str, set[str]] = {
