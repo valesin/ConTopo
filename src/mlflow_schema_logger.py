@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
+import tempfile
 from typing import Any, Mapping
 
 import mlflow
@@ -56,11 +57,21 @@ def timed_log_artifact(local_path: str, **kwargs) -> None:
 
 def timed_log_model(model, **kwargs) -> None:
     """Wrapper around ``mlflow.pytorch.log_model`` with timing output."""
-    name = kwargs.get("name", "model")
+    # MLflow 3.x routes ALL log_model calls (both `name` and `artifact_path`) through
+    # a global models namespace (mlruns/models/m-{uuid}/), breaking the
+    # runs:/{run_id}/{name} URI used by all downstream load calls.
+    # Workaround: save the model locally with save_model, then upload the directory
+    # as a plain artifact so it lands at runs:/{run_id}/artifacts/{name}/ as expected.
+    name = kwargs.pop("name", "model")
+    signature = kwargs.pop("signature", None)
     with _timed_log(f"Logging PyTorch model: {name}"):
-        mlflow.pytorch.log_model(model, pip_requirements=[], **kwargs)
-    # MLflow 3.x uploads artifacts asynchronously by default.
-    # Flush to ensure the model is fully on S3 before the run is marked FINISHED.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mlflow.pytorch.save_model(
+                model, tmpdir, pip_requirements=[], signature=signature
+            )
+            mlflow.log_artifacts(tmpdir, artifact_path=name)
+    # Flush async artifact uploads so the model is fully on S3 before the run
+    # is marked FINISHED — a failure here propagates and marks the run FAILED.
     mlflow.flush_artifact_async_logging()
 
 
