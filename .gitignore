@@ -67,3 +67,5 @@ uv.lock
 *.pdf
 
 purge_bucket.py
+
+*.html
