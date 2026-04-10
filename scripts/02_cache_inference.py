@@ -66,7 +66,11 @@ def main(cfg: DictConfig) -> None:
     run_id = model_run.info.run_id
     model_uri = f"runs:/{run_id}/e2e_best"
     print(f"Loading model weights from {model_uri}...")
-    model = mlflow.pytorch.load_model(model_uri)
+    try:
+        model = mlflow.pytorch.load_model(model_uri)
+    except Exception as e:
+        print(f"ERROR: failed to load model {model_uri}: {e}")
+        raise
 
     # Extract parent run metadata
     parent_run = mlflow.get_run(run_id)

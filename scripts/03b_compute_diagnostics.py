@@ -235,7 +235,12 @@ def main(cfg: DictConfig) -> None:
         ]
         if weight_needed:
             # Load model weights only when needed for weight-based diagnostics
-            model = mlflow.pytorch.load_model(f"runs:/{run_id}/e2e_best")
+            model_uri = f"runs:/{run_id}/e2e_best"
+            try:
+                model = mlflow.pytorch.load_model(model_uri)
+            except Exception as e:
+                print(f"ERROR: failed to load model {model_uri}: {e}")
+                raise
             # Safely unwrap model to target the `fc` layer directly
             base_model = unwrap(model).to(device)
             fc_layer = getattr(base_model, "fc", None)

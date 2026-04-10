@@ -473,7 +473,11 @@ def load_finished_model(
     run_id = run.info.run_id
     model_uri = f"runs:/{run_id}/e2e_best"
     print(f"Loading model weights from {model_uri}...")
-    loaded_model = mlflow.pytorch.load_model(model_uri)
+    try:
+        loaded_model = mlflow.pytorch.load_model(model_uri)
+    except Exception as e:
+        print(f"ERROR: failed to load model {model_uri}: {e}")
+        raise
     return loaded_model, run_id
 
 
