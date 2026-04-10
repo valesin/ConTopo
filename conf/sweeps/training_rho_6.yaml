@@ -1,0 +1,8 @@
+# @package _global_
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      # Sweeps trials 0, 1
+      trial: range(0, 6) 
+      loss.rho: 0.0, 0.2, 0.04, 0.008, 1.0, 5.0
