@@ -189,6 +189,7 @@ def main(cfg: DictConfig) -> None:
                     "val_per_class": cfg.dataset.split.val_per_class,
                     "save_freq_epochs": cfg.training.save_freq_epochs,
                     "early_stopping_patience": cfg.training.early_stopping_patience,
+                    "early_stopping_method": early_stopping_method,
                     "beta": cfg.training.balancer.beta,
                     "eps": cfg.training.balancer.eps,
                     "lambda_max": cfg.training.balancer.lambda_max,
@@ -244,7 +245,14 @@ def main(cfg: DictConfig) -> None:
             # Set the model back to train mode before the loop begins
             unwrap(model).train()
 
+            early_stopping_method = cfg.training.early_stopping_method.lower()
+            if early_stopping_method not in ("val_acc", "val_loss"):
+                raise ValueError(
+                    f"Unknown early_stopping_method: {early_stopping_method}"
+                )
+
             best_val_acc = 0.0
+            best_val_loss = float("inf")
             best_epoch = 0
             epochs_no_improve = 0
             patience = cfg.training.early_stopping_patience
@@ -253,8 +261,6 @@ def main(cfg: DictConfig) -> None:
             best_model_state = None
 
             for epoch in range(1, cfg.training.epochs + 1):
-                prev_best = best_val_acc
-
                 metrics = train_one_epoch(
                     train_loader,
                     model,
@@ -299,15 +305,24 @@ def main(cfg: DictConfig) -> None:
                         signature=signature,
                     )
 
-                # ── Best checkpoint ──
+                # ── Best checkpoint & early stopping ──
+                # Check improvement before updating running bests
+                improved = (
+                    val_acc > best_val_acc
+                    if early_stopping_method == "val_acc"
+                    else val_loss < best_val_loss
+                )
+
+                # Always keep running best of each metric (for logging)
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+
+                if improved:
                     best_epoch = epoch
                     # Track best state IN MEMORY, avoid MLflow overwriting errors
                     best_model_state = copy.deepcopy(unwrap(model).state_dict())
-
-                # ── Early stopping ──
-                if best_val_acc > prev_best:
                     epochs_no_improve = 0
                 else:
                     epochs_no_improve += 1
@@ -331,6 +346,7 @@ def main(cfg: DictConfig) -> None:
             timed_log_metric("test_accuracy", test_acc)
             timed_log_metric("test_loss", test_loss)
             timed_log_metric("best_val_acc", best_val_acc)
+            timed_log_metric("best_val_loss", best_val_loss)
 
             # ── Log the finalized best model artifact ONCE ──
             timed_log_model(

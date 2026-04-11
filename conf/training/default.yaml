@@ -10,6 +10,7 @@ amp: false                # automatic mixed precision — changes numerics
 save_freq_epochs: 20      # save checkpoint every N epochs (only used when save_checkpoints=true)
 save_checkpoints: false   # set true to save periodic checkpoints; e2e_best is always saved
 early_stopping_patience: 25
+early_stopping_method: val_acc   # val_acc | val_loss — governs both stopping condition and best-model selection
 
 # Grad-norm balancer for topographic loss
 balancer:
