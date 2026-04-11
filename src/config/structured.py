@@ -99,7 +99,9 @@ class TrainingConfig:
     scheduler: str = "none"
     amp: bool = False
     save_freq_epochs: int = 20
+    save_checkpoints: bool = False
     early_stopping_patience: int = 25
+    early_stopping_method: str = "val_acc"
     balancer: BalancerConfig = field(default_factory=BalancerConfig)
 
 
