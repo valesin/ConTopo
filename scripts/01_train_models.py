@@ -189,7 +189,7 @@ def main(cfg: DictConfig) -> None:
                     "val_per_class": cfg.dataset.split.val_per_class,
                     "save_freq_epochs": cfg.training.save_freq_epochs,
                     "early_stopping_patience": cfg.training.early_stopping_patience,
-                    "early_stopping_method": early_stopping_method,
+                    "early_stopping_method": cfg.training.early_stopping_method,
                     "beta": cfg.training.balancer.beta,
                     "eps": cfg.training.balancer.eps,
                     "lambda_max": cfg.training.balancer.lambda_max,
