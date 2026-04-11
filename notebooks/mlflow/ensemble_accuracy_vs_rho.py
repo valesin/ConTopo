@@ -1,7 +1,8 @@
 # %% [markdown]
 # # Ensemble Accuracy vs Rho
 # This notebook visualizes the relationship between the parameter rho and two accuracy metrics
-# for ensembles: the mean component accuracy and the ensemble accuracy.
+# for ensembles: the mean component accuracy (union) and the mean ensemble accuracy,
+# both averaged over all sampled combinations per rho.
 
 # %%
 import polars as pl
@@ -16,36 +17,54 @@ import notebooks.mlflow.mlflow_helpers as mh
 print("experiment:", experiment.name)
 
 # %%
-ensembles = mh.get_ensemble_list(experiment)
-ensembles = ensembles.filter(pl.col("params.method") == "soft")
-ensembles = ensembles.filter(pl.col("params.num_components") == "10")
+NUM_COMPONENTS = 9   # number of components per sampled ensemble
+VOTE_METHOD = "soft"
 
-# Select relevant columns
-plot_df = ensembles.select(
-    ["tags.rho", "metrics.comp_mean_acc", "metrics.ensemble_accuracy"]
+ensembles = mh.get_ensemble_list(experiment)
+ensembles = ensembles.filter(pl.col("params.method") == VOTE_METHOD)
+ensembles = ensembles.filter(pl.col("params.num_components") == str(NUM_COMPONENTS))
+
+# Aggregate over all combinations per rho.
+# mean_comp_union_acc: because each model appears in the same number of combinations,
+# averaging comp_mean_acc across all combos equals the mean accuracy of the full
+# component union for that rho.
+# mean_gain: average of per-combo (ensemble_acc - comp_mean_acc).
+plot_df = (
+    ensembles
+    .with_columns(
+        pl.col("tags.rho").cast(pl.Float64).alias("rho_numeric"),
+        (pl.col("metrics.ensemble_accuracy") - pl.col("metrics.comp_mean_acc")).alias("gain"),
+    )
+    .group_by("tags.rho", "rho_numeric")
+    .agg([
+        pl.col("metrics.ensemble_accuracy").mean().alias("mean_ensemble_acc"),
+        pl.col("metrics.comp_mean_acc").mean().alias("mean_comp_union_acc"),
+        pl.col("gain").mean().alias("mean_gain"),
+        pl.len().alias("n_combinations"),
+    ])
+    .sort("rho_numeric")
 )
-plot_df = plot_df.sort("tags.rho")
 
 # %%
 fig = go.Figure()
 fig.add_trace(
     go.Scatter(
         x=plot_df["tags.rho"],
-        y=plot_df["metrics.comp_mean_acc"],
+        y=plot_df["mean_comp_union_acc"],
         mode="lines+markers",
-        name="Mean Component Accuracy",
+        name="Component Accuracy — Union (mean)",
     )
 )
 fig.add_trace(
     go.Scatter(
         x=plot_df["tags.rho"],
-        y=plot_df["metrics.ensemble_accuracy"],
+        y=plot_df["mean_ensemble_acc"],
         mode="lines+markers",
-        name="Ensemble Accuracy",
+        name="Ensemble Accuracy (mean over combinations)",
     )
 )
 fig.update_layout(
-    title="Ensemble and Component Accuracy vs Rho",
+    title=f"Ensemble and Component Accuracy vs Rho (k={NUM_COMPONENTS}, vote={VOTE_METHOD})",
     xaxis_title="Rho",
     yaxis_title="Accuracy",
     template="simple_white",
@@ -54,22 +73,19 @@ fig.show()
 
 # %%
 gain_df = (
-    plot_df.with_columns(
-        [
-            pl.col("tags.rho").cast(pl.Float64).alias("rho_numeric"),
-            (
-                pl.col("metrics.ensemble_accuracy") - pl.col("metrics.comp_mean_acc")
-            ).alias("gain"),
-        ]
-    )
-    .sort("rho_numeric")
-    .select(["tags.rho", "metrics.comp_mean_acc", "metrics.ensemble_accuracy", "gain"])
+    plot_df
+    .select([
+        "tags.rho",
+        "mean_comp_union_acc",
+        "mean_ensemble_acc",
+        "mean_gain",
+    ])
     .rename(
         {
             "tags.rho": "ρ",
-            "metrics.comp_mean_acc": "component mean",
-            "metrics.ensemble_accuracy": "ensemble acc",
-            "gain": "gain (ens − comp)",
+            "mean_comp_union_acc": "component mean (union)",
+            "mean_ensemble_acc": "ensemble acc",
+            "mean_gain": "gain (ens − comp, avg)",
         }
     )
 )
@@ -89,7 +105,7 @@ fig_table = go.Figure(
     )
 )
 fig_table.update_layout(
-    title="Performance gain from ensembling per ρ",
+    title=f"Performance gain from ensembling per ρ (k={NUM_COMPONENTS}, averaged over combinations)",
     margin=dict(t=50, b=10, l=10, r=10),
     height=60 + 30 * gain_df.height,
 )
@@ -100,7 +116,6 @@ import os
 import pandas as _pd
 
 tex_df = gain_df.to_pandas()
-# Use pandas to_latex for a nicely formatted LaTeX table
 tex_str = tex_df.to_latex(index=False, float_format="%.4f", escape=False)
 
 out_dir = os.path.join(os.path.dirname(__file__), "saved_tables")

@@ -145,6 +145,7 @@ class GroupsConfig:
     group_by: List[str] = field(default_factory=lambda: ["topology", "rho"])
     min_components: int = 2
     filter: Any = field(default_factory=dict)
+    sample_size: Optional[int] = None  # if set, enumerate all k-combinations per group
 
 
 # ─────────── profiling ───────────

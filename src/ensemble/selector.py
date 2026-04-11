@@ -4,7 +4,11 @@ Auto-discovers and groups models dynamically from MLflow.
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List
+
+import hashlib
+import itertools
+import json
+from typing import Any, Dict, List, Optional
 
 import mlflow
 from omegaconf import DictConfig
@@ -20,12 +24,20 @@ def discover_ensembles_from_cfg(
     Returns:
        Dictionary of { 'ensemble_name': ['run_id_1', 'run_id_2', ...], ... }
     """
+    sample_size = cfg.groups.get("sample_size", None)
     return _discover(
         experiment_name=experiment_name,
         group_by=list(cfg.groups.group_by),
         min_components=int(cfg.groups.min_components),
         base_filter=dict(cfg.groups.filter) if cfg.groups.filter else {},
+        sample_size=int(sample_size) if sample_size is not None else None,
     )
+
+
+def _combo_hash(sorted_ids: List[str]) -> str:
+    """6-char deterministic hash of a sorted run-id list."""
+    canonical = json.dumps(sorted_ids, ensure_ascii=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:6]
 
 
 def _discover(
@@ -33,6 +45,7 @@ def _discover(
     group_by: List[str],
     min_components: int,
     base_filter: Dict[str, Any],
+    sample_size: Optional[int] = None,
 ) -> Dict[str, List[str]]:
     exp = mlflow.get_experiment_by_name(experiment_name)
     if exp is None:
@@ -75,4 +88,21 @@ def _discover(
         if len(r_ids) >= min_components:
             final_ensembles[g_name] = sorted(r_ids)
 
-    return final_ensembles
+    # 4. If sample_size is set, expand each group into k-combinations
+    if sample_size is None:
+        return final_ensembles
+
+    if sample_size < 2:
+        raise ValueError(f"sample_size must be >= 2, got {sample_size}")
+
+    expanded: Dict[str, List[str]] = {}
+    for g_name, r_ids in final_ensembles.items():
+        if len(r_ids) < sample_size:
+            continue
+        for combo in itertools.combinations(r_ids, sample_size):
+            combo_sorted = sorted(combo)
+            short_hash = _combo_hash(combo_sorted)
+            combo_name = f"{g_name}_k{sample_size}_{short_hash}"
+            expanded[combo_name] = combo_sorted
+
+    return expanded
