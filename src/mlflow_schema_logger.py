@@ -89,6 +89,7 @@ ALLOWED_PARAMS: dict[str, set[str]] = {
         "amp",
         "save_freq_epochs",
         "early_stopping_patience",
+        "early_stopping_method",
         "beta",
         "eps",
         "lambda_max",
