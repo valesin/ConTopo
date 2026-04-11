@@ -69,3 +69,4 @@ uv.lock
 purge_bucket.py
 
 *.html
+*.tex

@@ -94,3 +94,19 @@ fig_table.update_layout(
     height=60 + 30 * gain_df.height,
 )
 fig_table.show()
+
+# Save the gain table as a LaTeX file next to saved_plots in notebooks/mlflow/saved_tables
+import os
+import pandas as _pd
+
+tex_df = gain_df.to_pandas()
+# Use pandas to_latex for a nicely formatted LaTeX table
+tex_str = tex_df.to_latex(index=False, float_format="%.4f", escape=False)
+
+out_dir = os.path.join(os.path.dirname(__file__), "saved_tables")
+os.makedirs(out_dir, exist_ok=True)
+out_path = os.path.join(out_dir, "ensemble_gain_table.tex")
+with open(out_path, "w", encoding="utf-8") as f:
+    f.write(tex_str)
+
+print(f"Saved LaTeX table to {out_path}")

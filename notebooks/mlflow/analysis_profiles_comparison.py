@@ -37,12 +37,20 @@ print(f"Ensemble runs:    {len(ens_df)}")
 
 # %% INSPECT
 if not ml_df.empty:
-    print("feature_type:      ", sorted(ml_df["feature_type"].dropna().unique().tolist()))
+    print(
+        "feature_type:      ", sorted(ml_df["feature_type"].dropna().unique().tolist())
+    )
     print("meta_type:         ", sorted(ml_df["meta_type"].dropna().unique().tolist()))
     if "profile_mask" in ml_df.columns:
-        print("profile_mask:      ", sorted(ml_df["profile_mask"].dropna().unique().tolist()))
+        print(
+            "profile_mask:      ",
+            sorted(ml_df["profile_mask"].dropna().unique().tolist()),
+        )
     if "similarity_metric" in ml_df.columns:
-        print("similarity_metric: ", sorted(ml_df["similarity_metric"].dropna().unique().tolist()))
+        print(
+            "similarity_metric: ",
+            sorted(ml_df["similarity_metric"].dropna().unique().tolist()),
+        )
 
 # %% FILTER
 ml_filtered = ml_df.copy()
@@ -57,12 +65,18 @@ is_profile = ml_filtered["feature_type"] == "embeddings+profiles"
 
 if "profile_mask" in ml_filtered.columns:
     ml_filtered = ml_filtered[
-        ~is_profile | ml_filtered["profile_mask"].isin(
-            [m for m in ml_filtered["profile_mask"].dropna().unique()
-             if m not in ("N/A", "true_class")]
+        ~is_profile
+        | ml_filtered["profile_mask"].isin(
+            [
+                m
+                for m in ml_filtered["profile_mask"].dropna().unique()
+                if m not in ("N/A")
+            ]
         )
     ]
-    is_profile = ml_filtered["feature_type"] == "embeddings+profiles"  # recompute after filter
+    is_profile = (
+        ml_filtered["feature_type"] == "embeddings+profiles"
+    )  # recompute after filter
 
 if SIM_METRIC is not None and "similarity_metric" in ml_filtered.columns:
     ml_filtered = ml_filtered[
@@ -71,8 +85,13 @@ if SIM_METRIC is not None and "similarity_metric" in ml_filtered.columns:
 
 print(f"\nRows after filter: {len(ml_filtered)}")
 if not ml_filtered.empty:
-    group_cols = ["feature_type", "profile_mask"] if "profile_mask" in ml_filtered.columns else ["feature_type"]
+    group_cols = (
+        ["feature_type", "profile_mask"]
+        if "profile_mask" in ml_filtered.columns
+        else ["feature_type"]
+    )
     print(ml_filtered.groupby(group_cols, dropna=False).size().to_string())
+
 
 # %% AGGREGATE
 # Assign a line_label to each row: flattens feature_type + profile_mask into a
@@ -82,6 +101,7 @@ def _line_label(row: pd.Series) -> str:
         pm = row.get("profile_mask")
         return f"profiles / {pm}" if pd.notna(pm) else "profiles"
     return row["feature_type"]
+
 
 ml_filtered = ml_filtered.copy()
 ml_filtered["line_label"] = ml_filtered.apply(_line_label, axis=1)
@@ -97,7 +117,9 @@ print(f"\nAggregated rows: {len(ml_agg)}")
 print(ml_agg.to_string(index=False) if not ml_agg.empty else "  (empty)")
 
 # %% AGGREGATE BASELINES
-ens_filtered = ens_df[ens_df["vote_method"] == VOTE_METHOD] if not ens_df.empty else ens_df
+ens_filtered = (
+    ens_df[ens_df["vote_method"] == VOTE_METHOD] if not ens_df.empty else ens_df
+)
 
 ens_agg = pd.DataFrame()
 comp_agg = None
@@ -120,11 +142,13 @@ if not ens_filtered.empty:
 # %% PLOT
 _colors = _px.colors.qualitative.Plotly
 
-all_rhos = sorted(set(
-    ml_agg["rho_numeric"].dropna().tolist()
-    + (ens_agg["rho_numeric"].dropna().tolist() if not ens_agg.empty else [])
-    + (comp_agg["rho_numeric"].dropna().tolist() if comp_agg is not None else [])
-))
+all_rhos = sorted(
+    set(
+        ml_agg["rho_numeric"].dropna().tolist()
+        + (ens_agg["rho_numeric"].dropna().tolist() if not ens_agg.empty else [])
+        + (comp_agg["rho_numeric"].dropna().tolist() if comp_agg is not None else [])
+    )
+)
 rho_to_pos = {v: i for i, v in enumerate(all_rhos)}
 rho_labels = [str(int(v) if v == int(v) else v) for v in all_rhos]
 
@@ -133,36 +157,42 @@ fig = go.Figure()
 for i, label in enumerate(sorted(ml_agg["line_label"].unique().tolist())):
     df = ml_agg[ml_agg["line_label"] == label].sort_values("rho_numeric")
     color = _colors[i % len(_colors)]
-    fig.add_trace(go.Scatter(
-        x=[rho_to_pos[v] for v in df["rho_numeric"].tolist()],
-        y=df["acc_mean"].tolist(),
-        name=label,
-        mode="lines+markers",
-        line=dict(color=color),
-        marker=dict(color=color, size=6),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[rho_to_pos[v] for v in df["rho_numeric"].tolist()],
+            y=df["acc_mean"].tolist(),
+            name=label,
+            mode="lines+markers",
+            line=dict(color=color),
+            marker=dict(color=color, size=6),
+        )
+    )
 
 if not ens_agg.empty:
     ens_sorted = ens_agg.sort_values("rho_numeric")
-    fig.add_trace(go.Scatter(
-        x=[rho_to_pos[v] for v in ens_sorted["rho_numeric"].tolist()],
-        y=ens_sorted["ens_mean"].tolist(),
-        name=f"ensemble ({VOTE_METHOD})",
-        mode="lines+markers",
-        line=dict(color="black", dash="dash"),
-        marker=dict(color="black", size=6),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[rho_to_pos[v] for v in ens_sorted["rho_numeric"].tolist()],
+            y=ens_sorted["ens_mean"].tolist(),
+            name=f"ensemble ({VOTE_METHOD})",
+            mode="lines+markers",
+            line=dict(color="black", dash="dash"),
+            marker=dict(color="black", size=6),
+        )
+    )
 
 if comp_agg is not None:
     comp_sorted = comp_agg.sort_values("rho_numeric")
-    fig.add_trace(go.Scatter(
-        x=[rho_to_pos[v] for v in comp_sorted["rho_numeric"].tolist()],
-        y=comp_sorted["comp_mean"].tolist(),
-        name="component mean",
-        mode="lines+markers",
-        line=dict(color="gray", dash="dot"),
-        marker=dict(color="gray", size=6),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[rho_to_pos[v] for v in comp_sorted["rho_numeric"].tolist()],
+            y=comp_sorted["comp_mean"].tolist(),
+            name="component mean",
+            mode="lines+markers",
+            line=dict(color="gray", dash="dot"),
+            marker=dict(color="gray", size=6),
+        )
+    )
 
 fig.update_layout(
     title=f"Metalearner accuracy vs ρ — {META_TYPE}",
