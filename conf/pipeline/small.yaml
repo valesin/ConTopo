@@ -10,12 +10,15 @@ steps:
     description: "Train CE models (small sweep)"
   - id: inference
     script: 02_cache_inference.py
+    sweep: training_small
     description: "Cache inference artifacts"
   - id: profiles
     script: 03_compute_profiles.py
+    sweep: training_small
     description: "Compute category similarity profiles"
   - id: diagnostics
     script: 03b_compute_diagnostics.py
+    sweep: training_small
     description: "Compute per-model diagnostics"
   - id: ensemble
     script: 04_run_ensemble.py

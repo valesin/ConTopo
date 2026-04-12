@@ -142,8 +142,8 @@ TELEMETRY_SCHEMA = {
             "optional": []
         },
         "tags": {
-            "required": ["kind", "identity_hash", "parent_run_id", "inference_run_id"],
-            "optional": ["run_name"]
+            "required": ["kind", "identity_hash", "parent_run_id"],
+            "optional": ["run_name", "inference_run_id"]
         },
         "metrics": {
             "required": [],
@@ -168,12 +168,8 @@ TELEMETRY_SCHEMA = {
             "optional": []
         },
         "artifacts": {
-            "required": [
-                "ensemble/composition_map.json",
-                "ensemble/{split}_{ensemble_name}_{method}_inference.parquet",
-                "ensemble/{split}_{ensemble_name}_{method}_tensors.npz"
-            ],
-            "optional": []
+            "required": ["ensemble/composition_map.json", "ensemble/{split}_{ensemble_name}_{method}_inference.parquet"],
+            "optional": ["ensemble/{split}_{ensemble_name}_{method}_tensors.npz"]
         }
     },
     "diversity": {
