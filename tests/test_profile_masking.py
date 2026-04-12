@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
 import numpy as np
 import pytest
 import torch
 
-_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "05_train_adapters.py"
-_SPEC = importlib.util.spec_from_file_location("train_adapters_script", _SCRIPT_PATH)
-_MODULE = importlib.util.module_from_spec(_SPEC)
-assert _SPEC is not None and _SPEC.loader is not None
-_SPEC.loader.exec_module(_MODULE)
-_apply_profile_mask = _MODULE._apply_profile_mask
+from src.profiling.masking import apply_profile_mask as _apply_profile_mask
 
 
 def _expected_masked(P: torch.Tensor, preds: torch.Tensor) -> torch.Tensor:

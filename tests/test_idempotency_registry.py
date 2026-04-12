@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from src.config.hash import IDEMPOTENCY_REGISTRY, identity_hash
-from src.mlflow_schema_logger import ALLOWED_TAGS
+from src.mlflow_schema_logger import TELEMETRY_SCHEMA
 
 
 def _base_fields(kind: str) -> dict[str, str]:
@@ -67,8 +67,8 @@ def _base_fields(kind: str) -> dict[str, str]:
 
 
 def test_registry_covers_all_schema_kinds():
-    assert set(ALLOWED_TAGS.keys()).issubset(set(IDEMPOTENCY_REGISTRY.keys()))
-    assert set(IDEMPOTENCY_REGISTRY.keys()).issubset(set(ALLOWED_TAGS.keys()))
+    assert set(TELEMETRY_SCHEMA.keys()).issubset(set(IDEMPOTENCY_REGISTRY.keys()))
+    assert set(IDEMPOTENCY_REGISTRY.keys()).issubset(set(TELEMETRY_SCHEMA.keys()))
 
 
 @pytest.mark.parametrize("kind", sorted(IDEMPOTENCY_REGISTRY.keys()))

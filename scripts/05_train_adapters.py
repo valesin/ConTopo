@@ -10,7 +10,6 @@ appended as additional features.
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import tempfile
@@ -39,7 +38,6 @@ from src.mlflow_utils import (
     component_set_hash,
     log_resolved_config,
     setup_mlflow,
-    load_mlflow_artifact,
     set_torch_seed,
     resolve_device,
     get_run_context,
@@ -52,13 +50,6 @@ from src.repositories.functional_run_repository import (
     get_run,
 )
 
-# ─── MODELS ───
-from src.networks.heads import (
-    LinearAdapter,
-    TwoLayerMLPAdapter,
-    ThreeLayerMLPAdapter,
-    FourLayerMLPAdapter,
-)
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
     start_run as schema_start_run,
@@ -68,260 +59,21 @@ from src.mlflow_schema_logger import (
     timed_log_model,
 )
 
-# ─── LOGIC ───
-
-
-def _three_way_split(N: int, fractions: dict, seed: int):
-    """Deterministically split N indices into train/val/holdout."""
-    rng = np.random.default_rng(seed)
-    indices = rng.permutation(N)
-
-    f_train = fractions.get("train", 0.6)
-    f_val = fractions.get("val", 0.2)
-
-    n_train = int(N * f_train)
-    n_val = int(N * f_val)
-
-    train_idx = indices[:n_train]
-    val_idx = indices[n_train : n_train + n_val]
-    holdout_idx = indices[n_train + n_val :]
-
-    return train_idx, val_idx, holdout_idx
-
-
-def _standardize_features(
-    train_feat: torch.Tensor, val_feat: torch.Tensor, holdout_feat: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Standardize features using mean and std computed ONLY on the training set
-    to prevent data leakage into the validation and holdout sets.
-    """
-    mean = train_feat.mean(dim=0, keepdim=True)
-    std = train_feat.std(dim=0, keepdim=True)
-
-    # Add epsilon to prevent division by zero
-    train_std = (train_feat - mean) / (std + 1e-6)
-    val_std = (val_feat - mean) / (std + 1e-6)
-    holdout_std = (holdout_feat - mean) / (std + 1e-6)
-
-    return train_std, val_std, holdout_std
-
-
-def _train_adapter(
-    model: nn.Module,
-    device: torch.device,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-    epochs: int,
-    lr: float,
-) -> tuple[nn.Module, list[dict]]:
-    model = model.to(device)
-    optimiser = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.CrossEntropyLoss()
-
-    history = []
-    best_val_acc = -1.0
-    best_state: dict | None = None
-
-    for epoch in range(epochs):
-        model.train()
-        train_loss, train_correct, train_total = 0.0, 0, 0
-        for X, y in train_loader:
-            X, y = X.to(device), y.to(device)
-            optimiser.zero_grad()
-            out = model(X)
-            loss = criterion(out, y)
-            loss.backward()
-            optimiser.step()
-
-            train_loss += loss.item() * X.size(0)
-            train_correct += (torch.argmax(out, dim=1) == y).sum().item()
-            train_total += X.size(0)
-
-        model.eval()
-        val_loss, val_correct, val_total = 0.0, 0, 0
-        with torch.no_grad():
-            for X, y in val_loader:
-                X, y = X.to(device), y.to(device)
-                out = model(X)
-                loss = criterion(out, y)
-                val_loss += loss.item() * X.size(0)
-                val_correct += (torch.argmax(out, dim=1) == y).sum().item()
-                val_total += X.size(0)
-
-        val_acc = val_correct / max(val_total, 1)
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            best_state = copy.deepcopy(model.state_dict())
-
-        history.append(
-            {
-                "epoch": epoch,
-                "train_loss": train_loss / max(train_total, 1),
-                "train_acc": train_correct / max(train_total, 1),
-                "val_loss": val_loss / max(val_total, 1),
-                "val_acc": val_acc,
-            }
-        )
-
-    if best_state is not None:
-        model.load_state_dict(best_state)
-    return model, history
-
-
-def _evaluate_holdout(
-    model, device, loader, criterion
-) -> tuple[float, float, torch.Tensor]:
-    model.eval()
-    holdout_loss, holdout_corr, holdout_tot = 0.0, 0, 0
-    all_probs = []
-
-    with torch.no_grad():
-        for X, y in loader:
-            X, y = X.to(device), y.to(device)
-            out = model(X)
-            probs = torch.softmax(out, dim=1)
-            all_probs.append(probs.cpu())
-            loss = criterion(out, y)
-            holdout_loss += loss.item() * X.size(0)
-            holdout_corr += (torch.argmax(out, dim=1) == y).sum().item()
-            holdout_tot += X.size(0)
-
-    mean_loss = holdout_loss / max(holdout_tot, 1)
-    acc = holdout_corr / max(holdout_tot, 1)
-    return mean_loss, acc, torch.cat(all_probs, dim=0)
-
-
-def _assert_valid_feature_tensor(
-    name: str, tensor: torch.Tensor, expected_rows: int
-) -> None:
-    if tensor.ndim != 2:
-        raise ValueError(f"{name} must be 2D, got shape={tuple(tensor.shape)}")
-    if tensor.shape[0] != expected_rows:
-        raise ValueError(
-            f"{name} row mismatch: expected {expected_rows}, got {tensor.shape[0]}"
-        )
-    if not torch.isfinite(tensor).all():
-        raise ValueError(f"{name} contains NaN/Inf values")
-
-
-# ─── HYBRID PROFILE MASKS ───
-
-_HYBRID_MASKS = {
-    "hybrid_trueclass_argmaxlogits": ("true_class", "argmax_logits"),
-    "hybrid_trueclass_argmaxsimilarity": ("true_class", "argmax_similarity"),
-}
-
-
-def _apply_profile_mask(
-    P: torch.Tensor,
-    mask_type: str,
-    labels: torch.Tensor,
-    component_logit_preds: list[torch.Tensor | None],
-    indices: np.ndarray | None = None,
-) -> torch.Tensor:
-    """Apply a single profile mask to P (N, M, C) → (N, M, C-1) or (N, M, C).
-
-    Removes one class dimension per sample before RDM computation so that the
-    resulting features reflect inter-model agreement structure rather than
-    raw class affinity.
-
-    Modes:
-      true_class          - removes the ground-truth class (requires labels;
-                            causes label leakage if applied to holdout).
-      argmax_similarity   - removes the class with highest mean similarity across
-                            models (label-free, safe at inference time).
-      argmax_logits       - removes the class with highest mean ensemble logit
-                            (label-free, safe at inference time).
-      none                - no masking; returns P unchanged.
-
-    Hybrid modes (defined in _HYBRID_MASKS) apply true_class to train/val and
-    an argmax variant to holdout, eliminating leakage at evaluation while
-    preserving a stronger training signal.
-    """
-    N, M, C = P.shape
-
-    if not torch.isfinite(P).all():
-        raise ValueError("Profile tensor P contains NaN/Inf values")
-
-    if mask_type == "true_class":
-        mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
-        mask[torch.arange(N), labels] = False
-        mask_3d = mask.unsqueeze(1).expand(N, M, C)
-        return P[mask_3d].view(N, M, C - 1)
-
-    elif mask_type == "argmax_similarity":
-        mean_similarity = P.mean(dim=1)
-        preds = mean_similarity.argmax(dim=1)
-        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
-        mask[
-            torch.arange(N).unsqueeze(1),
-            torch.arange(M).unsqueeze(0),
-            preds.unsqueeze(1),
-        ] = False
-        return P[mask].view(N, M, C - 1)
-
-    elif mask_type == "argmax_logits":
-        if any(p is None for p in component_logit_preds):
-            raise ValueError(
-                "Cannot use argmax_logits profile mask because not all components have cached logits."
-            )
-
-        if any(
-            not torch.isfinite(p).all() for p in component_logit_preds if p is not None
-        ):
-            raise ValueError(
-                "Cannot use argmax_logits profile mask because logits contain NaN/Inf values."
-            )
-
-        if indices is not None:
-            mean_logits = (
-                torch.stack([p[indices] for p in component_logit_preds], dim=1)
-                .to(P.device)
-                .mean(dim=1)
-            )
-        else:
-            mean_logits = (
-                torch.stack(component_logit_preds, dim=1).to(P.device).mean(dim=1)
-            )
-        preds = mean_logits.argmax(dim=1)
-        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
-        mask[
-            torch.arange(N).unsqueeze(1),
-            torch.arange(M).unsqueeze(0),
-            preds.unsqueeze(1),
-        ] = False
-        return P[mask].view(N, M, C - 1)
-
-    elif mask_type == "none":
-        return P
-
-    else:
-        raise ValueError(f"Unknown profile_mask: {mask_type}")
-
-
-def _compute_rdm_features(P_masked: torch.Tensor) -> torch.Tensor:
-    """Compute upper-triangular RDM features from masked profiles.
-
-    Args:
-        P_masked: (N, M, C') tensor of masked profiles
-    Returns:
-        S: (N, K*(K-1)/2) tensor of pairwise dissimilarities
-    """
-    Pc = P_masked - P_masked.mean(dim=2, keepdim=True)
-    P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
-    P_n = Pc / P_norm
-
-    corr = torch.bmm(P_n, P_n.transpose(1, 2))
-    rdm = 1.0 - corr
-
-    K = P_n.size(1)
-    idx = torch.triu_indices(K, K, offset=1)
-    return rdm[:, idx[0], idx[1]]
-
-
-# ─── MAIN ───
-
+# ─── EXTRACTED COMPONENTS ───
+from src.profiling.masking import (
+    HYBRID_MASKS,
+    apply_profile_mask,
+    compute_rdm_features,
+    assert_valid_feature_tensor,
+)
+from src.networks.adapter_registry import build_adapter, adapter_architecture_name
+from src.adapter.feature_extraction import extract_component_features
+from src.training.adapter_training import (
+    three_way_split,
+    standardize_features,
+    train_adapter,
+    evaluate_holdout,
+)
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -462,19 +214,7 @@ def main(cfg: DictConfig) -> None:
                         "meta_split_seed": meta_split_cfg.seed,
                         "meta_split_train": meta_split_cfg.fractions.get("train", 0.6),
                         "meta_split_val": meta_split_cfg.fractions.get("val", 0.2),
-                        "adapter_architecture": (
-                            "TwoLayerMLPAdapter"
-                            if meta_type == "meta_mlp_2"
-                            else (
-                                "ThreeLayerMLPAdapter"
-                                if meta_type == "meta_mlp_3"
-                                else (
-                                    "FourLayerMLPAdapter"
-                                    if meta_type == "meta_mlp_4"
-                                    else "LinearAdapter"
-                                )
-                            )
-                        ),
+                        "adapter_architecture": adapter_architecture_name(meta_type),
                         "standardization_applied": True,
                         "num_components": len(run_ids),
                         "profile_mask": profile_mask if use_profiles else "N/A",
@@ -485,91 +225,25 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # 3. Secure Feature Extraction
-                base_tensors = []
-                profile_tensors = []
-                component_logit_preds = []
-
-                for run_id in run_ids:
-                    inf_identity = identity_hash(
-                        "inference", trained_model_run_id=run_id, split=split
-                    )
-                    inf_run = find_finished_identity_run("inference", inf_identity)
-                    if inf_run is None:
-                        raise RuntimeError(f"Missing '{split}' inference for {run_id}")
-                    inf_run_id = inf_run.info.run_id
-
-                    if use_profiles:
-                        prof_identity = identity_hash(
-                            "category_similarity_profile",
-                            parent_run_id=run_id,
-                            anchor_spec_hash=anchor_spec_hash,
-                            similarity_metric=similarity_metric,
-                            split=split,
-                        )
-                        prof_run = find_finished_identity_run(
-                            "category_similarity_profile", prof_identity
-                        )
-                        if prof_run is None:
-                            raise RuntimeError(
-                                f"Missing '{similarity_metric}' profile for {run_id}"
-                            )
-                        prof_run_id = prof_run.info.run_id
-                        inf_prof_node = load_mlflow_artifact(
-                            prof_run_id,
-                            f"profiles/{split}_{similarity_metric}_profiles.pt",
-                            file_type="torch",
-                            strict=True,
-                            cache_dir=cfg.mlflow.artifact_cache_dir,
-                        ).cpu()
-
-                        if not torch.isfinite(inf_prof_node).all():
-                            raise ValueError(
-                                f"Profile artifact for model {run_id} (profile run {prof_run_id}) "
-                                f"contains NaN/Inf — likely corrupted artifact on disk"
-                            )
-
-                        profile_tensors.append(inf_prof_node)
-
-                    data = load_mlflow_artifact(
-                        inf_run_id,
-                        f"inference/{split}_tensors.npz",
-                        file_type="numpy",
-                        strict=True,
-                        cache_dir=cfg.mlflow.artifact_cache_dir,
-                    )
-
-                    if "logits" in data:
-                        component_logit_preds.append(torch.from_numpy(data["logits"]))
-                    else:
-                        component_logit_preds.append(None)
-
-                    if "logits" in feature_type:
-                        if "logits" not in data:
-                            raise KeyError(
-                                f"Missing logits in inference/{split}_tensors.npz for run {inf_run_id}"
-                            )
-                        base_tensor = torch.from_numpy(data["logits"])
-                    elif "embeddings" in feature_type:
-                        if "embeddings" not in data:
-                            raise KeyError(
-                                f"Missing embeddings in inference/{split}_tensors.npz for run {inf_run_id}"
-                            )
-                        base_tensor = torch.nn.functional.normalize(
-                            torch.from_numpy(data["embeddings"]).float(), p=2, dim=1
-                        )
-                    else:
-                        raise ValueError(f"Unknown feature_type: {feature_type}")
-
-                    _assert_valid_feature_tensor(
-                        "base_tensor", base_tensor, total_examples
-                    )
-                    base_tensors.append(base_tensor)
+                features = extract_component_features(
+                    run_ids=run_ids,
+                    split=split,
+                    feature_type=feature_type,
+                    use_profiles=use_profiles,
+                    similarity_metric=similarity_metric,
+                    anchor_spec_hash=anchor_spec_hash,
+                    cfg=cfg,
+                    total_examples=total_examples,
+                )
+                base_tensors = features.base_tensors
+                profile_tensors = features.profile_tensors
+                component_logit_preds = features.component_logit_preds
 
                 X_base = torch.cat(base_tensors, dim=1)
-                _assert_valid_feature_tensor("X_base", X_base, total_examples)
+                assert_valid_feature_tensor("X_base", X_base, total_examples)
 
                 # 4. Construct Data Splits (needed before masking for hybrid modes)
-                train_idx, val_idx, holdout_idx = _three_way_split(
+                train_idx, val_idx, holdout_idx = three_way_split(
                     total_examples, meta_split_cfg.fractions, meta_split_cfg.seed
                 )
                 y_all = labels_tensor
@@ -578,25 +252,25 @@ def main(cfg: DictConfig) -> None:
                     # P shape: (N, M, C)
                     P = torch.stack(profile_tensors, dim=1)
 
-                    if profile_mask in _HYBRID_MASKS:
+                    if profile_mask in HYBRID_MASKS:
                         # Hybrid: true_class on train/val, argmax on holdout
-                        tv_mask, ho_mask = _HYBRID_MASKS[profile_mask]
+                        tv_mask, ho_mask = HYBRID_MASKS[profile_mask]
 
-                        P_train = _apply_profile_mask(
+                        P_train = apply_profile_mask(
                             P[train_idx],
                             tv_mask,
                             labels_tensor[train_idx],
                             component_logit_preds,
                             train_idx,
                         )
-                        P_val = _apply_profile_mask(
+                        P_val = apply_profile_mask(
                             P[val_idx],
                             tv_mask,
                             labels_tensor[val_idx],
                             component_logit_preds,
                             val_idx,
                         )
-                        P_hold = _apply_profile_mask(
+                        P_hold = apply_profile_mask(
                             P[holdout_idx],
                             ho_mask,
                             labels_tensor[holdout_idx],
@@ -604,9 +278,9 @@ def main(cfg: DictConfig) -> None:
                             holdout_idx,
                         )
 
-                        S_train = _compute_rdm_features(P_train)
-                        S_val = _compute_rdm_features(P_val)
-                        S_hold = _compute_rdm_features(P_hold)
+                        S_train = compute_rdm_features(P_train)
+                        S_val = compute_rdm_features(P_val)
+                        S_hold = compute_rdm_features(P_hold)
                         profile_feature_dim = int(S_train.shape[1])
 
                         X_train = torch.cat([X_base[train_idx], S_train], dim=1)
@@ -614,17 +288,17 @@ def main(cfg: DictConfig) -> None:
                         X_holdout = torch.cat([X_base[holdout_idx], S_hold], dim=1)
                     else:
                         # Uniform mask on full dataset
-                        P_masked = _apply_profile_mask(
+                        P_masked = apply_profile_mask(
                             P,
                             profile_mask,
                             labels_tensor,
                             component_logit_preds,
                         )
-                        S = _compute_rdm_features(P_masked)
+                        S = compute_rdm_features(P_masked)
                         profile_feature_dim = int(S.shape[1])
 
                         X_all = torch.cat([X_base, S], dim=1)
-                        _assert_valid_feature_tensor("X_all", X_all, total_examples)
+                        assert_valid_feature_tensor("X_all", X_all, total_examples)
                         X_train = X_all[train_idx]
                         X_val = X_all[val_idx]
                         X_holdout = X_all[holdout_idx]
@@ -639,7 +313,7 @@ def main(cfg: DictConfig) -> None:
                 standardize_std = X_train.std(dim=0, keepdim=True)
 
                 # Apply Standardization (preventing data leakage)
-                X_train, X_val, X_holdout = _standardize_features(
+                X_train, X_val, X_holdout = standardize_features(
                     X_train, X_val, X_holdout
                 )
 
@@ -661,36 +335,18 @@ def main(cfg: DictConfig) -> None:
                 num_classes = get_num_classes(cfg.dataset.name)
                 input_dim = X_train.shape[1]
 
-                if meta_type == "meta_lr":
-                    model = LinearAdapter(input_dim, num_classes, bias=adapter_bias)
-                elif meta_type == "meta_mlp_2":
-                    model = TwoLayerMLPAdapter(
-                        in_dim=input_dim,
-                        hidden_dim=128,
-                        num_classes=num_classes,
-                        dropout=0.0,
-                        bias=adapter_bias,
-                    )
-                elif meta_type == "meta_mlp_3":
-                    model = ThreeLayerMLPAdapter(
-                        in_dim=input_dim,
-                        num_classes=num_classes,
-                        bias=adapter_bias,
-                    )
-                elif meta_type == "meta_mlp_4":
-                    model = FourLayerMLPAdapter(
-                        in_dim=input_dim,
-                        num_classes=num_classes,
-                        bias=adapter_bias,
-                    )
-                else:
-                    raise ValueError(f"Unknown meta_type: {meta_type}")
+                model = build_adapter(
+                    meta_type=meta_type,
+                    input_dim=input_dim,
+                    num_classes=num_classes,
+                    bias=adapter_bias,
+                )
 
                 print(
                     f"  Training {meta_type} (input_dim={input_dim}) for {adapter_epochs} epochs..."
                 )
 
-                model, history = _train_adapter(
+                model, history = train_adapter(
                     model=model,
                     device=device,
                     train_loader=train_loader,
@@ -699,7 +355,7 @@ def main(cfg: DictConfig) -> None:
                     lr=adapter_lr,
                 )
 
-                hold_loss, hold_acc, hold_probs = _evaluate_holdout(
+                hold_loss, hold_acc, hold_probs = evaluate_holdout(
                     model, device, hold_loader, nn.CrossEntropyLoss()
                 )
 
@@ -709,6 +365,7 @@ def main(cfg: DictConfig) -> None:
                         "holdout_loss": hold_loss,
                         "holdout_acc": hold_acc,
                         "val_acc": history[-1]["val_acc"],
+                        "val_loss": history[-1]["val_loss"],
                         "train_acc": history[-1]["train_acc"],
                     }
                 )
