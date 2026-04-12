@@ -1,0 +1,304 @@
+# Analysis Consolidated Guide
+
+This is the single consolidated analysis guide for ConTopo.
+It merges and supersedes:
+
+- `ANALYSIS_GUIDE.md`
+- `notebooks/ANALYSIS.md`
+
+The content below is aligned to the current runtime code (`scripts/`, `src/`, `notebooks/mlflow/mlflow_helpers.py`) as of 2026-04-12.
+
+---
+
+## 1) Scope and architecture boundaries
+
+ConTopo has a strict retrieval boundary:
+
+- **Pipeline/runtime layer**: `scripts/01_*.py` to `scripts/05_*.py`, `src/*`
+- **Analysis layer**: `notebooks/*.py`, `notebooks/mlflow/mlflow_helpers.py`
+
+Key rule:
+
+- `notebooks/mlflow/mlflow_helpers.py` is an **analysis convenience layer**.
+- MLflow run lookup is centralized in `src/repositories/functional_run_repository.py`.
+- New retrieval logic should not be added back into `src/mlflow_utils.py`.
+
+---
+
+## 2) Environment setup for analysis
+
+Use `setup_environment()` from `src/config/notebook.py` before querying MLflow.
+
+What it does:
+
+1. Finds project root (`conf/config.yaml`).
+2. Updates `sys.path` and `cwd` to root.
+3. Composes Hydra config and injects `HydraConfig` for `${hydra:...}` resolvers.
+4. Calls `setup_mlflow(cfg)` and configures repository context via `configure_run_repository(...)`.
+
+Minimal pattern:
+
+```python
+from src.config.notebook import setup_environment
+
+cfg, experiment = setup_environment()
+print(experiment.name)
+```
+
+Notes:
+
+- Default notebook MLflow profile is `mlflow=notebook` (`conf/mlflow/notebook.yaml`, typically `http://localhost:5000`).
+- Pipeline scripts usually use `mlflow=default` (`sqlite:///.../outputs/mlflow.db`).
+- If notebook queries return empty unexpectedly, check that `tracking_uri` and experiment are the intended ones.
+
+---
+
+## 3) Run taxonomy and telemetry truth
+
+Canonical run kinds (from `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`):
+
+- `model`
+- `inference`
+- `category_similarity_profile`
+- `diagnostics`  ← plural (not `diagnostic`)
+- `ensemble`
+- `diversity`
+- `consistency`
+- `metalearner`
+
+Telemetry contract is validated at run completion by schema wrapper `start_run(...)`.
+For analysis, assume required params/tags/metrics/artifacts should exist for finished runs of each kind.
+
+---
+
+## 4) `mlflow_helpers.py` inventory (current)
+
+Source: `notebooks/mlflow/mlflow_helpers.py`.
+
+### 4.1 Raw list functions (Polars)
+
+These return full run tables (`tags.*`, `params.*`, `metrics.*` still prefixed):
+
+- `get_base_model_list(experiment)`
+- `get_inference_list(experiment)`
+- `get_category_similarity_list(experiment)`
+- `get_diagnostic_list(experiment)`
+- `get_ensemble_list(experiment)`
+- `get_diversity_list(experiment)`
+- `get_consistency_list(experiment)`
+- `get_metalearner_list(experiment)`
+
+Use for schema inspection, ad-hoc joins, and custom filters.
+
+### 4.2 Normalized result functions (pandas)
+
+- `get_ensemble_results(experiment_name, split='test')`
+  - normalized columns include: `run_id`, `rho`, `rho_numeric`, `cs_hash`, `vote_method`, `ensemble_name`, `accuracy`, `comp_mean_acc`
+
+- `get_metalearner_results(experiment_name)`
+  - normalized columns include: `run_id`, `rho`, `rho_numeric`, `cs_hash`, `meta_type`, `feature_type`, `similarity_metric`, `split_seed`, `ensemble_name`, `profile_mask`, `accuracy`
+
+Important behavior:
+
+- Missing historical columns are dropped safely (`keep` pattern) instead of raising.
+- `rho_numeric` is derived from `rho` for plotting/sorting.
+- `get_metalearner_results(...)` does **not** filter by split (split is not logged as a direct metalearner param in current stage 05).
+
+### 4.3 Targeted run lookup helpers
+
+- `get_inference_run(experiment_name, trained_model_run_id, split='test')`
+- `get_profile_run(experiment_name, parent_run_id, similarity_metric, split='test')`
+
+### 4.4 Artifact download/load helpers
+
+- `download_inference_artifacts(...)`, `load_inference_results(...)`
+- `download_profile_artifacts(...)`, `load_profile_results(...)`
+- `download_adapter_inputs(...)`, `load_adapter_inputs(...)`
+- `load_inference_results_from_model_run_id(...)`
+- `get_inference_artifacts(run_id)`
+- `get_run_artifact_uri(run_id)`
+
+### 4.5 Plot helper
+
+- `save_plot(fig, name, directory='notebooks/mlflow/saved_plots', ...)`
+
+---
+
+## 5) Artifact paths used by analysis (current runtime)
+
+These are the paths actively produced by scripts and/or required by telemetry schema.
+
+### Inference (`kind=inference`)
+
+- `inference/{split}_inference_results.parquet`
+- `inference/{split}_tensors.npz`
+
+Produced by: `scripts/02_cache_inference.py`
+
+### Category similarity profiles (`kind=category_similarity_profile`)
+
+- `profiles/{split}_{similarity_metric}_profiles.pt`
+
+Produced by: `scripts/03_compute_profiles.py`
+
+### Diagnostics (`kind=diagnostics`)
+
+Optional artifacts:
+
+- `diagnostics/weight_norms.pt`
+- `diagnostics/unit_distance_correlation.pt`
+
+Produced by: `scripts/03b_compute_diagnostics.py` when those diagnostics are enabled.
+
+### Ensemble (`kind=ensemble`)
+
+- `ensemble/composition_map.json`
+- `ensemble/{split}_{ensemble_name}_{method}_inference.parquet`
+- optional: `ensemble/{split}_{ensemble_name}_{method}_tensors.npz`
+
+Produced by: `scripts/04_run_ensemble.py`
+
+### Consistency (`kind=consistency`)
+
+Required by schema:
+
+- `consistency/rsa_matrix.pt`
+- `consistency/run_id_ordering.json`
+
+Produced by: `scripts/04c_compute_consistency.py` (plus per-run RDM artifacts also logged in same directory).
+
+### Metalearner (`kind=metalearner`)
+
+- `inputs/adapter_inputs_{behaviour_input_hash}.npz`
+- `inputs/adapter_split_trace_{behaviour_input_hash}.parquet`
+- `data/adapter_holdout_{behaviour_input_hash}.parquet`
+- `data/adapter_holdout_{behaviour_input_hash}.npz`
+- `model` (logged model directory)
+
+Produced by: `scripts/05_train_adapters.py`
+
+---
+
+## 6) Canonical notebook workflow
+
+Most analysis notebooks in `notebooks/*.py` follow this pattern:
+
+1. **CONFIG** constants (top cell).
+2. **SETUP**: `cfg, experiment = setup_environment()`.
+3. **LOAD**: query via `mlflow_helpers`.
+4. **INSPECT**: print shapes / unique values.
+5. **FILTER/JOIN**: constrain by split, method, run tags, hashes.
+6. **AGGREGATE**: groupby statistics.
+7. **PLOT**: Plotly figures and optional `save_plot(...)`.
+
+Representative scripts:
+
+- `notebooks/analysis_metalearner.py`
+- `notebooks/analysis_diversity.py`
+- `notebooks/analysis_profiles_comparison.py`
+- `notebooks/ensemble_consistency.py`
+- `notebooks/simprof.py`
+
+---
+
+## 7) Query/filter best practices
+
+- Always include status in MLflow filters:
+  - `attributes.status = 'FINISHED'`
+- Use canonical kind values from schema (`diagnostics`, not `diagnostic`).
+- Join multi-stage outputs by stable semantic keys:
+  - `tags.component_set_hash`
+  - `tags.identity_hash`
+  - `tags.ensemble_name`
+- Treat params/tags as strings unless explicitly cast.
+- For rho plots, convert to numeric (`rho_numeric`) before sorting.
+
+---
+
+## 8) Common pitfalls and how to avoid them
+
+1. **Wrong tracking backend**
+   - Symptom: empty tables in notebook.
+   - Fix: verify `setup_environment()` config profile and `cfg.mlflow.tracking_uri`.
+
+2. **Using obsolete paths (`inference_data/...`)**
+   - Current inference root is `inference/...` for active pipeline artifacts.
+
+3. **Kind mismatch (`diagnostic` vs `diagnostics`)**
+   - Runtime schema and scripts use plural `diagnostics`.
+
+4. **Assuming metalearner split is directly filterable in params**
+   - Current normalized metalearner retrieval does not expose a dedicated split param filter.
+
+5. **Adding retrieval functions in wrong layer**
+   - Keep repository run lookup in `src/repositories/functional_run_repository.py`.
+
+---
+
+## 9) How to add a new run kind without doc drift
+
+When introducing `kind='my_kind'`, update all required layers:
+
+1. **Telemetry contract**
+   - Add `my_kind` entry in `TELEMETRY_SCHEMA` (`src/mlflow_schema_logger.py`).
+
+2. **Idempotency semantics**
+   - Add `my_kind` to `IDEMPOTENCY_REGISTRY` (`src/config/hash.py`).
+
+3. **Pipeline stage implementation**
+   - Add/extend stage script in `scripts/`.
+   - Use schema wrappers:
+     - `start_run(...)`
+     - `log_params(...)`
+     - `log_tags(...)`
+
+4. **Run retrieval (if needed)**
+   - Prefer existing generic repository functions (`find_finished_identity_run`, `search_runs`).
+   - Add specialized repository helpers only when justified by repeated query logic.
+
+5. **Analysis helper support**
+   - Add `get_my_kind_list(...)` in `notebooks/mlflow/mlflow_helpers.py`.
+   - Add normalized `get_my_kind_results(...)` only if repeated plotting/aggregation needs it.
+
+6. **Notebook analysis script**
+   - Add a `notebooks/*.py` analysis script with CONFIG/SETUP/LOAD/INSPECT/FILTER/AGGREGATE/PLOT flow.
+
+7. **Tests**
+   - Add/update tests for hash semantics and retrieval behavior where applicable.
+
+---
+
+## 10) Verification checklist for analysis updates
+
+Before trusting a result set:
+
+1. `setup_environment()` points to intended tracking URI/experiment.
+2. Queried runs are `FINISHED`.
+3. Run kinds and keys match schema names.
+4. Required artifacts exist for selected run IDs.
+5. Joins use semantic keys (`component_set_hash`, `identity_hash`) not ad-hoc assumptions.
+6. Any numeric axes (e.g., rho) are explicitly cast and sorted.
+
+---
+
+## 11) Quick commands
+
+Install analysis dependencies:
+
+```bash
+uv sync --group analysis
+```
+
+Run representative focused tests:
+
+```bash
+pytest tests/test_idempotency_registry.py
+pytest tests/test_diagnostics_split_identity.py
+pytest tests/test_mlflow_artifact_cache.py
+```
+
+---
+
+## 12) Deprecation note
+
+This file is the consolidated analysis reference. If older analysis docs are kept temporarily for migration, treat this file as the authoritative source.

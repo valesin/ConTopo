@@ -32,9 +32,10 @@ dataset/*
 .vscode/
 
 # Notes
-docs/
-*.md
-!CODEBASE_ANALYSIS.md
+docs/personal
+reports/
+# *.md
+!README.md
 
 # Figures
 *.png
