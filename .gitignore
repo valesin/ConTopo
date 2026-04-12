@@ -71,3 +71,6 @@ purge_bucket.py
 
 *.html
 *.tex
+
+old_scripts/
+old_uv_project/
