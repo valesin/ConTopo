@@ -16,6 +16,8 @@ import pandas as pd
 import polars as pl
 from pathlib import Path
 
+from src.ensemble.selector import encode_groups_signature, decode_groups_signature  # noqa: F401
+
 # ── Raw list functions ────────────────────────────────────────────────────────
 # Return the full search_runs result as a Polars DataFrame.
 # Use for ad-hoc exploration, schema inspection, or joins across kinds.

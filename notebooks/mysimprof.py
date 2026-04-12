@@ -12,7 +12,7 @@ from src.config.notebook import setup_environment
 
 cfg, exp = setup_environment()
 
-import notebooks.mlflow.mlflow_helpers as mh
+import notebooks.mlflow_helpers as mh
 from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_split_labels
 from src.config.paths import get_cache_dir

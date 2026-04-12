@@ -22,7 +22,7 @@ from src.config.notebook import setup_environment
 
 cfg, exp = setup_environment()
 
-import notebooks.mlflow.mlflow_helpers as mh
+import notebooks.mlflow_helpers as mh
 from src.ensemble.selector import discover_ensembles
 from src.mlflow_utils import get_inference_run, get_profile_run, component_set_hash
 from src.data.loaders import get_split_labels

@@ -12,12 +12,12 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-import notebooks.mlflow.mlflow_helpers as mh
+import notebooks.mlflow_helpers as mh
 
 print("experiment:", experiment.name)
 
 # %%
-NUM_COMPONENTS = 9   # number of components per sampled ensemble
+NUM_COMPONENTS = 9  # number of components per sampled ensemble
 VOTE_METHOD = "soft"
 
 ensembles = mh.get_ensemble_list(experiment)
@@ -30,18 +30,21 @@ ensembles = ensembles.filter(pl.col("params.num_components") == str(NUM_COMPONEN
 # component union for that rho.
 # mean_gain: average of per-combo (ensemble_acc - comp_mean_acc).
 plot_df = (
-    ensembles
-    .with_columns(
+    ensembles.with_columns(
         pl.col("tags.rho").cast(pl.Float64).alias("rho_numeric"),
-        (pl.col("metrics.ensemble_accuracy") - pl.col("metrics.comp_mean_acc")).alias("gain"),
+        (pl.col("metrics.ensemble_accuracy") - pl.col("metrics.comp_mean_acc")).alias(
+            "gain"
+        ),
     )
     .group_by("tags.rho", "rho_numeric")
-    .agg([
-        pl.col("metrics.ensemble_accuracy").mean().alias("mean_ensemble_acc"),
-        pl.col("metrics.comp_mean_acc").mean().alias("mean_comp_union_acc"),
-        pl.col("gain").mean().alias("mean_gain"),
-        pl.len().alias("n_combinations"),
-    ])
+    .agg(
+        [
+            pl.col("metrics.ensemble_accuracy").mean().alias("mean_ensemble_acc"),
+            pl.col("metrics.comp_mean_acc").mean().alias("mean_comp_union_acc"),
+            pl.col("gain").mean().alias("mean_gain"),
+            pl.len().alias("n_combinations"),
+        ]
+    )
     .sort("rho_numeric")
 )
 
@@ -72,22 +75,20 @@ fig.update_layout(
 fig.show()
 
 # %%
-gain_df = (
-    plot_df
-    .select([
+gain_df = plot_df.select(
+    [
         "tags.rho",
         "mean_comp_union_acc",
         "mean_ensemble_acc",
         "mean_gain",
-    ])
-    .rename(
-        {
-            "tags.rho": "ρ",
-            "mean_comp_union_acc": "component mean (union)",
-            "mean_ensemble_acc": "ensemble acc",
-            "mean_gain": "gain (ens − comp, avg)",
-        }
-    )
+    ]
+).rename(
+    {
+        "tags.rho": "ρ",
+        "mean_comp_union_acc": "component mean (union)",
+        "mean_ensemble_acc": "ensemble acc",
+        "mean_gain": "gain (ens − comp, avg)",
+    }
 )
 
 fig_table = go.Figure(
