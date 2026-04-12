@@ -13,9 +13,3 @@ steps:
     script: 03_compute_profiles.py
     sweep: training_rho_loss
     description: "Compute category similarity profiles"
-  - id: ensemble
-    script: 04_run_ensemble.py
-    description: "Build ensembles"
-    overrides:
-    - "loss.rho=0.05"
-    - "trial=0"
