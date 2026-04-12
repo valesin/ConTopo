@@ -58,7 +58,18 @@ def main(cfg: DictConfig) -> None:
         overrides: list[str] = []
         if sweep:
             overrides.append(f"+sweeps={sweep}")
-        overrides.extend(shlex.split(o) if isinstance(o, str) else [o] for o in extra_overrides)  # type: ignore[arg-type]
+
+        # Normalize per-step overrides: each entry may be a string (shell-style)
+        # or already a single override item. We must extend `overrides` with
+        # individual string tokens so subprocess invocation receives a flat
+        # list of strings.
+        for o in extra_overrides:
+            if isinstance(o, str):
+                overrides.extend(shlex.split(o))
+            else:
+                # non-string entries (e.g. already a single override) are
+                # appended as their string representation
+                overrides.append(str(o))
 
         print(f"\n[STEP] {step_id}: {description}")
         run_script(script, overrides)

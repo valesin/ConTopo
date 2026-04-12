@@ -67,6 +67,31 @@ Resume from a step:
 python main.py pipeline.from_step=ensemble
 ```
 
+Passing additional overrides from the pipeline definition
+
+The pipeline step graph (`conf/pipeline/*.yaml`) may include per-step overrides.
+Each step can declare a `sweep` (becomes `+sweeps=<name>`) and an `overrides` list.
+Values in `overrides` are forwarded as Hydra CLI overrides to the child script when
+the orchestrator launches it as a subprocess. Example step excerpt:
+
+```yaml
+	- id: inference
+		script: 02_cache_inference.py
+		sweep: training_rho_loss
+		overrides:
+			- "loss.rho=0.05"
+			- "trial=0"
+```
+
+When `main.py` runs that step, the script is executed roughly as:
+
+```bash
+python scripts/02_cache_inference.py +sweeps=training_rho_loss loss.rho=0.05 trial=0
+```
+
+Use this to pin per-step params (for example, a specific rho or trial) without
+editing the top-level CLI. This is useful for preset pipelines in `conf/pipeline`.
+
 ## Pipeline scripts
 
 - `scripts/01_train_models.py`: train one model run (`kind=model`).

@@ -1,0 +1,21 @@
+# @package pipeline
+from_step: null
+steps:
+  - id: train
+    script: 01_train_models.py
+    sweep: training_rho_loss
+    description: "Train CE models"
+  - id: inference
+    script: 02_cache_inference.py
+    sweep: training_rho_loss
+    description: "Cache inference artifacts"
+  - id: profiles
+    script: 03_compute_profiles.py
+    sweep: training_rho_loss
+    description: "Compute category similarity profiles"
+  - id: ensemble
+    script: 04_run_ensemble.py
+    description: "Build ensembles"
+    overrides:
+    - "loss.rho=0.05"
+    - "trial=0"
