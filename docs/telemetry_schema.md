@@ -55,7 +55,7 @@ Each kind defines four slots: `params`, `tags`, `metrics`, and `artifacts`. For 
 3. Run a quick validation run. Example pattern (Hydra overrides shown as an example):
 
 ```bash
-python -m main pipeline.from_step=some_step pipeline.to_step=some_step +pipeline=small
+python -m main pipeline.from_step=some_step pipeline.to_step=some_step pipeline=small
 ```
 
 Successful validation prints the `PASS` message from `start_run`:

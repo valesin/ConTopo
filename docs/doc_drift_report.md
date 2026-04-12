@@ -23,7 +23,7 @@ Observed drift:
 - Old examples mention `--skip-training` and `--from-step 3` style flags.
 
 Current code reality:
-- `main.py` accepts Hydra overrides, e.g. `pipeline.from_step=ensemble` and `+pipeline=small`.
+- `main.py` accepts Hydra overrides, e.g. `pipeline.from_step=ensemble` and `pipeline=small`.
 - There is no `--skip-training` parser flag.
 
 Impact:

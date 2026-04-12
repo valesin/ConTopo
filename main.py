@@ -7,9 +7,8 @@ Hydra overrides are fully supported and forwarded to child processes.
 
 Usage:
     python main.py                                  # full pipeline (default)
-    python main.py +pipeline=small                  # smoke-test pipeline
-    python main.py pipeline.from_step=ensemble      # resume from ensemble step
-    python main.py +pipeline=small pipeline.from_step=ensemble
+    python main.py pipeline=small                  # smoke-test pipeline
+    python main.py pipeline=small pipeline.from_step=ensemble      # resume from ensemble step
 """
 
 from __future__ import annotations

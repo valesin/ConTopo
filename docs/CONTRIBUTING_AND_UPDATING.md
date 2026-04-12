@@ -85,5 +85,5 @@ pytest tests/test_hydra_config.py
 Run a smoke pipeline after larger changes:
 
 ```bash
-python main.py +pipeline=small
+python main.py pipeline=small
 ```

@@ -1,7 +1,6 @@
-# @package pipeline
 # Smoke-test pipeline — fast end-to-end run for CI / local validation.
 # Uses training_small (2 trials, 2 epochs) and metalearning_small (1 config).
-# Usage: python main.py +pipeline=small
+# Usage: python main.py pipeline=small
 from_step: null
 steps:
   - id: train

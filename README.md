@@ -58,7 +58,7 @@ python main.py \
 Smoke preset:
 
 ```bash
-python main.py +pipeline=small
+python main.py pipeline=small
 ```
 
 Resume from a step:

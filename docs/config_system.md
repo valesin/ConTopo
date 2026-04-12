@@ -163,7 +163,7 @@ Use Hydra overrides (not legacy parser flags):
 
 ```bash
 python main.py
-python main.py +pipeline=small
+python main.py pipeline=small
 python main.py pipeline.from_step=ensemble
 python scripts/01_train_models.py loss.rho=0.05 trial=2
 python scripts/02_cache_inference.py execution.split=val
