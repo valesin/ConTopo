@@ -66,7 +66,7 @@ def get_diversity_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
 
 
 def get_diagnostic_list(experiment: mlflow.entities.Experiment) -> pl.DataFrame:
-    return _search_kind(experiment, "diagnostic")
+    return _search_kind(experiment, "diagnostics")
 
 
 # ── Result functions ──────────────────────────────────────────────────────────
@@ -330,7 +330,7 @@ def load_inference_results_from_model_run_id(
     filter_string = (
         f"tags.kind = 'inference' and "
         f"tags.trained_model_run_id = '{trained_model_run_id}' and "
-        f"tags.split = '{split}' and "
+        f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
     runs_pd = mlflow.search_runs(
