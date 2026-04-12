@@ -1,0 +1,32 @@
+# @package pipeline
+# Smoke-test pipeline — fast end-to-end run for CI / local validation.
+# Uses training_small (2 trials, 2 epochs) and metalearning_small (1 config).
+# Usage: python main.py +pipeline=small
+from_step: null
+steps:
+  - id: train
+    script: 01_train_models.py
+    sweep: training_small
+    description: "Train CE models (small sweep)"
+  - id: inference
+    script: 02_cache_inference.py
+    description: "Cache inference artifacts"
+  - id: profiles
+    script: 03_compute_profiles.py
+    description: "Compute category similarity profiles"
+  - id: diagnostics
+    script: 03b_compute_diagnostics.py
+    description: "Compute per-model diagnostics"
+  - id: ensemble
+    script: 04_run_ensemble.py
+    description: "Build ensembles"
+  - id: diversity
+    script: 04b_compute_diversity.py
+    description: "Compute ensemble diversity metrics"
+  - id: consistency
+    script: 04c_compute_consistency.py
+    description: "Compute ensemble RDM/RSA consistency"
+  - id: adapters
+    script: 05_train_adapters.py
+    sweep: metalearning_small
+    description: "Train meta-learner adapters (small sweep)"

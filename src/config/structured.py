@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
+from omegaconf import MISSING
+
 # ─────────── model ───────────
 
 
@@ -298,6 +300,24 @@ class AdapterConfig:
 
 
 
+# ─────────── pipeline ───────────
+
+
+@dataclass
+class PipelineStepConfig:
+    id: str = MISSING
+    script: str = MISSING
+    sweep: Optional[str] = None
+    overrides: List[str] = field(default_factory=list)
+    description: str = ""
+
+
+@dataclass
+class PipelineConfig:
+    steps: List[Any] = field(default_factory=list)
+    from_step: Optional[str] = None
+
+
 # ─────────── top-level ───────────
 
 
@@ -319,6 +339,7 @@ class ConTopoConfig:
     mlflow: MLflowConfig = field(default_factory=MLflowConfig)
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     adapter: AdapterConfig = field(default_factory=AdapterConfig)
+    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
 # ─────────── ConfigStore registration ───────────
@@ -346,3 +367,4 @@ def register_configs() -> None:
     cs.store(group="mlflow", name="base_default", node=MLflowConfig)
     cs.store(group="ensemble", name="base_dynamic", node=EnsembleConfig)
     cs.store(group="adapter", name="base_default", node=AdapterConfig)
+    cs.store(group="pipeline", name="base_default", node=PipelineConfig)

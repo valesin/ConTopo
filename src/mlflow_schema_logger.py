@@ -183,11 +183,11 @@ TELEMETRY_SCHEMA = {
         },
         "tags": {
             "required": ["kind", "identity_hash", "ensemble_name", "component_set_hash", "groups_signature"],
-            "optional": ["run_name"]
+            "optional": ["run_name", "component_run_ids_csv"]
         },
         "metrics": {
             "required": [],
-            "optional": ["Q_statistic", "disagreement", "double_fault", "correlation", "interrater_agreement"]
+            "optional": ["q_statistic", "disagreement", "double_fault", "correlation", "interrater_agreement", "iou_top_n"]
         },
         "artifacts": {
             "required": [],
@@ -208,7 +208,7 @@ TELEMETRY_SCHEMA = {
             "optional": []
         },
         "artifacts": {
-            "required": ["consistency/rsa_correlations_{split}.parquet", "consistency/rsa_correlations_{split}.json"],
+            "required": ["consistency/rsa_matrix.pt", "consistency/run_id_ordering.json"],
             "optional": []
         }
     },

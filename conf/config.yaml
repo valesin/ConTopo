@@ -14,6 +14,7 @@ defaults:
   - mlflow: default
   - ensemble: dynamic
   - adapter: default
+  - pipeline: default
   - _self_
 
 # ── Schema ──

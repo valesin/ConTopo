@@ -66,9 +66,6 @@ class TestHydraComposition:
         assert "mlflow" in cfg
         assert cfg.mlflow.experiment_name == "contopo"
 
-    def test_pipeline_removed(self, cfg):
-        """pipeline must not exist — replaced by execution/profiling/analysis/groups."""
-        assert "pipeline" not in cfg
 
 
 class TestExecutionConfig:
@@ -217,15 +214,15 @@ class TestExcludedKeys:
     def test_adapter_excluded(self):
         assert "adapter" in EXCLUDED_KEYS
 
+    def test_pipeline_excluded(self):
+        assert "pipeline" in EXCLUDED_KEYS
+
     def test_runtime_excluded(self):
         assert "runtime" in EXCLUDED_KEYS
 
     def test_mlflow_excluded(self):
         assert "mlflow" in EXCLUDED_KEYS
 
-    def test_pipeline_not_in_excluded(self):
-        """pipeline key no longer exists — not needed in EXCLUDED_KEYS."""
-        assert "pipeline" not in EXCLUDED_KEYS
 
     def test_cfg_hash_ignores_execution(self, cfg):
         """Changing execution.split must NOT change model cfg_hash."""
@@ -266,3 +263,16 @@ class TestExcludedKeys:
         cfg2.loss.rho = 99.9
         h2 = cfg_hash(cfg2)
         assert h1 != h2
+
+
+class TestPipelineConfig:
+    """Verify pipeline config is accessible and has expected steps."""
+
+    def test_pipeline_group_present(self, cfg):
+        assert "pipeline" in cfg
+
+    def test_pipeline_has_steps(self, cfg):
+        assert len(cfg.pipeline.steps) > 0
+        train_step = cfg.pipeline.steps[0]
+        assert train_step.id == "train"
+        assert "01_train_models.py" in train_step.script
