@@ -106,3 +106,43 @@ def _discover(
             expanded[combo_name] = combo_sorted
 
     return expanded
+
+
+# ─────────────────────── groups signature ───────────────────────
+
+
+def encode_groups_signature(groups_cfg) -> str:
+    """
+    Human-readable, deterministic signature of a groups discovery config.
+
+    Format: ``group_by=rho,topology|k=3|filter=topology:torus``
+
+    - ``group_by`` keys are sorted alphabetically.
+    - ``k`` is sample_size as an integer, or ``"null"`` if unset.
+    - ``filter`` is sorted ``key:value`` pairs; empty string if none.
+    """
+    group_by = sorted(groups_cfg.group_by)
+    k = groups_cfg.sample_size if groups_cfg.sample_size is not None else "null"
+    filter_dict = dict(groups_cfg.filter) if groups_cfg.filter else {}
+    filter_str = ",".join(f"{fk}:{fv}" for fk, fv in sorted(filter_dict.items()))
+    return f"group_by={','.join(group_by)}|k={k}|filter={filter_str}"
+
+
+def decode_groups_signature(sig: str) -> dict:
+    """
+    Parse a groups signature string back to a plain dict.
+
+    Returns ``{"group_by": [...], "sample_size": int | None, "filter": {...}}``.
+    """
+    parts = dict(p.split("=", 1) for p in sig.split("|"))
+    raw_gb = parts.get("group_by", "")
+    group_by = raw_gb.split(",") if raw_gb else []
+    k_raw = parts.get("k", "null")
+    sample_size = None if k_raw == "null" else int(k_raw)
+    filter_raw = parts.get("filter", "")
+    filter_dict: Dict[str, str] = {}
+    if filter_raw:
+        for pair in filter_raw.split(","):
+            fk, fv = pair.split(":", 1)
+            filter_dict[fk] = fv
+    return {"group_by": group_by, "sample_size": sample_size, "filter": filter_dict}

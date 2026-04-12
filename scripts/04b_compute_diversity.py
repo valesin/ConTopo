@@ -18,7 +18,7 @@ import torch
 from omegaconf import DictConfig
 
 from src.data.loaders import get_split_labels
-from src.ensemble.selector import discover_ensembles_from_cfg
+from src.ensemble.selector import discover_ensembles_from_cfg, encode_groups_signature
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     setup_mlflow,
@@ -54,6 +54,8 @@ def main(cfg: DictConfig) -> None:
 
     # 1. Get ground-truth labels
     labels = get_split_labels(cfg, split)
+
+    groups_sig = encode_groups_signature(cfg.groups)
 
     # 2. Discover ensemble groups dynamically from the actual DB tracking
     groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
@@ -157,6 +159,7 @@ def main(cfg: DictConfig) -> None:
                 "identity_hash": step_identity_hash,
                 "run_name": f"{ens_name}_{metric_name}",
                 "component_run_ids_csv": component_run_ids_csv,
+                "groups_signature": groups_sig,
             }
 
             with schema_start_run(

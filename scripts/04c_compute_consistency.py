@@ -26,7 +26,7 @@ from omegaconf import DictConfig
 
 from src.data.anchors import get_or_create_anchors
 from src.data.loaders import get_num_classes, get_split_labels
-from src.ensemble.selector import discover_ensembles_from_cfg
+from src.ensemble.selector import discover_ensembles_from_cfg, encode_groups_signature
 from src.config.paths import get_anchors_dir
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
@@ -74,6 +74,8 @@ def main(cfg: DictConfig) -> None:
     )
     anchor_indices = anchors["anchor_indices"]
     a_spec_hash = anchors["spec_hash"]
+
+    groups_sig = encode_groups_signature(cfg.groups)
 
     # 2. Discover ensemble groups dynamically from the actual DB tracking
     groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
@@ -169,6 +171,7 @@ def main(cfg: DictConfig) -> None:
             "identity_hash": cons_hash,
             "anchor_spec_hash": a_spec_hash,
             "run_name": f"cons_{ens_name}",
+            "groups_signature": groups_sig,
         }
 
         with schema_start_run(
