@@ -16,9 +16,9 @@ from src.config.notebook import setup_environment
 
 cfg, exp = setup_environment()
 
-import notebooks.mlflow_helpers as mh
-from src.ensemble.selector import discover_ensembles
-from src.mlflow_utils import get_inference_run, get_profile_run, component_set_hash
+import notebooks.mlflow.mlflow_helpers as mh
+from src.ensemble.selector import discover_ensembles_from_cfg
+from src.mlflow_utils import component_set_hash
 from src.data.loaders import get_split_labels
 
 print("experiment:", exp.name)
@@ -287,7 +287,7 @@ print("sample_idx:", sample_idx)
 
 # %%
 # 6.2 Ensemble selection (same discovery path as training script)
-groups = discover_ensembles(cfg.mlflow.experiment_name)
+groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
 if not groups:
     raise RuntimeError("No dynamic ensembles discovered.")
 
@@ -312,7 +312,7 @@ base_vecs = []
 profile_vecs = []
 
 for run_id in run_ids:
-    inf_runs = get_inference_run(cfg.mlflow.experiment_name, run_id, split)
+    inf_runs = mh.get_inference_run(cfg.mlflow.experiment_name, run_id, split)
     if inf_runs.empty:
         raise RuntimeError(f"Missing '{split}' inference for {run_id}")
     inf_run_id = inf_runs.iloc[0].run_id
@@ -323,7 +323,7 @@ for run_id in run_ids:
     emb_all = torch.from_numpy(inf_tensors["embeddings"]).float().cpu()
     base_vecs.append(emb_all[sample_idx])
 
-    prof_runs = get_profile_run(
+    prof_runs = mh.get_profile_run(
         cfg.mlflow.experiment_name, run_id, similarity_metric, split
     )
     if prof_runs.empty:
@@ -549,7 +549,7 @@ print("assumption (first train == original index 0):", assumption_true)
 
 # %%
 # 7.3 Resolve component run_ids used by selected metalearner via component_set_hash
-groups_all = discover_ensembles(cfg.mlflow.experiment_name)
+groups_all = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
 match = []
 for ens_name_k, ids_k in groups_all.items():
     if component_set_hash(ids_k) == meta_component_set_hash:
@@ -605,7 +605,7 @@ base_vecs_ref = []
 profile_vecs_ref = []
 
 for run_id_ref in run_ids_ref:
-    inf_runs_ref = get_inference_run(cfg.mlflow.experiment_name, run_id_ref, "test")
+    inf_runs_ref = mh.get_inference_run(cfg.mlflow.experiment_name, run_id_ref, "test")
     if inf_runs_ref.empty:
         raise RuntimeError(f"Missing test inference for {run_id_ref}")
     inf_run_id_ref = inf_runs_ref.iloc[0].run_id
@@ -616,7 +616,7 @@ for run_id_ref in run_ids_ref:
     emb_ref = torch.from_numpy(inf_tensors_ref["embeddings"]).float().cpu()
     base_vecs_ref.append(emb_ref[manual_idx])
 
-    prof_runs_ref = get_profile_run(
+    prof_runs_ref = mh.get_profile_run(
         cfg.mlflow.experiment_name, run_id_ref, meta_similarity_metric, "test"
     )
     if prof_runs_ref.empty:

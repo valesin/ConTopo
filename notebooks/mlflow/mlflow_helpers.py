@@ -15,8 +15,14 @@ import mlflow
 import pandas as pd
 import polars as pl
 from pathlib import Path
+from src.repositories.functional_run_repository import (
+    search_runs,
+)
 
-from src.ensemble.selector import encode_groups_signature, decode_groups_signature  # noqa: F401
+from src.ensemble.selector import (
+    encode_groups_signature,
+    decode_groups_signature,
+)  # noqa: F401
 
 # ── Raw list functions ────────────────────────────────────────────────────────
 # Return the full search_runs result as a Polars DataFrame.
@@ -24,12 +30,7 @@ from src.ensemble.selector import encode_groups_signature, decode_groups_signatu
 
 
 def _search_kind(experiment: mlflow.entities.Experiment, kind: str) -> pl.DataFrame:
-    df = pl.from_pandas(
-        mlflow.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            filter_string=f"tags.kind = '{kind}'",
-        )
-    )
+    df = pl.from_pandas(search_runs(f"tags.kind = '{kind}'", output_format="pandas"))
     if df.is_empty():
         warnings.warn(
             f"No runs found for kind='{kind}' in experiment '{experiment.name}'."
@@ -97,19 +98,12 @@ def get_ensemble_results(
     Columns: run_id, rho, rho_numeric, cs_hash, vote_method, ensemble_name,
              accuracy, comp_mean_acc
     """
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        return pd.DataFrame()
-
     filter_str = (
         f"tags.kind = 'ensemble' and "
         f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_str,
-    )
+    runs = search_runs(filter_str, output_format="pandas")
     if runs.empty:
         return pd.DataFrame()
 
@@ -147,15 +141,8 @@ def get_metalearner_results(
     Columns: run_id, rho, rho_numeric, cs_hash, meta_type, feature_type,
              similarity_metric, split_seed, ensemble_name, profile_mask, accuracy
     """
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        return pd.DataFrame()
-
     filter_str = "tags.kind = 'metalearner' and " "attributes.status = 'FINISHED'"
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_str,
-    )
+    runs = search_runs(filter_str, output_format="pandas")
     if runs.empty:
         return pd.DataFrame()
 
@@ -181,6 +168,38 @@ def get_metalearner_results(
         result = result.sort_values(["rho_numeric", "meta_type", "feature_type"])
 
     return result
+
+
+def get_inference_run(
+    experiment_name: str,
+    trained_model_run_id: str,
+    split: str = "test",
+) -> pd.DataFrame:
+    """Return FINISHED inference runs for a parent model run and split."""
+    filter_str = (
+        f"tags.kind = 'inference' and "
+        f"tags.trained_model_run_id = '{trained_model_run_id}' and "
+        f"params.split = '{split}' and "
+        f"attributes.status = 'FINISHED'"
+    )
+    return search_runs(filter_str, output_format="pandas")
+
+
+def get_profile_run(
+    experiment_name: str,
+    parent_run_id: str,
+    similarity_metric: str,
+    split: str = "test",
+) -> pd.DataFrame:
+    """Return FINISHED category_similarity_profile runs for a model/metric/split."""
+    filter_str = (
+        "tags.kind = 'category_similarity_profile' and "
+        f"tags.parent_run_id = '{parent_run_id}' and "
+        f"tags.similarity_metric = '{similarity_metric}' and "
+        f"tags.split = '{split}' and "
+        "attributes.status = 'FINISHED'"
+    )
+    return search_runs(filter_str, output_format="pandas")
 
 
 # ── Artifact functions ────────────────────────────────────────────────────────
@@ -335,10 +354,7 @@ def load_inference_results_from_model_run_id(
         f"params.split = '{split}' and "
         f"attributes.status = 'FINISHED'"
     )
-    runs_pd = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string=filter_string,
-    )
+    runs_pd = search_runs(filter_string, output_format="pandas")
     if runs_pd.empty:
         raise ValueError(
             f"No FINISHED inference run found for model {trained_model_run_id} "

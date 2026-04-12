@@ -30,8 +30,8 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-import notebooks.mlflow_helpers as mh
-from notebooks.mlflow_helpers import save_plot
+import notebooks.mlflow.mlflow_helpers as mh
+from notebooks.mlflow.mlflow_helpers import save_plot
 
 print(f"Experiment: {experiment.name}")
 

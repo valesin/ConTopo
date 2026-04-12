@@ -14,7 +14,7 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-from notebooks.mlflow_helpers import (
+from notebooks.mlflow.mlflow_helpers import (
     get_metalearner_results,
     get_ensemble_results,
 )

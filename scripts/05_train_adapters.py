@@ -37,16 +37,19 @@ from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
     behaviour_tags,
     component_set_hash,
-    find_finished_metalearner_run,
     log_resolved_config,
     setup_mlflow,
-    find_finished_identity_run,
     load_mlflow_artifact,
     set_torch_seed,
     resolve_device,
     get_run_context,
     safe_to_numpy_float64,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_identity_run,
+    get_run,
 )
 
 # ─── MODELS ───
@@ -323,6 +326,7 @@ def _compute_rdm_features(P_masked: torch.Tensor) -> torch.Tensor:
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     split = cfg.execution.split
 
@@ -369,7 +373,6 @@ def main(cfg: DictConfig) -> None:
         print("No dynamic ensembles discovered. Exiting.")
         return
 
-    client = mlflow.tracking.MlflowClient()
     device = resolve_device(cfg.runtime.device)
 
     for ens_name, run_ids in groups.items():
@@ -404,9 +407,7 @@ def main(cfg: DictConfig) -> None:
             meta_type=meta_type,
         )
 
-        existing = find_finished_metalearner_run(
-            cfg.mlflow.experiment_name, step_identity_hash, meta_type=meta_type
-        )
+        existing = find_finished_identity_run("metalearner", step_identity_hash)
         if existing is not None and not cfg.execution.force:
             print(
                 f"  SKIP: {meta_type} adapter already trained (run_id={existing.info.run_id})"
@@ -416,7 +417,7 @@ def main(cfg: DictConfig) -> None:
         # Determine Rho (unanimous or mixed)
         rhos = set()
         for rid in run_ids:
-            r = client.get_run(rid)
+            r = get_run(rid)
             r_rho, _, _ = get_run_context(r)
             if r_rho != "?":
                 rhos.add(r_rho)
@@ -492,9 +493,7 @@ def main(cfg: DictConfig) -> None:
                     inf_identity = identity_hash(
                         "inference", trained_model_run_id=run_id, split=split
                     )
-                    inf_run = find_finished_identity_run(
-                        cfg.mlflow.experiment_name, "inference", inf_identity
-                    )
+                    inf_run = find_finished_identity_run("inference", inf_identity)
                     if inf_run is None:
                         raise RuntimeError(f"Missing '{split}' inference for {run_id}")
                     inf_run_id = inf_run.info.run_id
@@ -508,9 +507,7 @@ def main(cfg: DictConfig) -> None:
                             split=split,
                         )
                         prof_run = find_finished_identity_run(
-                            cfg.mlflow.experiment_name,
-                            "category_similarity_profile",
-                            prof_identity,
+                            "category_similarity_profile", prof_identity
                         )
                         if prof_run is None:
                             raise RuntimeError(
@@ -835,7 +832,9 @@ def main(cfg: DictConfig) -> None:
             # The `with` context manager already called end_run(status="FINISHED"),
             # so mlflow.active_run() is None here. Use the client to correct the status.
             if run is not None:
-                client.set_terminated(run.info.run_id, status="FAILED")
+                mlflow.tracking.MlflowClient().set_terminated(
+                    run.info.run_id, status="FAILED"
+                )
             raise RuntimeError(f"Adapter training failed for '{ens_name}': {e}") from e
 
 

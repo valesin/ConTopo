@@ -22,11 +22,13 @@ from src.ensemble.selector import discover_ensembles_from_cfg, encode_groups_sig
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     setup_mlflow,
-    find_finished_identity_run,
     load_mlflow_artifact,
     component_set_hash,
-    find_finished_diversity_run,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_identity_run,
 )
 from src.profiling.diversity import EvalContext, compute_metrics
 from src.mlflow_schema_logger import (
@@ -39,6 +41,7 @@ from src.mlflow_schema_logger import (
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     if not cfg.analysis.diversity.enabled:
         print("Diversity computation disabled (analysis.diversity.enabled=false).")
@@ -78,9 +81,7 @@ def main(cfg: DictConfig) -> None:
                     diversity_metric=metric_name,
                     split=split,
                 )
-                existing = find_finished_diversity_run(
-                    cfg.mlflow.experiment_name, step_identity_hash
-                )
+                existing = find_finished_identity_run("diversity", step_identity_hash)
                 if existing is not None:
                     continue
             needed.append(metric_name)
@@ -102,9 +103,7 @@ def main(cfg: DictConfig) -> None:
             inf_identity = identity_hash(
                 "inference", trained_model_run_id=run_id, split=split
             )
-            inf_run = find_finished_identity_run(
-                cfg.mlflow.experiment_name, "inference", inf_identity
-            )
+            inf_run = find_finished_identity_run("inference", inf_identity)
 
             if inf_run is None:
                 raise RuntimeError(

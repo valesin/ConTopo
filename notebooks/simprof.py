@@ -22,9 +22,9 @@ from src.config.notebook import setup_environment
 
 cfg, exp = setup_environment()
 
-import notebooks.mlflow_helpers as mh
-from src.ensemble.selector import discover_ensembles
-from src.mlflow_utils import get_inference_run, get_profile_run, component_set_hash
+import notebooks.mlflow.mlflow_helpers as mh
+from src.ensemble.selector import discover_ensembles_from_cfg
+from src.mlflow_utils import component_set_hash
 from src.data.loaders import get_split_labels
 
 print("experiment:", exp.name)
@@ -239,7 +239,7 @@ ensemble_name = None
 split = "test"
 similarity_metric = target_metric
 
-groups = discover_ensembles(cfg.mlflow.experiment_name)
+groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
 if not groups:
     raise RuntimeError("No dynamic ensembles discovered.")
 if ensemble_name is None:
@@ -387,7 +387,7 @@ print(
 
 # %%
 # resolve component runs from component_set_hash
-groups_all = discover_ensembles(cfg.mlflow.experiment_name)
+groups_all = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
 match = []
 for ens_name_k, ids_k in groups_all.items():
     if component_set_hash(ids_k) == meta_component_set_hash:

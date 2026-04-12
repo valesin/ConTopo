@@ -6,7 +6,7 @@ from src.config.notebook import setup_environment
 
 cfg, experiment = setup_environment()
 
-import notebooks.mlflow_helpers as mh
+import notebooks.mlflow.mlflow_helpers as mh
 
 print("experiment:", experiment.name)
 

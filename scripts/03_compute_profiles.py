@@ -37,15 +37,17 @@ from src.profiling.category_similarity import (
 )
 from src.mlflow_utils import (
     category_similarity_profile_tags,
-    find_finished_similarity_profile_run,
     log_resolved_config,
     setup_mlflow,
-    find_finished_model_run,
     resolve_seed,
-    find_finished_identity_run,
     load_mlflow_artifact,
     get_run_context,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_model_run,
+    find_finished_identity_run,
 )
 from src.config.hash import identity_hash
 from src.mlflow_schema_logger import (
@@ -58,6 +60,7 @@ from src.mlflow_schema_logger import (
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     # ── Seed ──
     seed = resolve_seed(cfg)
@@ -68,7 +71,7 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Target specific model by ID ──
-    model_run, _ = find_finished_model_run(cfg.mlflow.experiment_name, cfg, seed)
+    model_run, _ = find_finished_model_run(cfg, seed)
 
     if model_run is None:
         print(
@@ -83,9 +86,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── Fetch corresponding Inference Run ──
     inf_identity = identity_hash("inference", trained_model_run_id=run_id, split=split)
-    inf_run = find_finished_identity_run(
-        cfg.mlflow.experiment_name, "inference", inf_identity
-    )
+    inf_run = find_finished_identity_run("inference", inf_identity)
 
     if inf_run is None:
         print(
@@ -160,8 +161,8 @@ def main(cfg: DictConfig) -> None:
 
         # Idempotency check across MLflow backend
         if not force:
-            existing = find_finished_similarity_profile_run(
-                cfg.mlflow.experiment_name,
+            existing = find_finished_identity_run(
+                "category_similarity_profile",
                 prof_hash,
             )
             if existing is not None:

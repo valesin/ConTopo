@@ -10,8 +10,8 @@ import itertools
 import json
 from typing import Any, Dict, List, Optional
 
-import mlflow
 from omegaconf import DictConfig
+from src.repositories.functional_run_repository import search_runs
 
 
 def discover_ensembles_from_cfg(
@@ -47,21 +47,13 @@ def _discover(
     base_filter: Dict[str, Any],
     sample_size: Optional[int] = None,
 ) -> Dict[str, List[str]]:
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        raise ValueError(f"MLflow experiment '{experiment_name}' not found.")
-
     # 1. Base MLflow fetch
     filter_string = "attributes.status = 'FINISHED' and tags.kind = 'model'"
     if base_filter:
         for k, v in base_filter.items():
             filter_string += f" and params.{k} = '{v}'"
 
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=filter_string,
-        output_format="list",
-    )
+    runs = search_runs(filter_string, output_format="list")
 
     if not runs:
         raise ValueError(f"No FINISHED models found matching: {filter_string}")

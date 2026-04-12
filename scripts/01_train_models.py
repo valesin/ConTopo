@@ -39,11 +39,14 @@ from src.mlflow_utils import (
     log_resolved_config,
     model_tags,
     setup_mlflow,
-    find_finished_model_run,
     resolve_seed,
     set_torch_seed,
     resolve_device,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_model_run,
 )
 from src.networks.registry import build_model, unwrap
 from src.training.train_ce import train_one_epoch, validate
@@ -96,10 +99,9 @@ def main(cfg: DictConfig) -> None:
     # ── Idempotency ──
     hash_val = cfg_hash(cfg)
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
-    existing_run, model_identity_hash = find_finished_model_run(
-        cfg.mlflow.experiment_name, cfg, seed
-    )
+    existing_run, model_identity_hash = find_finished_model_run(cfg, seed)
     if existing_run is not None:
         print(
             "Model already FINISHED. "

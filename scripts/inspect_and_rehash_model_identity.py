@@ -11,6 +11,10 @@ from hydra import compose, initialize_config_dir
 import mlflow
 from mlflow.tracking import MlflowClient
 from omegaconf import OmegaConf
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    search_runs,
+)
 
 from src.config.hash import IDEMPOTENCY_REGISTRY, cfg_hash, identity_hash
 from src.mlflow_utils import setup_mlflow
@@ -242,26 +246,13 @@ def find_run_id(
     if not identity_hash_old:
         raise ValueError("Provide either --run-id or --identity-hash-old")
 
-    exp = mlflow.get_experiment_by_name(experiment_name)
-    if exp is None:
-        available = [
-            e.name
-            for e in client.search_experiments(
-                view_type=mlflow.entities.ViewType.ACTIVE_ONLY
-            )
-        ]
-        raise ValueError(
-            f"Experiment not found: {experiment_name}. "
-            f"Available active experiments: {available}"
-        )
-
-    rows = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id],
-        filter_string=(
+    rows = search_runs(
+        (
             "tags.kind = 'model' and "
             "attributes.status = 'FINISHED' and "
             f"tags.identity_hash = '{identity_hash_old}'"
         ),
+        output_format="pandas",
     )
     if rows.empty:
         raise ValueError(
@@ -348,6 +339,7 @@ def main() -> None:
         tracking_uri=chosen_tracking_uri,
         experiment_name=args.experiment,
     )
+    configure_run_repository(active_tracking_uri, effective_experiment)
 
     client = MlflowClient()
     chosen_run_id = find_run_id(

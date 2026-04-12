@@ -32,14 +32,16 @@ import tempfile
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
     setup_mlflow,
-    find_finished_model_run,
     resolve_seed,
     resolve_device,
-    find_finished_identity_run,
     load_mlflow_artifact,
-    find_finished_diagnostic_run,
     get_run_context,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_model_run,
+    find_finished_identity_run,
 )
 from src.profiling.smoothness import morans_i
 from src.profiling.unit_analysis import weight_norms, unit_distance_correlation
@@ -118,6 +120,7 @@ def _log_diagnostic_run(
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     # ── Seed ──
     seed = resolve_seed(cfg)
@@ -137,7 +140,7 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Target specific model by ID ──
-    model_run, _ = find_finished_model_run(cfg.mlflow.experiment_name, cfg, seed)
+    model_run, _ = find_finished_model_run(cfg, seed)
 
     if model_run is None:
         print(
@@ -164,8 +167,8 @@ def main(cfg: DictConfig) -> None:
     needed = []
     for metric_name in enabled:
         if not force:
-            existing = find_finished_diagnostic_run(
-                cfg.mlflow.experiment_name,
+            existing = find_finished_identity_run(
+                "diagnostics",
                 identity_hash(
                     "diagnostics",
                     parent_run_id=run_id,
@@ -190,9 +193,7 @@ def main(cfg: DictConfig) -> None:
         inf_identity = identity_hash(
             "inference", trained_model_run_id=run_id, split=split
         )
-        inf_run = find_finished_identity_run(
-            cfg.mlflow.experiment_name, "inference", inf_identity
-        )
+        inf_run = find_finished_identity_run("inference", inf_identity)
 
         if inf_run is not None:
             inf_run_id = inf_run.info.run_id

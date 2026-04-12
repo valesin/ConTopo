@@ -32,10 +32,12 @@ from src.config.hash import identity_hash
 from src.mlflow_utils import (
     component_set_hash,
     setup_mlflow,
-    find_finished_identity_run,
     load_mlflow_artifact,
-    find_finished_consistency_run,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_identity_run,
 )
 from src.profiling.rdm import pearson_rdm, rsa_correlation
 from src.mlflow_schema_logger import (
@@ -49,6 +51,7 @@ from src.mlflow_schema_logger import (
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     if not cfg.analysis.consistency.enabled:
         print("Consistency computation disabled (analysis.consistency.enabled=false).")
@@ -96,9 +99,7 @@ def main(cfg: DictConfig) -> None:
 
         # Idempotency
         if not force:
-            existing = find_finished_consistency_run(
-                cfg.mlflow.experiment_name, cons_hash
-            )
+            existing = find_finished_identity_run("consistency", cons_hash)
             if existing is not None:
                 print(f"  SKIP: already computed (run_id={existing.info.run_id})")
                 continue
@@ -114,9 +115,7 @@ def main(cfg: DictConfig) -> None:
             inf_identity = identity_hash(
                 "inference", trained_model_run_id=run_id, split=split
             )
-            inf_run = find_finished_identity_run(
-                cfg.mlflow.experiment_name, "inference", inf_identity
-            )
+            inf_run = find_finished_identity_run("inference", inf_identity)
 
             if inf_run is None:
                 print(

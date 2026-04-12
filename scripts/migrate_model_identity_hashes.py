@@ -53,6 +53,10 @@ from typing import Dict
 from mlflow.tracking import MlflowClient
 import mlflow
 from omegaconf import OmegaConf
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    search_runs,
+)
 
 from src.config.hash import identity_hash
 from src.config.structured import DatasetConfig, LossConfig, ModelConfig, TrainingConfig
@@ -208,17 +212,13 @@ def main():
         mlflow.set_tracking_uri(args.tracking_uri)
 
     client = MlflowClient()
-    exp = mlflow.get_experiment_by_name(args.experiment)
-    if exp is None:
-        raise SystemExit(f"Experiment not found: {args.experiment!r}")
+    configure_run_repository(mlflow.get_tracking_uri(), args.experiment)
 
     if not args.apply:
         print("DRY RUN — pass --apply to write tags.\n")
 
     filter_str = "tags.kind = 'model' and attributes.status = 'FINISHED'"
-    runs = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id], filter_string=filter_str
-    )
+    runs = search_runs(filter_str, output_format="pandas")
     print(f"Found {len(runs)} FINISHED model runs.")
 
     processed = 0

@@ -23,7 +23,6 @@ import os
 import tempfile
 
 import hydra
-import mlflow
 import torch
 import numpy as np
 import pandas as pd
@@ -37,13 +36,16 @@ from src.config.hash import identity_hash
 from src.mlflow_utils import (
     behaviour_tags,
     component_set_hash,
-    find_finished_ensemble_run,
     setup_mlflow,
-    find_finished_identity_run,
     load_mlflow_artifact,
     get_run_context,
     safe_to_numpy_float64,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_identity_run,
+    get_run,
 )
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
@@ -69,9 +71,7 @@ def _load_inference_artifacts(cfg, run_ids, split="test"):
         inf_identity = identity_hash(
             "inference", trained_model_run_id=model_run_id, split=split
         )
-        inf_run = find_finished_identity_run(
-            cfg.mlflow.experiment_name, "inference", inf_identity
-        )
+        inf_run = find_finished_identity_run("inference", inf_identity)
 
         if inf_run is None:
             raise RuntimeError(
@@ -133,9 +133,7 @@ def _run_votes(
         )
 
         # Idempotency
-        existing = find_finished_ensemble_run(
-            cfg.mlflow.experiment_name, step_identity_hash, ensemble_method=method
-        )
+        existing = find_finished_identity_run("ensemble", step_identity_hash)
         if existing is not None:
             print(
                 f"  vote/{method}: already exists (run_id={existing.info.run_id}). Skipping."
@@ -240,16 +238,12 @@ def _run_votes(
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     split = cfg.execution.split
     groups_sig = encode_groups_signature(cfg.groups)
 
     labels = get_split_labels(cfg, split)
-
-    # Get MLflow environment to fetch runs
-    exp = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
-    if exp is None:
-        raise ValueError(f"Experiment '{cfg.mlflow.experiment_name}' not found.")
 
     vote_methods = list(cfg.ensemble.votes)
 
@@ -281,9 +275,8 @@ def main(cfg: DictConfig) -> None:
 
         # Determine Rho (unanimous or mixed)
         rhos = set()
-        client = mlflow.tracking.MlflowClient()
         for rid in run_ids:
-            r = client.get_run(rid)
+            r = get_run(rid)
             r_rho, _, _ = get_run_context(r)
             if r_rho != "?":
                 rhos.add(r_rho)

@@ -27,13 +27,16 @@ from src.data.loaders import get_cifar10_eval_loader, shutdown_dataloader_worker
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
     setup_mlflow,
-    find_finished_model_run,
     resolve_seed,
     resolve_device,
     get_run_context,
     safe_to_numpy_float64,
-    find_finished_identity_run,
     log_dataset_lineage,
+)
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_model_run,
+    find_finished_identity_run,
 )
 from src.config.hash import cfg_hash, identity_hash
 from src.mlflow_schema_logger import (
@@ -47,6 +50,7 @@ from src.mlflow_schema_logger import (
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     # ── Seed ──
     seed = resolve_seed(cfg)
@@ -54,9 +58,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── Find parent model run ──
     hash_val = cfg_hash(cfg)  # kept for tagging the inference run
-    model_run, model_hash = find_finished_model_run(
-        cfg.mlflow.experiment_name, cfg, seed
-    )
+    model_run, model_hash = find_finished_model_run(cfg, seed)
     if model_run is None:
         print(
             f"No trained model found (identity_hash={model_hash}). "
@@ -87,9 +89,7 @@ def main(cfg: DictConfig) -> None:
 
     # Check if this specific inference run already exists
     if not cfg.execution.force:
-        existing = find_finished_identity_run(
-            cfg.mlflow.experiment_name, "inference", inf_identity_hash
-        )
+        existing = find_finished_identity_run("inference", inf_identity_hash)
         if existing is not None:
             print(
                 f"Inference already cached for model {run_id} on split {split}. Skipping."

@@ -17,20 +17,22 @@ import itertools
 import math
 
 import hydra
-import mlflow
 from omegaconf import DictConfig
 
 from src.ensemble.selector import discover_ensembles_from_cfg, _discover
 from src.mlflow_utils import setup_mlflow, get_run_context
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    get_run,
+)
 
 
 def _fetch_run_metadata(experiment_name: str, run_ids: list[str]) -> dict[str, dict]:
     """Return {run_id: {rho, trial, topology}} for each run_id."""
-    client = mlflow.tracking.MlflowClient()
     meta = {}
     for rid in run_ids:
         try:
-            r = client.get_run(rid)
+            r = get_run(rid)
             rho, trial, topology = get_run_context(r)
             meta[rid] = {"rho": rho, "trial": trial, "topology": topology}
         except Exception:
@@ -45,6 +47,7 @@ def _combinations_count(n: int, k: int) -> int:
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)
+    configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     group_by = list(cfg.groups.group_by)
     min_components = int(cfg.groups.min_components)
@@ -59,7 +62,9 @@ def main(cfg: DictConfig) -> None:
     print(f"  experiment : {cfg.mlflow.experiment_name}")
     print(f"  group_by   : {group_by}")
     print(f"  min_comps  : {min_components}")
-    print(f"  sample_size: {sample_size if sample_size is not None else 'null  (full groups)'}")
+    print(
+        f"  sample_size: {sample_size if sample_size is not None else 'null  (full groups)'}"
+    )
     if base_filter:
         print(f"  filter     : {base_filter}")
 
@@ -70,7 +75,7 @@ def main(cfg: DictConfig) -> None:
         group_by=group_by,
         min_components=min_components,
         base_filter=base_filter,
-        sample_size=None,          # always fetch the full pool first
+        sample_size=None,  # always fetch the full pool first
     )
 
     if not groups_before_expansion:
@@ -78,7 +83,9 @@ def main(cfg: DictConfig) -> None:
         return
 
     # Collect all unique run IDs across groups to fetch metadata in bulk.
-    all_run_ids = sorted({rid for ids in groups_before_expansion.values() for rid in ids})
+    all_run_ids = sorted(
+        {rid for ids in groups_before_expansion.values() for rid in ids}
+    )
     meta = _fetch_run_metadata(cfg.mlflow.experiment_name, all_run_ids)
 
     total_ensembles = 0
@@ -100,7 +107,9 @@ def main(cfg: DictConfig) -> None:
         print(f"  {'─'*12}   {'─'*10}  {'─'*8}  {'─'*5}")
         for rid in run_ids:
             m = meta.get(rid, {})
-            print(f"  {rid[:12]}   {m.get('topology','?'):<10}  {m.get('rho','?'):<8}  {m.get('trial','?')}")
+            print(
+                f"  {rid[:12]}   {m.get('topology','?'):<10}  {m.get('rho','?'):<8}  {m.get('trial','?')}"
+            )
 
     print(f"\n{'='*60}")
     print(f"  Total ensemble runs that would be submitted: {total_ensembles}")

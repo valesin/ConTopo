@@ -26,8 +26,12 @@ from src.config.hash import (
 from src.data.anchors import select_anchors
 from src.mlflow_utils import (
     category_similarity_profile_tags,
-    find_finished_similarity_profile_run,
 )
+from src.repositories.functional_run_repository import (
+    configure_run_repository,
+    find_finished_identity_run,
+)
+from src.repositories import functional_run_repository as run_repo_module
 from src.profiling.category_similarity import compute_similarity_profile
 
 # ──────────── Fixtures ──────────────
@@ -350,25 +354,51 @@ class TestCategorySimilarityProfileTags:
 class TestDemandDrivenCaching:
     """Verify demand-driven caching logic: compute only on cache miss."""
 
-    @patch("src.mlflow_utils.mlflow")
+    @patch("src.repositories.functional_run_repository.mlflow")
     def test_find_finished_returns_none_on_miss(self, mock_mlflow):
-        """When no matching run exists, find_finished_similarity_profile_run returns None."""
-        mock_mlflow.get_experiment_by_name.return_value = None
-        result = find_finished_similarity_profile_run("test_exp", "id_hash_123")
+        """When no matching run exists, find_finished_identity_run returns None."""
+        run_repo_module._STATE.update(
+            {
+                "configured": False,
+                "tracking_uri": None,
+                "experiment_name": None,
+                "experiment_id": None,
+            }
+        )
+        mock_mlflow.get_experiment_by_name.return_value = MagicMock(
+            experiment_id="exp_1"
+        )
+        configure_run_repository("sqlite:///tmp.db", "test_exp")
+        mock_mlflow.search_runs.return_value = []
+
+        result = find_finished_identity_run(
+            "category_similarity_profile", "id_hash_123"
+        )
         assert result is None
 
-    @patch("src.mlflow_utils.mlflow")
+    @patch("src.repositories.functional_run_repository.mlflow")
     def test_find_finished_returns_run_on_hit(self, mock_mlflow):
         """When a matching run exists, it is returned."""
+        run_repo_module._STATE.update(
+            {
+                "configured": False,
+                "tracking_uri": None,
+                "experiment_name": None,
+                "experiment_id": None,
+            }
+        )
         mock_exp = MagicMock()
         mock_exp.experiment_id = "exp_1"
         mock_mlflow.get_experiment_by_name.return_value = mock_exp
+        configure_run_repository("sqlite:///tmp.db", "test_exp")
 
         mock_run = MagicMock()
         mock_run.info.run_id = "cached_run_id"
         mock_mlflow.search_runs.return_value = [mock_run]
 
-        result = find_finished_similarity_profile_run("test_exp", "id_hash_123")
+        result = find_finished_identity_run(
+            "category_similarity_profile", "id_hash_123"
+        )
         assert result is not None
         assert result.info.run_id == "cached_run_id"
 
