@@ -217,9 +217,6 @@ class TestExcludedKeys:
     def test_adapter_excluded(self):
         assert "adapter" in EXCLUDED_KEYS
 
-    def test_migration_excluded(self):
-        assert "migration" in EXCLUDED_KEYS
-
     def test_runtime_excluded(self):
         assert "runtime" in EXCLUDED_KEYS
 

@@ -296,12 +296,6 @@ class AdapterConfig:
     )
 
 
-# ─────────── migration ───────────
-
-
-@dataclass
-class MigrationConfig:
-    dry_run: bool = False
 
 
 # ─────────── top-level ───────────
@@ -325,7 +319,6 @@ class ConTopoConfig:
     mlflow: MLflowConfig = field(default_factory=MLflowConfig)
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     adapter: AdapterConfig = field(default_factory=AdapterConfig)
-    migration: MigrationConfig = field(default_factory=MigrationConfig)
 
 
 # ─────────── ConfigStore registration ───────────

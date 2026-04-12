@@ -4,7 +4,7 @@ cfg_hash — deterministic hash of experiment-semantic config only.
 Excluded top-level keys (do NOT affect experiment results):
   runtime, mlflow, storage, hydra,
   groups, profiling, analysis, execution,
-  ensemble, adapter, migration
+  ensemble, adapter
 
 Included (experiment-semantic):
   schema_version, trial, seed, model.*, loss.*, dataset.*, training.*
@@ -64,7 +64,6 @@ EXCLUDED_KEYS = frozenset(
         "execution",
         "ensemble",
         "adapter",
-        "migration",
     }
 )
 

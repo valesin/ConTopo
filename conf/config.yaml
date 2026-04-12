@@ -23,10 +23,6 @@ schema_version: 1
 trial: 0
 seed: null          # null → auto: 100 + trial
 
-# ── Migration (one-time) ──
-migration:
-  dry_run: false
-
 # Hydra internals
 hydra:
   run:
