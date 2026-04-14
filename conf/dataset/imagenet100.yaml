@@ -1,0 +1,24 @@
+# ImageNet100 dataset config
+# 100-class subset of ImageNet: 500 images/class train, 50 images/class official val (test).
+#
+# Data layout expected at <runtime.data_root>/imagenet100/:
+#   train/<class_folder>/  — 100 classes × 500 images = 50 000 training images
+#   val/<class_folder>/    — 100 classes × 50 images  =  5 000 held-out test images
+# (symlink from canonical data location is fine)
+#
+# Experiment isolation: always use a distinct mlflow.experiment_name when running
+# alongside CIFAR-10 to prevent ensemble discovery from mixing models across datasets.
+# Example: mlflow.experiment_name=contopo_imagenet100
+
+name: imagenet100
+image_size: 224
+in_channels: 3
+mean: [0.485, 0.456, 0.406]
+std:  [0.229, 0.224, 0.225]
+
+split:
+  strategy: first_n_per_class  # picks the first val_per_class images per class by ImageFolder order
+  val_per_class: 50             # 50 × 100 classes = 5 000 custom val; 45 000 train
+
+transforms:
+  preset: imagenet_v1           # Resize(256)+CenterCrop(224) eval; RandomResizedCrop(224) train

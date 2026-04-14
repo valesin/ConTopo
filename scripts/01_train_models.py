@@ -29,7 +29,7 @@ from torch.amp import GradScaler
 
 from src.config.hash import cfg_hash
 from src.data.loaders import (
-    get_cifar10_loaders,
+    get_dataset_loaders,
     get_split_labels,
     shutdown_dataloader_workers,
 )
@@ -111,7 +111,7 @@ def main(cfg: DictConfig) -> None:
         return
 
     # ── Data ──
-    train_loader, val_loader, test_loader = get_cifar10_loaders(cfg)
+    train_loader, val_loader, test_loader = get_dataset_loaders(cfg)
 
     try:
         # ── Device ──

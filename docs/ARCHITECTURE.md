@@ -40,6 +40,30 @@ Important separation:
 
 - Model identity hash (`cfg_hash`) excludes non-training groups (see `EXCLUDED_KEYS` in `src/config/hash.py`).
 
+### 3.1 Dataset abstraction
+
+The pipeline is dataset-agnostic. The active dataset is selected via the `dataset` config group:
+
+```bash
+python main.py dataset=imagenet100 model=resnet34_imagenet100 ...
+```
+
+The data loading layer (`src/data/loaders.py`) exposes two stable entry points:
+
+- `get_dataset_loaders(cfg)` → `(train_loader, val_loader, test_loader)`
+- `get_dataset_eval_loader(cfg, split, batch_size, num_workers)` → `DataLoader`
+
+Both dispatch on `cfg.dataset.name` via `_DATASET_FACTORIES`, a registry of thin
+torchvision-compatible dataset factory functions. Transform presets are selected by
+`cfg.dataset.transforms.preset` from the registry in `src/data/transforms.py`.
+
+Adding a new dataset requires:
+1. One factory function + two registry entries in `src/data/loaders.py`.
+2. A `conf/dataset/<name>.yaml` config file.
+3. Optionally: a new transform preset in `src/data/transforms.py`.
+
+See `CONTRIBUTING_AND_UPDATING.md` §10 for the full checklist.
+
 ## 4. MLflow architecture boundaries
 
 ### 4.1 Retrieval boundary (SSOT)

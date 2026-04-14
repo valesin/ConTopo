@@ -1,9 +1,20 @@
 """
-CIFAR-10 data loaders with deterministic train/val split and named transform presets.
+Dataset-agnostic data loaders with deterministic train/val split and named transform presets.
+
+Adding a new dataset
+--------------------
+1. Add a factory function ``_<name>_factory(root, train, transform, download=False)``
+   that returns a torchvision-style Dataset with a ``.targets`` attribute.
+2. Register it in ``_DATASET_FACTORIES``.
+3. Add its class count to ``DATASET_NUM_CLASSES``.
+4. Create ``conf/dataset/<name>.yaml`` with the required fields.
 """
 
 import contextlib
 import io
+import os
+from typing import Callable
+
 import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets
@@ -12,14 +23,39 @@ from omegaconf import DictConfig
 from src.data.transforms import get_transforms
 
 
-def _cifar10(*args, **kwargs):
+# ─────────── per-dataset factories ───────────
+
+def _cifar10_factory(root: str, train: bool, transform, download: bool = True):
     """Wrapper around CIFAR10 that suppresses the 'Files already downloaded' stdout noise."""
     with contextlib.redirect_stdout(io.StringIO()):
-        return datasets.CIFAR10(*args, **kwargs)
+        return datasets.CIFAR10(root=root, train=train, transform=transform, download=download)
 
+
+def _imagenet100_factory(root: str, train: bool, transform, download: bool = False):
+    """ImageFolder loader for ImageNet100.
+
+    Expects data at ``<root>/imagenet100/train/`` and ``<root>/imagenet100/val/``.
+    The ``val/`` directory is the official 50-image/class held-out split used as the
+    pipeline TEST split.  A custom validation split is carved from ``train/`` at
+    runtime by ``_split_train_val_indices``.
+
+    ``download`` is accepted but ignored — ImageNet100 must be present locally
+    (typically via a symlink from the canonical data location).
+    """
+    subset = "train" if train else "val"
+    path = os.path.join(root, "imagenet100", subset)
+    return datasets.ImageFolder(root=path, transform=transform)
+
+
+# Registry: dataset name → factory(root, train, transform, download) → Dataset
+_DATASET_FACTORIES: dict[str, Callable] = {
+    "cifar10": _cifar10_factory,
+    "imagenet100": _imagenet100_factory,
+}
 
 DATASET_NUM_CLASSES: dict[str, int] = {
     "cifar10": 10,
+    "imagenet100": 100,
 }
 
 
@@ -52,14 +88,19 @@ def shutdown_dataloader_workers(loader: DataLoader | None) -> None:
         pass
 
 
-def _split_train_val_indices(root: str, val_per_class: int = 500):
+def _split_train_val_indices(root: str, dataset_name: str, val_per_class: int = 500):
+    """Deterministic train/val split from the dataset's training set.
+
+    Picks the first ``val_per_class`` samples per class by the dataset's
+    native ordering (alphabetical for ImageFolder, original order for CIFAR-*).
+
+    Works for any dataset registered in ``_DATASET_FACTORIES`` whose training
+    split exposes a ``.targets`` list of integer class labels.
     """
-    Deterministic 45k/5k split from the CIFAR-10 train set.
-    Picks the first ``val_per_class`` samples per class by original order.
-    """
-    base = _cifar10(root=root, train=True, transform=None, download=True)
-    targets = base.targets if hasattr(base, "targets") else base.train_labels
-    class_counts = {c: 0 for c in range(10)}
+    factory = _DATASET_FACTORIES[dataset_name]
+    base = factory(root=root, train=True, transform=None)
+    targets = base.targets if hasattr(base, "targets") else list(base.train_labels)
+    class_counts: dict[int, int] = {c: 0 for c in set(int(y) for y in targets)}
     val_idx: list[int] = []
     for idx, y in enumerate(targets):
         y_int = int(y)
@@ -72,27 +113,29 @@ def _split_train_val_indices(root: str, val_per_class: int = 500):
     return train_idx, val_idx
 
 
-def get_cifar10_loaders(cfg: DictConfig):
-    """
-    Build train / val / test DataLoaders for CIFAR-10 using Hydra config.
+def get_dataset_loaders(cfg: DictConfig):
+    """Build train / val / test DataLoaders for any registered dataset.
 
+    Dispatches on ``cfg.dataset.name`` via ``_DATASET_FACTORIES``.
     Uses named transform presets from ``cfg.dataset.transforms.preset``.
     Runtime knobs (num_workers, pin_memory, etc.) come from ``cfg.runtime``.
 
     Returns:
         (train_loader, val_loader, test_loader)
     """
-    # Get transforms from named preset
+    dataset_name = cfg.dataset.name
+    factory = _DATASET_FACTORIES[dataset_name]
+
     preset = cfg.dataset.transforms.preset
     train_transform, eval_transform = get_transforms(preset)
 
     root = cfg.runtime.data_root
     val_per_class = cfg.dataset.split.val_per_class
-    train_indices, val_indices = _split_train_val_indices(root, val_per_class)
+    train_indices, val_indices = _split_train_val_indices(root, dataset_name, val_per_class)
 
-    train_ds = _cifar10(root=root, train=True, transform=train_transform, download=True)
-    val_ds = _cifar10(root=root, train=True, transform=eval_transform, download=True)
-    test_ds = _cifar10(root=root, train=False, transform=eval_transform, download=True)
+    train_ds = factory(root=root, train=True, transform=train_transform)
+    val_ds = factory(root=root, train=True, transform=eval_transform)
+    test_ds = factory(root=root, train=False, transform=eval_transform)
 
     bs = int(cfg.training.batch_size)
     nw = int(cfg.runtime.num_workers)
@@ -136,21 +179,29 @@ def get_cifar10_loaders(cfg: DictConfig):
     return train_loader, val_loader, test_loader
 
 
-def get_split_labels(cfg: DictConfig, split: str) -> "torch.Tensor":
-    """Return ground-truth labels for a CIFAR-10 split as an int64 tensor.
+def get_cifar10_loaders(cfg: DictConfig):
+    """Deprecated alias for ``get_dataset_loaders``. Use that instead."""
+    return get_dataset_loaders(cfg)
 
-    This is the lightweight replacement for the old manifest.labels look-up.
+
+def get_split_labels(cfg: DictConfig, split: str) -> "torch.Tensor":
+    """Return ground-truth labels for a dataset split as an int64 tensor.
+
+    Dispatches on ``cfg.dataset.name`` via ``_DATASET_FACTORIES``.
     """
+    dataset_name = cfg.dataset.name
+    factory = _DATASET_FACTORIES[dataset_name]
     root = cfg.runtime.data_root
+
     if split == "test":
-        ds = _cifar10(root=root, train=False, download=True, transform=None)
-        targets = ds.targets if hasattr(ds, "targets") else ds.test_labels
+        ds = factory(root=root, train=False, transform=None)
+        targets = ds.targets if hasattr(ds, "targets") else list(ds.test_labels)
         return torch.tensor(targets, dtype=torch.long)
 
     val_per_class = cfg.dataset.split.val_per_class
-    train_idx, val_idx = _split_train_val_indices(root, val_per_class)
-    base = _cifar10(root=root, train=True, download=True, transform=None)
-    targets = base.targets if hasattr(base, "targets") else base.train_labels
+    train_idx, val_idx = _split_train_val_indices(root, dataset_name, val_per_class)
+    base = factory(root=root, train=True, transform=None)
+    targets = base.targets if hasattr(base, "targets") else list(base.train_labels)
 
     if split == "val":
         return torch.tensor([targets[i] for i in val_idx], dtype=torch.long)
@@ -158,6 +209,59 @@ def get_split_labels(cfg: DictConfig, split: str) -> "torch.Tensor":
         return torch.tensor([targets[i] for i in train_idx], dtype=torch.long)
     else:
         raise ValueError(f"Unknown split: {split}")
+
+
+def get_dataset_eval_loader(
+    cfg: DictConfig,
+    split: str,
+    batch_size: int,
+    num_workers: int,
+    pin_memory: bool | None = None,
+) -> DataLoader:
+    """Deterministic eval loader for the requested split of any registered dataset.
+
+    Dispatches on ``cfg.dataset.name`` via ``_DATASET_FACTORIES``.
+    Always uses eval (no-augmentation) transforms — intended for inference / profiling.
+
+    Args:
+        cfg: full Hydra config; reads dataset.name, dataset.transforms.preset,
+             and dataset.split.val_per_class.
+        split: one of "test", "val", "train".
+    """
+    if pin_memory is None:
+        pin_memory = torch.cuda.is_available()
+
+    dataset_name = cfg.dataset.name
+    factory = _DATASET_FACTORIES[dataset_name]
+    root = cfg.runtime.data_root
+    preset = cfg.dataset.transforms.preset
+    val_per_class = cfg.dataset.split.val_per_class
+
+    _, eval_transform = get_transforms(preset)
+
+    if split == "test":
+        ds = factory(root=root, train=False, transform=eval_transform)
+        return DataLoader(
+            ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+
+    if split in ("val", "train"):
+        train_indices, val_indices = _split_train_val_indices(root, dataset_name, val_per_class)
+        base_ds = factory(root=root, train=True, transform=eval_transform)
+        indices = val_indices if split == "val" else train_indices
+        return DataLoader(
+            Subset(base_ds, indices),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+
+    raise ValueError(f"Unknown split '{split}'. Expected 'test', 'val', or 'train'.")
 
 
 def get_cifar10_eval_loader(
@@ -169,41 +273,25 @@ def get_cifar10_eval_loader(
     split: str = "test",
     val_per_class: int = 500,
 ):
-    """Deterministic eval loader for the requested split.
+    """Deprecated. Use ``get_dataset_eval_loader`` instead.
 
-    Always uses eval (no-augmentation) transforms regardless of split, since
-    this loader is intended for inference / profiling, not for training.
-
-    Args:
-        split: one of "test", "val", "train".
-        val_per_class: controls the train/val boundary (must match training).
+    Kept for backward compatibility; wraps the generic loader using cifar10 factory
+    directly so callers that pass individual kwargs still work.
     """
     if pin_memory is None:
         pin_memory = torch.cuda.is_available()
     _, eval_transform = get_transforms(preset)
 
     if split == "test":
-        ds = _cifar10(root=root, train=False, download=True, transform=eval_transform)
-        return DataLoader(
-            ds,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
+        ds = _cifar10_factory(root=root, train=False, transform=eval_transform)
+        return DataLoader(ds, batch_size=batch_size, shuffle=False,
+                          num_workers=num_workers, pin_memory=pin_memory)
 
     if split in ("val", "train"):
-        train_indices, val_indices = _split_train_val_indices(root, val_per_class)
-        base_ds = _cifar10(
-            root=root, train=True, download=True, transform=eval_transform
-        )
+        train_indices, val_indices = _split_train_val_indices(root, "cifar10", val_per_class)
+        base_ds = _cifar10_factory(root=root, train=True, transform=eval_transform)
         indices = val_indices if split == "val" else train_indices
-        return DataLoader(
-            Subset(base_ds, indices),
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
+        return DataLoader(Subset(base_ds, indices), batch_size=batch_size,
+                          shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
 
     raise ValueError(f"Unknown split '{split}'. Expected 'test', 'val', or 'train'.")

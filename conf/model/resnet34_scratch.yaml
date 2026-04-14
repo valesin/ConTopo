@@ -1,0 +1,10 @@
+# ResNet34 trained from random initialisation (no pretrained weights).
+# Suitable for any large-image dataset where training from scratch is desired.
+# See src/networks/resnet34_imagenet.py — ScratchResNet34.
+name: resnet34_scratch
+arch: ScratchResNet34
+embedding_dim: 256     # neck output dimension = 16×16 topographic grid
+use_dropout: true
+p_dropout: 0.5
+head:
+  bias: true

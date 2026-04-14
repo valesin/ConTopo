@@ -167,10 +167,57 @@ sky jobs logs <job_name>
 
 ## Dataset notes
 
-- Dataset: CIFAR-10 (`conf/dataset/cifar10.yaml`).
-- Split policy: `first_n_per_class`.
-- Default `val_per_class=500` gives 5,000 validation and 45,000 training samples.
-- The split is deterministic by CIFAR-10 original order (not random per run).
+The pipeline is dataset-agnostic. The active dataset is controlled by the `dataset`
+config group (`conf/dataset/<name>.yaml`). The default is CIFAR-10.
+
+### Switching datasets
+
+Pass `dataset=<name>` and a matching `model=<name>` on the CLI:
+
+```bash
+# CIFAR-10 (default)
+python scripts/01_train_models.py loss.rho=0.0 trial=0
+
+# ImageNet100 with ResNet34
+python scripts/01_train_models.py \
+  dataset=imagenet100 model=resnet34_imagenet100 profiling=imagenet100 \
+  mlflow.experiment_name=contopo_imagenet100 \
+  loss.rho=0.0 trial=0
+```
+
+Use the sweep preset for a full ImageNet100 training run:
+
+```bash
+python main.py +sweeps=training_rho_imagenet100
+```
+
+### Experiment isolation
+
+Use a distinct `mlflow.experiment_name` per dataset. This prevents ensemble
+discovery (which uses `filter: {}` by default) from mixing models across datasets.
+The ImageNet100 sweep sets `mlflow.experiment_name=contopo_imagenet100` automatically.
+
+### Built-in datasets
+
+| Config | Dataset | Classes | Image size | Loader |
+|---|---|---|---|---|
+| `cifar10` | CIFAR-10 | 10 | 32×32 | torchvision auto-download |
+| `imagenet100` | ImageNet100 | 100 | 224×224 | ImageFolder at `<data_root>/imagenet100/` |
+
+### Split policy
+
+All datasets use `first_n_per_class` by default: the first `val_per_class` images
+per class (by dataset ordering) are reserved for validation; the rest form the
+training set. The test split is the dataset's native held-out partition.
+
+| Dataset | `val_per_class` | Val size | Train size |
+|---|---|---|---|
+| CIFAR-10 | 500 | 5 000 | 45 000 |
+| ImageNet100 | 50 | 5 000 | 45 000 |
+
+### Adding a new dataset
+
+See `docs/CONTRIBUTING_AND_UPDATING.md` §10 for the step-by-step guide.
 
 ## Configuration model
 

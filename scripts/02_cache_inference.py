@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from src.data.loaders import get_cifar10_eval_loader, shutdown_dataloader_workers
+from src.data.loaders import get_dataset_eval_loader, shutdown_dataloader_workers
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
     setup_mlflow,
@@ -96,13 +96,11 @@ def main(cfg: DictConfig) -> None:
             )
             return
 
-    loader = get_cifar10_eval_loader(
-        root=cfg.runtime.data_root,
+    loader = get_dataset_eval_loader(
+        cfg=cfg,
+        split=split,
         batch_size=cfg.runtime.inference.batch_size,
         num_workers=cfg.runtime.inference.num_workers,
-        preset=cfg.dataset.transforms.preset,
-        split=split,
-        val_per_class=cfg.dataset.split.val_per_class,
     )
 
     try:

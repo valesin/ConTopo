@@ -8,11 +8,14 @@ import torch.nn as nn
 from omegaconf import DictConfig
 
 from src.networks.resnet18 import LinearResNet18
+from src.networks.resnet34_imagenet import FinetuneResNet34, ScratchResNet34
 from src.networks.simple_cnn import LinearSimpleCNN
 from src.data.loaders import get_num_classes
 
 _MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "LinearResNet18": LinearResNet18,
+    "FinetuneResNet34": FinetuneResNet34,
+    "ScratchResNet34": ScratchResNet34,
     "LinearSimpleCNN": LinearSimpleCNN,
 }
 

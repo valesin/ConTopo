@@ -60,11 +60,45 @@ def _cifar10_resizedcrop_v1():
     return train, eval_
 
 
+# ------------- ImageNet presets ------------- #
+
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD  = (0.229, 0.224, 0.225)
+
+
+def _imagenet_v1():
+    """Standard ImageNet augmentation.
+
+    Train: RandomResizedCrop(224) + HFlip.
+    Eval:  Resize(256) → CenterCrop(224).
+
+    Stats match torchvision ImageNet1K V1 defaults.
+    """
+    train = transforms.Compose(
+        [
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(_IMAGENET_MEAN, _IMAGENET_STD),
+        ]
+    )
+    eval_ = transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(_IMAGENET_MEAN, _IMAGENET_STD),
+        ]
+    )
+    return train, eval_
+
+
 # ------------- Registry ------------- #
 
 _PRESETS: dict[str, Callable[[], Tuple]] = {
     "cifar10_default_v1": _cifar10_default_v1,
     "cifar10_resizedcrop_v1": _cifar10_resizedcrop_v1,
+    "imagenet_v1": _imagenet_v1,
 }
 
 

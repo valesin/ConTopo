@@ -1,0 +1,36 @@
+# @package _global_
+# Training sweep for ImageNet100 / ResNet34 — fine-tuning regime.
+#
+# Usage (full sweep via orchestrator):
+#   python main.py +sweeps=training_rho_imagenet100
+#
+# Usage (single run):
+#   python scripts/01_train_models.py \
+#     dataset=imagenet100 model=resnet34_imagenet100 profiling=imagenet100 \
+#     mlflow.experiment_name=contopo_imagenet100 \
+#     loss.rho=0.0 loss.topology=torus trial=0
+#
+# Downstream steps (02–05) require the same dataset/model/profiling/mlflow overrides:
+#   python scripts/02_cache_inference.py \
+#     dataset=imagenet100 model=resnet34_imagenet100 profiling=imagenet100 \
+#     mlflow.experiment_name=contopo_imagenet100
+
+defaults:
+  - override /dataset: imagenet100
+  - override /model: resnet34_imagenet100
+  - override /profiling: imagenet100
+
+mlflow:
+  experiment_name: contopo_imagenet100
+
+# Fine-tuning training overrides
+training:
+  epochs: 30
+  batch_size: 64
+  learning_rate: 0.0001
+
+# Sweep axes — same rho/topology/trial ranges as CIFAR-10
+trial: range(0, 10)
+loss:
+  rho: 0.0, 0.008, 0.04, 0.2, 1.0, 5.0
+  topology: torus, grid

@@ -1,0 +1,10 @@
+# ResNet34 for ImageNet100
+# Pretrained ImageNet1KV1 backbone + 512→256 neck forming the 16×16 topographic grid.
+# See src/networks/resnet34_imagenet.py for architecture details.
+name: resnet34
+arch: FinetuneResNet34
+embedding_dim: 256     # neck output dimension = 16×16 topographic grid
+use_dropout: true
+p_dropout: 0.5
+head:
+  bias: true
