@@ -28,6 +28,7 @@ from omegaconf import DictConfig
 from torch.amp import GradScaler
 
 from src.config.hash import cfg_hash
+from src.config.validation import validate_training_config
 from src.data.loaders import (
     get_dataset_loaders,
     get_split_labels,
@@ -63,19 +64,121 @@ def _build_optimiser(cfg: DictConfig, model):
     name = cfg.training.optimiser.lower()
     lr = cfg.training.learning_rate
     wd = cfg.training.weight_decay
+
+    # Selective weight decay: apply WD only to non-BN, non-bias params (FFCV recipe)
+    if cfg.training.get("optimizer_selective_wd", False):
+        no_wd_names = ("bn", "bias")
+        wd_params    = [p for n, p in model.named_parameters()
+                        if not any(nd in n for nd in no_wd_names)]
+        no_wd_params = [p for n, p in model.named_parameters()
+                        if any(nd in n for nd in no_wd_names)]
+        param_groups = [{"params": wd_params}, {"params": no_wd_params, "weight_decay": 0.0}]
+    else:
+        param_groups = model.parameters()
+
     if name == "adam":
-        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
+        return torch.optim.Adam(param_groups, lr=lr, weight_decay=wd)
     elif name == "adamw":
-        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+        return torch.optim.AdamW(param_groups, lr=lr, weight_decay=wd)
     elif name == "sgd":
         return torch.optim.SGD(
-            model.parameters(),
+            param_groups,
             lr=lr,
             weight_decay=wd,
             momentum=cfg.training.momentum,
         )
     else:
         raise ValueError(f"Unknown optimiser: {name}")
+
+
+def _build_scheduler(cfg: DictConfig, optimiser, steps_per_epoch: int):
+    """Return an LR scheduler or None (when scheduler=none)."""
+    name = cfg.training.get("scheduler", "none").lower()
+    if name == "cyclic":
+        epochs = cfg.training.epochs
+        # pct_start must be in (0, 1); clamp lr_peak_epoch to valid range
+        pct_start = min(cfg.training.lr_peak_epoch, epochs - 1) / epochs
+        return torch.optim.lr_scheduler.OneCycleLR(
+            optimiser,
+            max_lr=cfg.training.learning_rate,
+            epochs=epochs,
+            steps_per_epoch=steps_per_epoch,
+            pct_start=pct_start,
+        )
+    elif name == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimiser, T_max=cfg.training.epochs
+        )
+    return None  # "none"
+
+
+def _resolve_loader_for_epoch(train_loaders, epoch: int, total_epochs: int, cfg: DictConfig):
+    """Return the appropriate train loader for this epoch.
+
+    If ``train_loaders`` is a list (progressive resolution), selects based on the
+    current epoch's position in the ramp schedule:
+      - epoch < start_ramp * total → first loader (lowest resolution)
+      - epoch >= end_ramp * total  → last loader (highest resolution)
+      - in between                 → interpolates linearly across the list
+
+    If ``train_loaders`` is a single loader, returns it unchanged.
+    """
+    if not isinstance(train_loaders, list):
+        return train_loaders
+
+    n = len(train_loaders)
+    if n == 1:
+        return train_loaders[0]
+
+    start_frac = cfg.training.progressive_res_start_ramp
+    end_frac   = cfg.training.progressive_res_end_ramp
+    frac = (epoch - 1) / total_epochs  # 0-based
+
+    if frac < start_frac:
+        return train_loaders[0]
+    if frac >= end_frac:
+        return train_loaders[-1]
+    # Linear interpolation within the ramp
+    ramp_frac = (frac - start_frac) / max(end_frac - start_frac, 1e-8)
+    idx = min(int(ramp_frac * (n - 1)), n - 2)
+    return train_loaders[idx]
+
+
+def _validate_with_tta(model, loader, loss_fn, device, use_amp: bool):
+    """Validate with test-time augmentation: average logits over original and HFlip.
+
+    Returns (avg_loss, accuracy_fraction) matching the contract of ``validate``.
+    Only called when ``lr_tta=True`` and ``loading_backend=ffcv``.
+    """
+    import torch.nn.functional as F
+
+    model.eval()
+    total_loss = 0.0
+    total_correct = 0
+    total_n = 0
+
+    with torch.no_grad():
+        for images, labels in loader:
+            images = images.to(device, non_blocking=True).float()
+            labels = labels.to(device, non_blocking=True).squeeze()
+
+            # Forward pass 1: original
+            out = model(images)
+            logits1 = out[1] if isinstance(out, (tuple, list)) else out
+
+            # Forward pass 2: horizontal flip
+            out2 = model(images.flip(-1))
+            logits2 = out2[1] if isinstance(out2, (tuple, list)) else out2
+
+            logits = (logits1.float() + logits2.float()) * 0.5
+            loss = loss_fn(logits, labels)
+
+            total_loss += loss.item() * labels.size(0)
+            total_correct += logits.argmax(1).eq(labels).sum().item()
+            total_n += labels.size(0)
+
+    model.train()
+    return total_loss / total_n, total_correct / total_n
 
 
 def _build_topo_loss(cfg: DictConfig, emb_dim: int):
@@ -90,6 +193,9 @@ def _build_topo_loss(cfg: DictConfig, emb_dim: int):
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    # ── Config validation ──
+    validate_training_config(cfg)
+
     # ── Seed ──
     seed = resolve_seed(cfg)
     cfg.seed = seed
@@ -129,8 +235,18 @@ def main(cfg: DictConfig) -> None:
         ):
             model = torch.nn.DataParallel(model)
 
+        # ── Blurpool (antialiased downsampling) ──
+        if cfg.training.get("use_blurpool", False):
+            from antialiased_cnns import BlurPool
+            for name, module in unwrap(model).named_modules():
+                if isinstance(module, torch.nn.MaxPool2d) and module.stride > 1:
+                    parent, attr = name.rsplit(".", 1) if "." in name else ("", name)
+                    parent_mod = unwrap(model) if not parent else dict(unwrap(model).named_modules())[parent]
+                    setattr(parent_mod, attr, BlurPool(module.kernel_size, stride=module.stride))
+
         # ── Losses ──
-        task_loss_fn = torch.nn.CrossEntropyLoss().to(device)
+        label_smoothing = float(cfg.training.get("label_smoothing", 0.0))
+        task_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(device)
         topo_loss_fn = _build_topo_loss(cfg, cfg.model.embedding_dim)
         if isinstance(topo_loss_fn, torch.nn.Module):
             topo_loss_fn = topo_loss_fn.to(device)
@@ -145,6 +261,12 @@ def main(cfg: DictConfig) -> None:
 
         # ── Optimiser ──
         optimiser = _build_optimiser(cfg, model)
+
+        # ── Scheduler ──
+        # steps_per_epoch: use first train loader for count (handles progressive list)
+        _first_loader = train_loader[0] if isinstance(train_loader, list) else train_loader
+        steps_per_epoch = len(_first_loader)
+        scheduler = _build_scheduler(cfg, optimiser, steps_per_epoch)
 
         # ── AMP ──
         use_amp = bool(cfg.training.amp)
@@ -195,6 +317,21 @@ def main(cfg: DictConfig) -> None:
                     "beta": cfg.training.balancer.beta,
                     "eps": cfg.training.balancer.eps,
                     "lambda_max": cfg.training.balancer.lambda_max,
+                    # FFCV full-recipe params
+                    "loading_backend": cfg.training.loading_backend,
+                    "label_smoothing": cfg.training.get("label_smoothing", 0.0),
+                    "use_blurpool": cfg.training.get("use_blurpool", False),
+                    "optimizer_selective_wd": cfg.training.get("optimizer_selective_wd", False),
+                    "lr_tta": cfg.training.get("lr_tta", False),
+                    "lr_peak_epoch": cfg.training.lr_peak_epoch,
+                    "progressive_res_min": cfg.training.get("progressive_res_min", None),
+                    "progressive_res_max": cfg.training.get("progressive_res_max", None),
+                    "progressive_res_start_ramp": cfg.training.progressive_res_start_ramp,
+                    "progressive_res_end_ramp": cfg.training.progressive_res_end_ramp,
+                    # FFCV beton format settings (hash-included; None for torch runs)
+                    "beton_max_resolution": cfg.training.beton.max_resolution,
+                    "beton_jpeg_quality": cfg.training.beton.jpeg_quality,
+                    "beton_compress_probability": cfg.training.beton.compress_probability,
                 },
             )
             log_resolved_config(cfg)
@@ -219,9 +356,10 @@ def main(cfg: DictConfig) -> None:
             )
 
             # ── Create Signature and Input Example (Before Loop) ──
-            # Grab one batch from the train_loader
-            sig_inputs, _ = next(iter(train_loader))
-            sig_inputs = sig_inputs.to(device)
+            # Grab one batch from the train_loader (use first loader if progressive list)
+            _sig_loader = train_loader[0] if isinstance(train_loader, list) else train_loader
+            sig_inputs, _ = next(iter(_sig_loader))
+            sig_inputs = sig_inputs.to(device).float()
 
             # Isolate a single image/sample for the example
             input_sample = sig_inputs[:1]
@@ -262,9 +400,19 @@ def main(cfg: DictConfig) -> None:
             # Initialize memory for the best model weights
             best_model_state = None
 
-            for epoch in range(1, cfg.training.epochs + 1):
+            use_tta = (
+                cfg.training.get("lr_tta", False)
+                and cfg.training.loading_backend == "ffcv"
+            )
+            total_epochs = cfg.training.epochs
+            sched_name = cfg.training.get("scheduler", "none").lower()
+
+            for epoch in range(1, total_epochs + 1):
+                epoch_loader = _resolve_loader_for_epoch(
+                    train_loader, epoch, total_epochs, cfg
+                )
                 metrics = train_one_epoch(
-                    train_loader,
+                    epoch_loader,
                     model,
                     task_loss_fn,
                     topo_loss_fn,
@@ -275,14 +423,24 @@ def main(cfg: DictConfig) -> None:
                     print_freq=cfg.runtime.print_freq,
                     use_amp=use_amp,
                     scaler=scaler,
+                    scheduler=scheduler if sched_name == "cyclic" else None,
                 )
 
-                val_loss, val_acc = validate(
-                    val_loader,
-                    model,
-                    task_loss_fn,
-                    print_freq=cfg.runtime.print_freq,
-                )
+                # Per-epoch schedulers (not cyclic — cyclic steps per batch)
+                if scheduler is not None and sched_name != "cyclic":
+                    scheduler.step()
+
+                if use_tta:
+                    val_loss, val_acc = _validate_with_tta(
+                        model, val_loader, task_loss_fn, device, use_amp
+                    )
+                else:
+                    val_loss, val_acc = validate(
+                        val_loader,
+                        model,
+                        task_loss_fn,
+                        print_freq=cfg.runtime.print_freq,
+                    )
 
                 # ── Log metrics to MLflow ──
                 timed_log_metrics(
@@ -359,7 +517,11 @@ def main(cfg: DictConfig) -> None:
 
             print(f"Done. test_acc={test_acc:.4f}, run_id={run.info.run_id}")
     finally:
-        shutdown_dataloader_workers(train_loader)
+        if isinstance(train_loader, list):
+            for tl in train_loader:
+                shutdown_dataloader_workers(tl)
+        else:
+            shutdown_dataloader_workers(train_loader)
         shutdown_dataloader_workers(val_loader)
         shutdown_dataloader_workers(test_loader)
 

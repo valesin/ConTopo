@@ -8,6 +8,7 @@ Primary runtime sources:
 - `scripts/01_train_models.py` ... `scripts/05_train_adapters.py`
 - `src/config/hash.py`
 - `src/config/structured.py`
+- `src/config/validation.py`
 
 ---
 
@@ -72,7 +73,8 @@ Top-level semantic keys:
 
 ### Excluded from `cfg_hash`
 
-- `runtime`
+- `runtime` (only `beton.dir` remains here after the hash coherence fix; all
+  format-affecting fields moved to `training.*`)
 - `mlflow`
 - `storage`
 - `hydra`
@@ -83,6 +85,14 @@ Top-level semantic keys:
 - `ensemble`
 - `adapter`
 - `pipeline`
+
+**Hash coherence note:** `loading_backend` and the beton format fields
+(`beton.max_resolution`, `beton.jpeg_quality`, `beton.compress_probability`) live
+in `TrainingConfig`, not `RuntimeConfig`, because they directly affect the training
+data pipeline. Two runs that differ in `loading_backend` or beton format produce
+different models and must have distinct identity hashes. The beton storage directory
+(`runtime.beton.dir`) is the only remaining beton-related field in `RuntimeConfig`
+because it is purely operational (does not affect what is stored, only where).
 
 This is validated in tests such as:
 - `tests/test_cfg_hash.py`
@@ -112,7 +122,39 @@ Current required identity fields by kind:
 
 ---
 
-## 5) Config + MLflow retrieval boundary
+## 5) Training config validation (fail-early)
+
+`src/config/validation.py` defines `validate_training_config(cfg)`, called as the
+**first operation** in `scripts/01_train_models.py` before any data loading or model
+building. It enforces consistency across the composed training config.
+
+### Conditional fields principle
+
+Some `TrainingConfig` fields are only meaningful when a parent feature is active.
+These are typed as `Optional` and default to `None` rather than a fictitious value:
+
+| Field | Active when |
+|---|---|
+| `training.lr_peak_epoch` | `training.scheduler = cyclic` |
+| `training.progressive_res_start_ramp` | `training.progressive_res_min` is set |
+| `training.progressive_res_end_ramp` | `training.progressive_res_min` is set |
+| `training.beton.max_resolution` | `training.loading_backend = ffcv` |
+| `training.beton.jpeg_quality` | `training.loading_backend = ffcv` |
+| `training.beton.compress_probability` | `training.loading_backend = ffcv` |
+
+The validator rejects:
+- a conditional field set when its parent feature is inactive (orphaned field)
+- a parent feature active but its required conditional field is `None`
+- `lr_tta=True` or progressive resolution without `loading_backend=ffcv`
+- `progressive_res_min >= progressive_res_max`
+- `loading_backend=ffcv` without all three beton format fields set
+
+This ensures config state accurately represents what ran, which matters for identity
+hash integrity and migration correctness.
+
+---
+
+## 6) Config + MLflow retrieval boundary
 
 Run retrieval is repository-owned:
 
@@ -128,7 +170,7 @@ Do not add new run finder logic in `src/mlflow_utils.py`.
 
 ---
 
-## 6) Structured config role (current state)
+## 7) Structured config role (current state)
 
 `src/config/structured.py` defines dataclass schemas and `register_configs()` for structured validation workflows, especially tests.
 
@@ -136,28 +178,56 @@ What it provides:
 - group/type definitions for model, loss, dataset, training, runtime, groups, profiling, analysis, execution, mlflow, ensemble, adapter, pipeline
 - `ConTopoConfig` top-level shape
 - `register_configs()` to register with Hydra `ConfigStore`
+- `TrainingBetonConfig` nested under `TrainingConfig` — FFCV beton **format** settings
+  (`max_resolution`, `jpeg_quality`, `compress_probability`); hash-included
+- `BetonConfig` nested under `RuntimeConfig` — beton **storage** location (`dir` only);
+  hash-excluded
 
 Current runtime scripts are Hydra YAML-driven and do not require explicit `register_configs()` calls in each script file.
 
 ---
 
-## 7) Safe parameter update workflow
+## 8) Safe parameter update workflow
 
-When adding or changing a config parameter:
+The full protocol for adding a new parameter depends on whether it is hash-included,
+hash-excluded, and/or conditional. The authoritative guide is
+`CONTRIBUTING_AND_UPDATING.md` §11. This section is a quick reference.
+
+### Always required
 
 1. Update the relevant YAML group (`conf/<group>/*.yaml`)
-2. Update script usage (read and apply the field)
-3. Decide identity impact:
-   - training semantics: ensure it falls under included `cfg_hash` groups
-   - step semantics: add/update that step's `identity_hash` call and registry entry
-4. Update telemetry contract if logged (`src/mlflow_schema_logger.py`)
-5. Update tests (`tests/test_cfg_hash.py`, `tests/test_idempotency_registry.py`, or step-specific tests)
+2. Update `src/config/structured.py` to match
+3. Update script usage (read and apply the field)
+4. If the param is logged to MLflow: add it to the `"optional"` list in
+   `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`, and log it via
+   `schema_log_params` in the script
 
-If parameter changes alter historical identity semantics, evaluate whether migration scripts are needed (`scripts/migrate_model_identity_hashes.py`, related migration utilities).
+### If hash-included (param lives in `training.*`, `model.*`, `loss.*`, `dataset.*`)
+
+The param changes `identity_hash` for all existing runs. **Migration is mandatory.**
+
+5. Write `docs/<feature>_param_assumptions.md` documenting the migration default
+6. Write `scripts/migrations/specs/<feature>.yaml`; run `scripts/migrations/backfill_params.py --spec ... --apply` to backfill MLflow params
+7. Run `scripts/migrations/rehash_identities.py --apply` to rehash identity tags
+8. Verify idempotency: re-run an existing config → "already FINISHED, skipping"
+9. Update tests in `tests/test_cfg_hash.py`
+
+### If hash-excluded (param lives in `runtime.*`, `execution.*`, etc.)
+
+The param does not break idempotency. No identity hash migration needed.
+
+5. *(Optional)* Write a param backfill script for observability — lets you query
+   MLflow for the old hardcoded value on historical runs
+
+### If conditional (only valid when a parent feature is active)
+
+6. Type as `Optional[T] = None` in the struct; use `null` in YAML
+7. Add validation rules to `src/config/validation.py` (reject orphaned + missing)
+8. Migration default must be `"None"`, not a fictitious numeric value
 
 ---
 
-## 8) Runtime command patterns (current)
+## 9) Runtime command patterns (current)
 
 Use Hydra overrides (not legacy parser flags):
 
@@ -171,16 +241,17 @@ python scripts/02_cache_inference.py execution.split=val
 
 ---
 
-## 9) Common mistakes to avoid
+## 10) Common mistakes to avoid
 
 - Assuming `runtime` / `execution` / `groups` changes should create new model identity (they do not under `cfg_hash`)
 - Changing step semantics without updating `IDEMPOTENCY_REGISTRY`
 - Adding logged fields without updating telemetry schema
 - Reintroducing retrieval wrappers outside the repository module
+- Setting a fictitious default value for a conditional field (e.g. `lr_peak_epoch=2` on a run that used `scheduler=none`) — use `None` and enforce via `validate_training_config`
 
 ---
 
-## 10) Related docs
+## 11) Related docs
 
 - `ARCHITECTURE.md`
 - `docs/telemetry_schema.md`

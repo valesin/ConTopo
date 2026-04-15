@@ -1,0 +1,44 @@
+# Migration: FFCV training recipe + beton format fields moved to TrainingConfig
+#
+# Covers two changes applied together:
+#
+# 1. FFCV training recipe fields added to TrainingConfig (hash-included):
+#    label_smoothing, use_blurpool, optimizer_selective_wd, lr_tta,
+#    progressive_res_min, progressive_res_max
+#    — and their conditional companions:
+#    lr_peak_epoch (conditional on scheduler=cyclic),
+#    progressive_res_start_ramp, progressive_res_end_ramp (conditional on prog res)
+#
+# 2. loading_backend and beton format fields moved from RuntimeConfig to TrainingConfig
+#    (hash-included after move): loading_backend, beton_max_resolution,
+#    beton_jpeg_quality, beton_compress_probability
+#
+# All existing runs used the torch backend with no FFCV features active, so all
+# defaults reflect "feature was off / never used".
+#
+# See docs/ffcv_param_assumptions.md for the full rationale.
+# See CONTRIBUTING_AND_UPDATING.md §11 for the migration protocol.
+
+description: "FFCV training recipe + beton format fields moved to TrainingConfig (April 2026)"
+
+params:
+  # ── Unconditional FFCV recipe fields ─────────────────────────────────────
+  label_smoothing:        "0.0"    # CrossEntropyLoss with no smoothing
+  use_blurpool:           "False"  # standard MaxPool2d + strided Conv2d
+  optimizer_selective_wd: "False"  # WD applied uniformly to all params
+  lr_tta:                 "False"  # single forward pass at validation
+
+  # ── Progressive resolution (unconditional range bounds, None = off) ───────
+  progressive_res_min:    "None"   # static image size (feature was off)
+  progressive_res_max:    "None"   # static image size (feature was off)
+
+  # ── Conditional fields (None = parent feature was never active) ───────────
+  lr_peak_epoch:              "None"  # N/A — scheduler was always "none"
+  progressive_res_start_ramp: "None"  # N/A — progressive res was never active
+  progressive_res_end_ramp:   "None"  # N/A — progressive res was never active
+
+  # ── Loading backend + beton format (moved from runtime to training) ───────
+  loading_backend:            "torch"  # all existing runs used torch
+  beton_max_resolution:       "None"   # N/A — torch runs never write beton files
+  beton_jpeg_quality:         "None"   # N/A
+  beton_compress_probability: "None"   # N/A

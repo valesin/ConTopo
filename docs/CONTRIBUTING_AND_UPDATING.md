@@ -173,6 +173,154 @@ from mixing models trained on different datasets within the same experiment.
 - [ ] `conf/sweeps/training_rho_<name>.yaml` created with `mlflow.experiment_name`
 - [ ] Smoke run completes: `python scripts/01_train_models.py dataset=<name> model=<name> training.epochs=1 trial=0`
 
+## 11. Adding new configuration parameters
+
+Every new parameter requires at least two updates regardless of type:
+1. **YAML + structured config** — the value must be representable in the config system.
+2. **Telemetry schema** — if the param is logged to MLflow, it must appear in
+   `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`. Add it to `"optional"` so
+   existing runs that pre-date the field still pass telemetry validation.
+
+Beyond those two, the protocol depends on three properties of the new parameter:
+
+---
+
+### 11.1 Decision framework
+
+Answer these questions in order:
+
+**Q1: Does the parameter affect the trained model** (weights, training data, loss
+computation, optimiser behaviour)?
+
+- **Yes** → place in a hash-included config group (`training.*`, `model.*`, `loss.*`,
+  `dataset.*`). Changing this param creates a semantically different model.
+  → **Migration is mandatory** (§11.3).
+- **No** → place in a hash-excluded group (`runtime.*`, `execution.*`, etc.). The
+  param controls how a run executes, not what it produces.
+  → **Migration is optional** but recommended for observability (§11.4).
+
+**Q2: Is the parameter only meaningful when another setting is active** (e.g. a
+scheduler-specific knob, or a format setting that only applies when a certain backend
+is selected)?
+
+- **Yes** → it is a **conditional field**. It must be `None` when its parent is
+  inactive, and explicitly set when it is active. Requires validation rules (§11.5).
+- **No** → it is an **unconditional field** with a concrete default.
+
+These questions are independent. A conditional field can be hash-included (e.g.
+`lr_peak_epoch`) or hash-excluded. An unconditional field can be either too.
+
+---
+
+### 11.2 Hash-included parameters (mandatory migration)
+
+New fields in hash-included config groups (`training.*`, `model.*`, `loss.*`,
+`dataset.*`) change the `identity_hash` for **all existing model runs**.  Without
+migration, the training script will not recognise existing runs as already-computed
+and will re-train them.
+
+#### Step A — Write the param assumptions document first
+
+Create `docs/<feature>_param_assumptions.md` **before touching any code**:
+- What was previously hardcoded for this param (the behaviour before it existed)?
+- What is the migration default that faithfully preserves the old behaviour?
+
+See `docs/ffcv_param_assumptions.md` as the canonical example.
+
+#### Step B — Write migration scripts
+
+Two scripts are needed:
+
+1. **Param backfill** — write a spec file `scripts/migrations/specs/<feature>.yaml`
+   listing each new param and its migration default, then run the generic script:
+   ```bash
+   uv run scripts/migrations/backfill_params.py \
+       --spec scripts/migrations/specs/<feature>.yaml \
+       --experiment <experiment_name> [--apply]
+   ```
+   The script is idempotent: runs that already have a param set are skipped.
+   See `scripts/migrations/specs/ffcv_training_params.yaml` as the canonical example.
+
+2. **Identity hash rehash** (`scripts/migrations/rehash_identities.py`) — recomputes
+   `tags.identity_hash` for every FINISHED model run by downloading its stored
+   `config/resolved_config.yaml` artifact and merging it with the current struct
+   defaults via `_canonical_section()`. New fields receive their defaults automatically.
+
+Run param backfill first, then identity hash rehash. See `docs/ffcv_param_assumptions.md`
+for the rationale.
+
+#### Step C — Add the field
+
+1. Add to the appropriate dataclass in `src/config/structured.py` with the correct
+   default (concrete value for unconditional; `None` for conditional).
+2. Add to the corresponding `conf/<group>/default.yaml` with a comment explaining
+   the dependency condition or the migration rationale.
+3. Wire up the logic in the relevant script(s).
+4. Log the param in the `schema_log_params` call in the script.
+5. Add to `"optional"` in `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`.
+
+#### Checklist (hash-included)
+
+- [ ] `docs/<feature>_param_assumptions.md` written
+- [ ] `scripts/migrations/specs/<feature>.yaml` written; backfill dry-run reviewed
+- [ ] `scripts/migrations/rehash_identities.py` dry-run reviewed
+- [ ] Struct field added with correct default in `src/config/structured.py`
+- [ ] `conf/<group>/default.yaml` updated with comment
+- [ ] If conditional: validation rules added to `src/config/validation.py` (see §11.5)
+- [ ] Script wires up the feature and logs the param
+- [ ] `TELEMETRY_SCHEMA` updated (`"optional"` list)
+- [ ] Migration scripts applied to all affected experiments
+- [ ] Idempotency smoke-check: re-run existing config → "already FINISHED, skipping"
+
+---
+
+### 11.3 Hash-excluded parameters (observability migration, optional)
+
+New fields in hash-excluded groups (`runtime.*`, `execution.*`, etc.) do **not** break
+idempotency — existing runs still have correct identity hashes. Migration is not
+required for correctness.
+
+However, backfilling the migration default is still **recommended** for observability:
+it allows you to query MLflow for "what value did this param have on older runs?" and
+to see a consistent set of params across all runs in the UI.
+
+The procedure is the same as §11.2 Steps A–C, except:
+- No identity hash rehash is needed (skip the second migration script).
+- Document the old hardcoded behaviour in `docs/<feature>_param_assumptions.md`
+  under a "Runtime (hash-excluded)" section.
+
+#### Checklist (hash-excluded)
+
+- [ ] Struct field added with correct default in `src/config/structured.py`
+- [ ] `conf/<group>/default.yaml` updated
+- [ ] If conditional: validation rules added to `src/config/validation.py` (see §11.5)
+- [ ] Script wires up the feature and logs the param
+- [ ] `TELEMETRY_SCHEMA` updated (`"optional"` list)
+- [ ] *(Optional)* Param backfill script written and applied for observability
+- [ ] *(Skip)* No identity hash rehash needed
+
+---
+
+### 11.4 Conditional parameters
+
+A parameter is conditional when it is only meaningful if a parent feature is active
+(e.g. `lr_peak_epoch` is only used when `scheduler=cyclic`; beton format fields are
+only used when `loading_backend=ffcv`).
+
+**Rules for conditional fields — regardless of hash status:**
+
+- Type as `Optional[T] = None` in the struct (`src/config/structured.py`).
+- Use `null` as the default in the YAML (`conf/<group>/default.yaml`).
+- Migration default must be `"None"` (not a fictitious numeric value). Backfilling
+  a made-up value misrepresents what the run actually did and pollutes the hash.
+- Add validation rules to `src/config/validation.py` that:
+  - Error when the parent feature is active but the conditional field is `None`.
+  - Error when the conditional field is set but the parent feature is inactive
+    (orphaned field).
+
+See §5 of `docs/config_system.md` for the full table of current conditional fields
+and the validation rules they enforce.
+
 ## 9. Suggested verification commands
 
 ```bash

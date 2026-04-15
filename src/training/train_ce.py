@@ -70,6 +70,7 @@ def train_one_epoch(
     print_freq: int = 10,
     use_amp: bool = False,
     scaler: GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> dict:
     """
     Train for one epoch.  Returns a dict of averaged metrics.
@@ -84,8 +85,8 @@ def train_one_epoch(
 
     for idx, (images, labels) in enumerate(train_loader):
         device = next(model.parameters()).device
-        images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
+        images = images.to(device, non_blocking=True).float()
+        labels = labels.to(device, non_blocking=True).squeeze()
         bsz = labels.shape[0]
 
         with autocast("cuda", enabled=use_amp):
@@ -126,6 +127,9 @@ def train_one_epoch(
         else:
             loss.backward()
             optimiser.step()
+
+        if scheduler is not None:
+            scheduler.step()  # per-batch step (OneCycleLR / cyclic)
 
         acc1 = accuracy(logits.float(), labels)[0]
         meters["loss"].update(loss.item(), bsz)
@@ -192,8 +196,8 @@ def validate(
 
     with torch.no_grad():
         for idx, (images, labels) in enumerate(loader):
-            images = images.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
+            images = images.to(device, non_blocking=True).float()
+            labels = labels.to(device, non_blocking=True).squeeze()
             bsz = labels.size(0)
 
             logits = logits_model(images)

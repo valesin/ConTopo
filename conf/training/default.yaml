@@ -5,12 +5,30 @@ learning_rate: 0.002
 optimiser: adam            # adam | adamw | sgd
 weight_decay: 0.0
 momentum: 0.9             # only used for SGD
-scheduler: none           # none (extend later: cosine, step, ...)
+scheduler: none           # none | cyclic (OneCycleLR) | cosine
+lr_peak_epoch: null       # only set when scheduler: cyclic; null means not applicable
 amp: false                # automatic mixed precision — changes numerics
 save_freq_epochs: 20      # save checkpoint every N epochs (only used when save_checkpoints=true)
 save_checkpoints: false   # set true to save periodic checkpoints; e2e_best is always saved
 early_stopping_patience: 25
 early_stopping_method: val_acc   # val_acc | val_loss — governs both stopping condition and best-model selection
+
+# FFCV full-recipe training options (all default to off to preserve existing behaviour)
+label_smoothing: 0.0      # CrossEntropyLoss label smoothing (0.0 = off)
+use_blurpool: false        # antialiased pooling on strided layers (requires antialiased-cnns)
+optimizer_selective_wd: false  # apply WD only to non-BN/bias params (FFCV recipe)
+lr_tta: false              # test-time augmentation: average logits over LR flip
+progressive_res_min: null  # start resolution for progressive training (null = off)
+progressive_res_max: null  # end resolution for progressive training
+progressive_res_start_ramp: null  # only set when progressive_res_min is set
+progressive_res_end_ramp: null    # only set when progressive_res_min is set
+
+# Data loading backend and FFCV beton format settings (hash-included — affect training data)
+loading_backend: torch    # "torch" | "ffcv"; selects augmentation pipeline
+beton:
+  max_resolution: null    # only set when loading_backend=ffcv; cap image dimension before JPEG encoding
+  jpeg_quality: null      # only set when loading_backend=ffcv; JPEG quality for beton encoding
+  compress_probability: null  # only set when loading_backend=ffcv; fraction of images encoded as JPEG
 
 # Grad-norm balancer for topographic loss
 balancer:

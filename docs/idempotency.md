@@ -182,7 +182,10 @@ See `EXCLUDED_KEYS` in `src/config/hash.py` and tests in `tests/test_cfg_hash.py
 
 ## 5) How to change idempotency safely
 
-When changing step semantics:
+For the full decision framework when **adding new parameters** (covering hash-included,
+hash-excluded, and conditional cases), see `CONTRIBUTING_AND_UPDATING.md` §11.
+
+When **changing step semantics** (modifying what an existing identity hash covers):
 
 1. Update `IDEMPOTENCY_REGISTRY` in `src/config/hash.py`
 2. Update all `identity_hash(...)` call sites in affected scripts/modules
@@ -195,6 +198,73 @@ When changing step semantics:
 When telemetry keys are added/removed, also update:
 - `src/mlflow_schema_logger.py`
 - `docs/telemetry_schema.md`
+
+### 5.1 Schema migration protocol
+
+When a new parameter is introduced, whether migration is **required** or only
+**recommended** depends on where the parameter lives:
+
+| Parameter location | Idempotency impact | Identity hash migration |
+|---|---|---|
+| Hash-included group (`training.*`, `model.*`, `loss.*`, `dataset.*`) | **Breaks** — all existing run hashes are invalid | **Mandatory** |
+| Hash-excluded group (`runtime.*`, `execution.*`, etc.) | None — existing hashes remain valid | **Optional** (for observability) |
+
+In both cases, running the param backfill script is recommended so that historical
+runs have a visible, queryable record of what value was hardcoded before the param
+existed.
+
+#### For hash-included params (mandatory migration)
+
+The model `identity_hash` covers `training.*` with a wildcard. **Every new field
+added to `TrainingConfig` invalidates all existing model run hashes.** Before
+merging or deploying any such schema change:
+
+1. **Write a param assumptions document** (`docs/<feature>_param_assumptions.md`)
+   recording each new field, the behaviour it was previously hardcoded to, and the
+   migration default that preserves the old behaviour. Write this *before* any code
+   change.
+
+2. **Write a migration spec** (`scripts/migrations/specs/<feature>.yaml`) that
+   lists each new param and its migration default. Run the generic backfill script
+   against it — dry-run by default; `--apply` to write:
+
+   ```bash
+   uv run scripts/migrations/backfill_params.py \
+       --spec scripts/migrations/specs/<feature>.yaml \
+       --experiment <experiment_name> [--apply]
+   ```
+
+   See `scripts/migrations/specs/ffcv_training_params.yaml` as the canonical example.
+
+3. **Run the identity hash rehash script**
+   (`scripts/migrations/rehash_identities.py`) that recomputes `tags.identity_hash`
+   for every FINISHED model run by downloading its stored `config/resolved_config.yaml`
+   artifact and merging it with the current structured config defaults via
+   `_canonical_section()`. New fields automatically receive their migration defaults.
+
+   **Artifact path note:** `src/mlflow_utils.log_resolved_config` logs the artifact
+   at the stable path `config/resolved_config.yaml`. The rehash script tries this
+   path first and falls back to listing `config/` and taking the first `.yaml` found,
+   for compatibility with runs logged before this naming was fixed.
+
+4. **Run both scripts** against all affected experiments before deploying the new
+   code. Param backfill first, then identity hash rehash.
+
+5. Verify idempotency is restored: re-running `01_train_models.py` with an existing
+   config should find the idempotency hit and skip training.
+
+#### For hash-excluded params (optional observability migration)
+
+No identity hash rehash is needed. Only the param backfill script is relevant, and
+only if you want the old hardcoded value to appear in MLflow for historical runs.
+
+1. Write a param backfill script (or extend the existing one) following the same
+   template. Document the old hardcoded behaviour in the assumptions doc under a
+   "Runtime (hash-excluded)" section.
+
+2. Run the backfill (no rehash step).
+
+See `docs/ffcv_param_assumptions.md` §"New Params: Runtime" as an example.
 
 ---
 

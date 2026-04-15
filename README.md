@@ -219,6 +219,73 @@ training set. The test split is the dataset's native held-out partition.
 
 See `docs/CONTRIBUTING_AND_UPDATING.md` §10 for the step-by-step guide.
 
+## Training backends
+
+`scripts/01_train_models.py` supports two data loading backends, selected via
+`training.loading_backend` (default: `torch`).
+
+### `torch` (default)
+
+Standard `torch.utils.data.DataLoader`. Works for all datasets, no additional
+dependencies. All existing CIFAR-10 sweep configs use this path.
+
+### `ffcv`
+
+High-throughput binary data loading for large-image datasets (e.g. ImageNet100).
+Requires the optional `ffcv` dependency group:
+
+```bash
+uv sync --group ffcv
+```
+
+This installs `ffcv`, `antialiased-cnns` (blurpool), and `cupy-cuda12x` (GPU-side
+normalisation). Adjust the cupy package name if your CUDA version differs from 12.x.
+
+`.beton` data files are **generated automatically on first run** and reused
+thereafter. The full FFCV training recipe includes:
+
+| Feature | Config key | FFCV sweep default |
+|---|---|---|
+| SGD optimiser | `training.optimiser: sgd` | ✓ |
+| OneCycleLR scheduler | `training.scheduler: cyclic` | ✓ |
+| LR peak epoch | `training.lr_peak_epoch: 2` | ✓ (required for cyclic) |
+| Label smoothing | `training.label_smoothing: 0.1` | ✓ |
+| Blurpool | `training.use_blurpool: true` | ✓ |
+| Selective weight decay | `training.optimizer_selective_wd: true` | ✓ |
+| Test-time augmentation | `training.lr_tta: true` | ✓ (ffcv only) |
+| Progressive resolution | `training.progressive_res_min/max: 160/192` | ✓ (ffcv only) |
+| Progressive ramp | `training.progressive_res_start_ramp/end_ramp: 0.75/1.0` | ✓ (required when prog res active) |
+
+Use the FFCV sweep preset for a full ImageNet100 FFCV training run:
+
+```bash
+uv run scripts/01_train_models.py +sweeps=training_rho_imagenet100_ffcv \
+  loss.rho=0.0 loss.topology=torus trial=0
+```
+
+> **Migration note**: If you have existing model runs, run the migration scripts
+> before deploying this change. See `docs/ffcv_param_assumptions.md` for the
+> full guide and commands.
+
+### Config validation
+
+`scripts/01_train_models.py` validates the composed config before doing any work.
+Some training fields are *conditional* — they are only meaningful when a parent
+feature is active. Setting them when the feature is inactive (or omitting them when
+it is active) causes an immediate, descriptive error:
+
+```
+Training config validation failed:
+  - scheduler=cyclic requires lr_peak_epoch to be set (e.g. training.lr_peak_epoch=2)
+```
+
+Rules enforced:
+- `lr_peak_epoch` must be set iff `scheduler=cyclic`
+- progressive resolution ramp fields must be set iff `progressive_res_min` is set
+- `lr_tta=True` and progressive resolution require `loading_backend=ffcv`
+
+See `src/config/validation.py` for the full rule set.
+
 ## Configuration model
 
 Main config: `conf/config.yaml`

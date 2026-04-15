@@ -85,7 +85,16 @@ TELEMETRY_SCHEMA = {
                 "neighbourhood_radius", "embedding_dim", "p_dropout", "head_bias",
                 "model_arch", "dataset", "transforms_preset", "split_strategy", "val_per_class"
             ],
-            "optional": []
+            "optional": [
+                # FFCV full-recipe params — optional so existing runs without them still pass
+                "loading_backend", "label_smoothing", "use_blurpool",
+                "optimizer_selective_wd", "lr_tta",
+                "lr_peak_epoch",
+                "progressive_res_min", "progressive_res_max",
+                "progressive_res_start_ramp", "progressive_res_end_ramp",
+                # FFCV beton format settings — optional; None for torch runs
+                "beton_max_resolution", "beton_jpeg_quality", "beton_compress_probability",
+            ]
         },
         "tags": {
             "required": ["kind", "identity_hash", "schema_version", "cfg_hash", "trial"],

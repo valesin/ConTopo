@@ -114,15 +114,28 @@ def _split_train_val_indices(root: str, dataset_name: str, val_per_class: int = 
 
 
 def get_dataset_loaders(cfg: DictConfig):
-    """Build train / val / test DataLoaders for any registered dataset.
+    """Build train / val / test loaders for any registered dataset.
 
-    Dispatches on ``cfg.dataset.name`` via ``_DATASET_FACTORIES``.
-    Uses named transform presets from ``cfg.dataset.transforms.preset``.
-    Runtime knobs (num_workers, pin_memory, etc.) come from ``cfg.runtime``.
+    Dispatches on ``cfg.dataset.name`` via ``_DATASET_FACTORIES`` and on
+    ``cfg.training.loading_backend`` to select torch vs FFCV.
 
     Returns:
         (train_loader, val_loader, test_loader)
+
+        When ``loading_backend=ffcv`` **and** ``training.progressive_res_min`` is
+        set, ``train_loader`` is a **list** of FFCV Loaders (one per discrete
+        resolution step, ordered low-res → high-res).  In all other cases it is
+        a single loader.  The training script uses ``_resolve_loader_for_epoch``
+        to select the appropriate loader for each epoch.
     """
+    backend = cfg.training.loading_backend
+    if backend == "ffcv":
+        return _get_ffcv_loaders(cfg)
+    return _get_torch_loaders(cfg)
+
+
+def _get_torch_loaders(cfg: DictConfig):
+    """Torch DataLoader implementation (original path, unchanged)."""
     dataset_name = cfg.dataset.name
     factory = _DATASET_FACTORIES[dataset_name]
 
@@ -177,6 +190,81 @@ def get_dataset_loaders(cfg: DictConfig):
     )
 
     return train_loader, val_loader, test_loader
+
+
+def _get_ffcv_loaders(cfg: DictConfig):
+    """FFCV Loader implementation.
+
+    Generates .beton files on demand (once per config) and builds FFCV Loaders.
+    When ``training.progressive_res_min`` is set, returns a list of FFCV train
+    loaders covering discrete resolution steps from min to max.
+    """
+    from src.data.beton_writer import get_or_write_beton
+    from src.data.ffcv_pipelines import (
+        build_ffcv_eval_pipeline,
+        build_ffcv_loader,
+        build_ffcv_train_pipeline,
+    )
+
+    dataset_name = cfg.dataset.name
+    factory = _DATASET_FACTORIES[dataset_name]
+    root = cfg.runtime.data_root
+    val_per_class = cfg.dataset.split.val_per_class
+    train_indices, val_indices = _split_train_val_indices(root, dataset_name, val_per_class)
+
+    # Write beton files if absent
+    train_beton = get_or_write_beton(cfg, "train", factory, train_indices)
+    val_beton   = get_or_write_beton(cfg, "val",   factory, val_indices)
+    test_beton  = get_or_write_beton(cfg, "test",  factory, None)
+
+    bs = int(cfg.training.batch_size)
+    nw = int(cfg.runtime.num_workers)
+
+    # Device index: use 0 by default; resolved properly in the training script
+    device_idx = 0
+
+    mean = tuple(cfg.dataset.mean)
+    std  = tuple(cfg.dataset.std)
+
+    # Val / test loaders (always single, at full image_size)
+    image_size = int(cfg.dataset.image_size)
+    # Cap ratio so CenterCropRGBImageDecoder never requests a region larger than
+    # what is stored.  Images are stored at min(max_resolution, original_size);
+    # for small datasets (e.g. CIFAR-10 32×32) they are stored at image_size,
+    # so the ratio must be ≤ 1.0.
+    max_stored = int(cfg.training.beton.max_resolution)
+    effective_stored = min(max_stored, image_size)
+    eval_ratio = min(256 / 224, effective_stored / image_size)
+    eval_img, eval_lbl = build_ffcv_eval_pipeline(image_size, device_idx, mean, std, ratio=eval_ratio)
+    val_loader  = build_ffcv_loader(val_beton,  eval_img, eval_lbl, bs, nw)
+    test_loader = build_ffcv_loader(test_beton, eval_img, eval_lbl, bs, nw)
+
+    # Train loader(s)
+    prog_min = cfg.training.get("progressive_res_min", None)
+    prog_max = cfg.training.get("progressive_res_max", None)
+
+    if prog_min is not None and prog_max is not None:
+        # Build one FFCV loader per discrete resolution step (low → high)
+        resolutions = _progressive_resolutions(int(prog_min), int(prog_max))
+        train_loaders = []
+        for res in resolutions:
+            img_pl, lbl_pl = build_ffcv_train_pipeline(res, device_idx, mean, std)
+            train_loaders.append(
+                build_ffcv_loader(train_beton, img_pl, lbl_pl, bs, nw, shuffled=True)
+            )
+        return train_loaders, val_loader, test_loader
+
+    train_img, train_lbl = build_ffcv_train_pipeline(image_size, device_idx, mean, std)
+    train_loader = build_ffcv_loader(train_beton, train_img, train_lbl, bs, nw, shuffled=True)
+    return train_loader, val_loader, test_loader
+
+
+def _progressive_resolutions(res_min: int, res_max: int, n_steps: int = 3) -> list[int]:
+    """Return ``n_steps`` linearly-spaced integer resolutions from min to max (inclusive)."""
+    if n_steps <= 1 or res_min == res_max:
+        return [res_min]
+    step = (res_max - res_min) / (n_steps - 1)
+    return [int(round(res_min + i * step)) for i in range(n_steps)]
 
 
 def get_cifar10_loaders(cfg: DictConfig):

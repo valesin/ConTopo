@@ -2,6 +2,11 @@
 
 **Single Source of Truth:** [src/mlflow_schema_logger.py](src/mlflow_schema_logger.py)
 
+**Rule: any param, tag, metric, or artifact logged to MLflow must be declared in
+`TELEMETRY_SCHEMA`.** New entries go into `"optional"` so that existing runs which
+pre-date the field still pass validation. Only promote to `"required"` when all
+historical runs in the experiment are guaranteed to have the value.
+
 The ConTopo project enforces MLflow run contents with a positive constraint schema at runtime. The enforcement is implemented in `TELEMETRY_SCHEMA` and exercised by the `start_run` context manager and the validation helper in `src/mlflow_schema_logger.py`.
 
 ## What the runtime enforces
@@ -76,6 +81,26 @@ Successful validation prints the `PASS` message from `start_run`:
 - Prefer modifying `TELEMETRY_SCHEMA` first, then the code that emits the telemetry. That order prevents unexpected validation failures during CI or local runs.
 - When adding artifact templates, prefer stable directory prefixes (e.g., `inference/`, `ensemble/`, `profiles/`) so the validator's directory listing check is robust.
 - If a new telemetry item changes step identity semantics, update `src/config/hash.py`'s `IDEMPOTENCY_REGISTRY` and add tests to cover idempotency.
+- When adding new `TrainingConfig` fields, add them to the `"optional"` list in `TELEMETRY_SCHEMA["model"]["params"]` so that existing FINISHED runs (which pre-date the field) still pass validation. Do **not** add them to `"required"` unless all historical runs are guaranteed to have them.
+
+## Currently optional `model` params (added after initial schema)
+
+The following `model`-kind params are declared `optional` because they were added
+after runs already existed in the experiment:
+
+- `loading_backend` — `"torch"` or `"ffcv"` (hash-included; logged for observability)
+- `label_smoothing` — CrossEntropyLoss smoothing coefficient
+- `use_blurpool` — antialiased pooling flag
+- `optimizer_selective_wd` — selective weight decay flag
+- `lr_tta` — test-time augmentation flag
+- `lr_peak_epoch` — OneCycleLR peak epoch (only set when `scheduler=cyclic`; `None` otherwise)
+- `progressive_res_min` — progressive resolution start size
+- `progressive_res_max` — progressive resolution end size
+- `progressive_res_start_ramp` — ramp start fraction (only set when progressive res is active; `None` otherwise)
+- `progressive_res_end_ramp` — ramp end fraction (only set when progressive res is active; `None` otherwise)
+- `beton_max_resolution` — beton max image dimension (only set when `loading_backend=ffcv`; `None` otherwise)
+- `beton_jpeg_quality` — beton JPEG quality (only set when `loading_backend=ffcv`; `None` otherwise)
+- `beton_compress_probability` — beton JPEG fraction (only set when `loading_backend=ffcv`; `None` otherwise)
 
 ## Reference
 

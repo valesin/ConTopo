@@ -150,21 +150,21 @@ def setup_mlflow(cfg: DictConfig) -> None:
 
 
 def log_resolved_config(cfg: DictConfig) -> None:
-    """Log the fully-resolved Hydra config as a YAML artifact."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write(OmegaConf.to_yaml(cfg, resolve=True))
-        f.flush()
+    """Log the fully-resolved Hydra config as a YAML artifact at config/resolved_config.yaml."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = os.path.join(tmpdir, "resolved_config.yaml")
+        with open(dest, "w") as f:
+            f.write(OmegaConf.to_yaml(cfg, resolve=True))
         start = datetime.now()
         print(
             f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml"
         )
-        mlflow.log_artifact(f.name, artifact_path="config")
+        mlflow.log_artifact(dest, artifact_path="config")
         end = datetime.now()
         elapsed = (end - start).total_seconds()
         print(
             f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml completed in {elapsed:.1f}s"
         )
-        os.unlink(f.name)
 
 
 def load_mlflow_artifact(

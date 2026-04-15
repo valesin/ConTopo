@@ -18,3 +18,9 @@ paths:
 inference:
   batch_size: 256
   num_workers: 2
+
+# FFCV .beton file storage location (hash-excluded — operational only)
+# Format settings (max_resolution, jpeg_quality, compress_probability) live in
+# training.beton because they affect training data and are hash-included.
+beton:
+  dir: outputs/betons   # directory for generated .beton files

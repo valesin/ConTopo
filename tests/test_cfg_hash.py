@@ -188,3 +188,28 @@ class TestCfgHash:
         c2_loss["topology"] = "grid"
         c2 = _make_cfg(**{"loss": c2_loss})
         assert cfg_hash(c1) != cfg_hash(c2)
+
+    def test_loading_backend_affects_hash(self):
+        """training.loading_backend is hash-included — torch vs ffcv → different hash."""
+        c1 = _make_cfg()
+        c2_training = dict(_make_cfg().training)
+        c2_training["loading_backend"] = "ffcv"
+        c2 = _make_cfg(**{"training": c2_training})
+        assert cfg_hash(c1) != cfg_hash(c2)
+
+    def test_runtime_beton_dir_excluded(self):
+        """runtime.beton.dir (storage location) should NOT change hash."""
+        c1 = _make_cfg()
+        c2 = OmegaConf.merge(
+            _make_cfg(),
+            OmegaConf.create({"runtime": {"beton": {"dir": "/mnt/fast/betons"}}}),
+        )
+        assert cfg_hash(c1) == cfg_hash(c2)
+
+    def test_beton_format_affects_hash(self):
+        """training.beton.max_resolution is hash-included — changing it changes hash."""
+        c1 = _make_cfg()
+        c2_training = dict(_make_cfg().training)
+        c2_training["beton"] = {"max_resolution": 256, "jpeg_quality": 90, "compress_probability": 0.5}
+        c2 = _make_cfg(**{"training": c2_training})
+        assert cfg_hash(c1) != cfg_hash(c2)
