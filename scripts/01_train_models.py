@@ -66,7 +66,7 @@ def _build_optimiser(cfg: DictConfig, model):
     wd = cfg.training.weight_decay
 
     # Selective weight decay: apply WD only to non-BN, non-bias params (FFCV recipe)
-    if cfg.training.get("optimizer_selective_wd", False):
+    if cfg.training.optimizer_selective_wd:
         no_wd_names = ("bn", "bias")
         wd_params    = [p for n, p in model.named_parameters()
                         if not any(nd in n for nd in no_wd_names)]
@@ -93,7 +93,7 @@ def _build_optimiser(cfg: DictConfig, model):
 
 def _build_scheduler(cfg: DictConfig, optimiser, steps_per_epoch: int):
     """Return an LR scheduler or None (when scheduler=none)."""
-    name = cfg.training.get("scheduler", "none").lower()
+    name = cfg.training.scheduler.lower()
     if name == "cyclic":
         epochs = cfg.training.epochs
         # pct_start must be in (0, 1); clamp lr_peak_epoch to valid range
@@ -236,7 +236,7 @@ def main(cfg: DictConfig) -> None:
             model = torch.nn.DataParallel(model)
 
         # ── Blurpool (antialiased downsampling) ──
-        if cfg.training.get("use_blurpool", False):
+        if cfg.training.use_blurpool:
             from antialiased_cnns import BlurPool
             for name, module in unwrap(model).named_modules():
                 if isinstance(module, torch.nn.MaxPool2d) and module.stride > 1:
@@ -245,7 +245,7 @@ def main(cfg: DictConfig) -> None:
                     setattr(parent_mod, attr, BlurPool(module.kernel_size, stride=module.stride))
 
         # ── Losses ──
-        label_smoothing = float(cfg.training.get("label_smoothing", 0.0))
+        label_smoothing = float(cfg.training.label_smoothing)
         task_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(device)
         topo_loss_fn = _build_topo_loss(cfg, cfg.model.embedding_dim)
         if isinstance(topo_loss_fn, torch.nn.Module):
@@ -319,13 +319,13 @@ def main(cfg: DictConfig) -> None:
                     "lambda_max": cfg.training.balancer.lambda_max,
                     # FFCV full-recipe params
                     "loading_backend": cfg.training.loading_backend,
-                    "label_smoothing": cfg.training.get("label_smoothing", 0.0),
-                    "use_blurpool": cfg.training.get("use_blurpool", False),
-                    "optimizer_selective_wd": cfg.training.get("optimizer_selective_wd", False),
-                    "lr_tta": cfg.training.get("lr_tta", False),
+                    "label_smoothing": cfg.training.label_smoothing,
+                    "use_blurpool": cfg.training.use_blurpool,
+                    "optimizer_selective_wd": cfg.training.optimizer_selective_wd,
+                    "lr_tta": cfg.training.lr_tta,
                     "lr_peak_epoch": cfg.training.lr_peak_epoch,
-                    "progressive_res_min": cfg.training.get("progressive_res_min", None),
-                    "progressive_res_max": cfg.training.get("progressive_res_max", None),
+                    "progressive_res_min": cfg.training.progressive_res_min,
+                    "progressive_res_max": cfg.training.progressive_res_max,
                     "progressive_res_start_ramp": cfg.training.progressive_res_start_ramp,
                     "progressive_res_end_ramp": cfg.training.progressive_res_end_ramp,
                     # FFCV beton format settings (hash-included; None for torch runs)
@@ -400,12 +400,9 @@ def main(cfg: DictConfig) -> None:
             # Initialize memory for the best model weights
             best_model_state = None
 
-            use_tta = (
-                cfg.training.get("lr_tta", False)
-                and cfg.training.loading_backend == "ffcv"
-            )
+            use_tta = cfg.training.lr_tta and cfg.training.loading_backend == "ffcv"
             total_epochs = cfg.training.epochs
-            sched_name = cfg.training.get("scheduler", "none").lower()
+            sched_name = cfg.training.scheduler.lower()
 
             for epoch in range(1, total_epochs + 1):
                 epoch_loader = _resolve_loader_for_epoch(

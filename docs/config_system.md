@@ -1,4 +1,4 @@
-# ConTopo Config System (Current Runtime)
+# Configuration System
 
 This document describes the executable configuration model used by current ConTopo scripts.
 
@@ -187,43 +187,70 @@ Current runtime scripts are Hydra YAML-driven and do not require explicit `regis
 
 ---
 
-## 8) Safe parameter update workflow
+## 8) Adding a new parameter — three cases
 
-The full protocol for adding a new parameter depends on whether it is hash-included,
-hash-excluded, and/or conditional. The authoritative guide is
-`CONTRIBUTING_AND_UPDATING.md` §11. This section is a quick reference.
+Before adding a field, decide which of the three cases it falls into. Each has
+a different cost and migration path. The full migration protocol lives in
+[`contributing.md`](contributing.md) §11; this section is the canonical decision
+guide.
 
-### Always required
+### Case A — Hash-included parameter (mandatory migration)
 
-1. Update the relevant YAML group (`conf/<group>/*.yaml`)
-2. Update `src/config/structured.py` to match
-3. Update script usage (read and apply the field)
-4. If the param is logged to MLflow: add it to the `"optional"` list in
-   `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`, and log it via
-   `schema_log_params` in the script
+**Criteria:** The param changes what the trained model is (training recipe,
+loss, model, dataset) or what a downstream run identifies. It lives in a group
+covered by `IDENTITY_INCLUDED_WILDCARDS` in `src/config/hash.py` —
+`training.*`, `model.*`, `loss.*`, `dataset.*` — or by `IDEMPOTENCY_REGISTRY`
+for that run kind.
 
-### If hash-included (param lives in `training.*`, `model.*`, `loss.*`, `dataset.*`)
+**Cost:** Every existing FINISHED run's `identity_hash` becomes stale.
+Training will no longer recognise existing runs and will restart them unless
+you migrate.
 
-The param changes `identity_hash` for all existing runs. **Migration is mandatory.**
+**Checklist:**
+1. Add field to the dataclass in `src/config/structured.py` with the current default.
+2. Add to `conf/<group>/default.yaml` with a brief comment.
+3. Wire up behavior in the script(s) that consume it.
+4. Log the param (via `schema_log_params`) and add it to `"optional"` in
+   `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`.
+5. Write `scripts/migrations/specs/<feature>.yaml` with the migration default.
+6. Run `scripts/migrations/backfill_params.py --spec ... --apply`.
+7. Run `scripts/migrations/rehash_identities.py --apply`.
+8. Verify: re-run an existing config → "Run already exists, skipping."
+9. Update tests in `tests/test_cfg_hash.py`.
 
-5. Write `docs/<feature>_param_assumptions.md` documenting the migration default
-6. Write `scripts/migrations/specs/<feature>.yaml`; run `scripts/migrations/backfill_params.py --spec ... --apply` to backfill MLflow params
-7. Run `scripts/migrations/rehash_identities.py --apply` to rehash identity tags
-8. Verify idempotency: re-run an existing config → "already FINISHED, skipping"
-9. Update tests in `tests/test_cfg_hash.py`
+### Case B — Hash-excluded parameter (optional observability migration)
 
-### If hash-excluded (param lives in `runtime.*`, `execution.*`, etc.)
+**Criteria:** The param is purely operational — storage location, workers,
+verbosity, MLflow routing, etc. Lives in `runtime`, `execution`, `mlflow`,
+`groups`, etc. (any key in `EXCLUDED_KEYS`).
 
-The param does not break idempotency. No identity hash migration needed.
+**Cost:** Zero identity cost. Existing runs keep their hashes.
 
-5. *(Optional)* Write a param backfill script for observability — lets you query
-   MLflow for the old hardcoded value on historical runs
+**Checklist:** Same as Case A steps 1–4. Step 5 (backfill spec) is optional:
+run it only if you want existing MLflow runs to carry the param for query
+convenience. No rehash needed.
 
-### If conditional (only valid when a parent feature is active)
+### Case C — Conditional parameter (A or B + validation rule)
 
-6. Type as `Optional[T] = None` in the struct; use `null` in YAML
-7. Add validation rules to `src/config/validation.py` (reject orphaned + missing)
-8. Migration default must be `"None"`, not a fictitious numeric value
+**Criteria:** Only meaningful when a parent feature is active (e.g.
+`lr_peak_epoch` requires `scheduler=cyclic`). Applies to both hash-included
+and hash-excluded fields.
+
+**Extra requirement:** Default must be `None` (not a fictitious numeric value).
+Add a rule in `src/config/validation.py` enforcing "set iff parent is active".
+Fail early at startup.
+
+**Why `None`?** Backfilling a fictitious value (e.g. `lr_peak_epoch=2` for
+runs that never used the cyclic scheduler) misrepresents what actually ran.
+`None` means "feature was off".
+
+**Current examples:**
+- `lr_peak_epoch` (conditional on `scheduler=cyclic`)
+- `progressive_res_start_ramp/end_ramp` (conditional on `progressive_res_min`)
+- `beton.max_resolution/jpeg_quality/compress_probability` (conditional on `loading_backend=ffcv`)
+
+See [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) for a full worked
+example of a Case A + C migration.
 
 ---
 
@@ -253,7 +280,7 @@ python scripts/02_cache_inference.py execution.split=val
 
 ## 11) Related docs
 
-- `ARCHITECTURE.md`
+- `architecture.md`
 - `docs/telemetry_schema.md`
 - `docs/idempotency.md`
-- `CONTRIBUTING_AND_UPDATING.md`
+- `contributing.md`

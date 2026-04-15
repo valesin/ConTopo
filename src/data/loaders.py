@@ -240,8 +240,8 @@ def _get_ffcv_loaders(cfg: DictConfig):
     test_loader = build_ffcv_loader(test_beton, eval_img, eval_lbl, bs, nw)
 
     # Train loader(s)
-    prog_min = cfg.training.get("progressive_res_min", None)
-    prog_max = cfg.training.get("progressive_res_max", None)
+    prog_min = cfg.training.progressive_res_min
+    prog_max = cfg.training.progressive_res_max
 
     if prog_min is not None and prog_max is not None:
         # Build one FFCV loader per discrete resolution step (low → high)

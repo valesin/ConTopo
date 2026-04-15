@@ -48,7 +48,7 @@ Customisation points:
 
 ── RUNNING ORDER ────────────────────────────────────────────────────────────
     Run AFTER backfill_params.py (param backfill first, then rehash).
-    See CONTRIBUTING_AND_UPDATING.md §11 for the full migration protocol.
+    See contributing.md §11 for the full migration protocol.
 """
 
 from __future__ import annotations

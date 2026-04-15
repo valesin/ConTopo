@@ -1,4 +1,4 @@
-# Telemetry Logging & Schema Contracts
+# Telemetry Schema
 
 **Single Source of Truth:** [src/mlflow_schema_logger.py](src/mlflow_schema_logger.py)
 
@@ -60,7 +60,7 @@ Each kind defines four slots: `params`, `tags`, `metrics`, and `artifacts`. For 
 3. Run a quick validation run. Example pattern (Hydra overrides shown as an example):
 
 ```bash
-python -m main pipeline.from_step=some_step pipeline.to_step=some_step pipeline=small
+python -m main pipeline.from_step=some_step pipeline=small
 ```
 
 Successful validation prints the `PASS` message from `start_run`:
@@ -75,6 +75,44 @@ Successful validation prints the `PASS` message from `start_run`:
 - Artifact template resolution failures raise `TelemetryContractError` identifying the missing formatting key.
 - If the artifact exists but under a different path than the template resolves to, the validator will report the expected path as missing.
 - Attempting to log unknown param/tag keys via `log_params`/`log_tags` will raise a `ValueError` (these functions proactively enforce allowed keys).
+
+### Worked example — missing required metric
+
+Suppose you add `test_accuracy_topk=5` to the `model` kind's required metrics
+but forget to log it from `scripts/01_train_models.py`. At run completion:
+
+```
+[VALIDATION] Enforcing telemetry contract for resnet18_rho0.05_torus_t0 (kind=model)... FAIL
+TelemetryContractError: run <run_id> kind=model missing required metrics:
+  - test_accuracy_topk
+```
+
+The MLflow run is marked `FAILED`. Fix:
+
+1. Add the `timed_log_metric("test_accuracy_topk", value)` call at the
+   appropriate point in the script (typically near the existing `test_accuracy`
+   log site).
+2. Re-run. Successful validation prints `PASS`.
+
+### Worked example — unknown tag at `start_run`
+
+Passing a tag not declared in `TELEMETRY_SCHEMA[kind]["tags"]` (either list):
+
+```python
+with start_run("model", run_name="...", tags={"my_custom_tag": "x"}):
+    ...
+```
+
+fails immediately, before any work begins:
+
+```
+ValueError: kind=model disallowed tags: ['my_custom_tag']
+Allowed (required + optional): ['cfg_hash', 'identity_hash', 'parent_run_id', ...]
+```
+
+Fix: either add `my_custom_tag` to the kind's `"optional"` tag list in
+`TELEMETRY_SCHEMA`, or (preferably) use an existing declared tag that captures
+the same semantic.
 
 ## Notes and best practices
 

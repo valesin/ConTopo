@@ -17,7 +17,7 @@
 # defaults reflect "feature was off / never used".
 #
 # See docs/ffcv_param_assumptions.md for the full rationale.
-# See CONTRIBUTING_AND_UPDATING.md §11 for the migration protocol.
+# See contributing.md §11 for the migration protocol.
 
 description: "FFCV training recipe + beton format fields moved to TrainingConfig (April 2026)"
 

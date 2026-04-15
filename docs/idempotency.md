@@ -1,4 +1,4 @@
-# ConTopo Idempotency (Current State)
+# Idempotency
 
 This document describes how run uniqueness is defined and enforced in the current pipeline.
 
@@ -183,7 +183,7 @@ See `EXCLUDED_KEYS` in `src/config/hash.py` and tests in `tests/test_cfg_hash.py
 ## 5) How to change idempotency safely
 
 For the full decision framework when **adding new parameters** (covering hash-included,
-hash-excluded, and conditional cases), see `CONTRIBUTING_AND_UPDATING.md` §11.
+hash-excluded, and conditional cases), see `contributing.md` §11.
 
 When **changing step semantics** (modifying what an existing identity hash covers):
 
@@ -264,7 +264,52 @@ only if you want the old hardcoded value to appear in MLflow for historical runs
 
 2. Run the backfill (no rehash step).
 
-See `docs/ffcv_param_assumptions.md` §"New Params: Runtime" as an example.
+See [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) §"New Params: Runtime"
+as an example.
+
+### 5.2 Worked example: changing a hash-included param without migration
+
+Scenario: you add a new field `training.label_smoothing` with default `0.1`,
+merge it, but **skip** the param backfill + rehash migration.
+
+**What happens on the next training launch:**
+
+1. `01_train_models.py` composes the current config. It now contains
+   `training.label_smoothing=0.1` — a key that did not exist when old runs were
+   written.
+2. `cfg_hash(cfg)` returns a new 16-char SHA-256 prefix because the composed
+   config changed. The new hash has **no corresponding FINISHED run** in MLflow.
+3. `find_finished_model_run(cfg, seed)` queries MLflow for a run tagged with
+   the new identity hash. No match. Returns `None`.
+4. The script concludes "no existing run" and starts training from scratch,
+   **duplicating** every historical model with a near-identical config.
+
+**How to detect it:**
+
+- Sudden burst of new training runs for previously-computed configs.
+- Two FINISHED model runs with near-identical params but different
+  `identity_hash` tags.
+- Downstream stages (inference, profiles, ensemble) re-run because their
+  `parent_run_id` changed.
+
+**Recovery:**
+
+1. Kill the duplicated runs (don't let them waste compute).
+2. Run the migration you should have run first:
+   ```bash
+   uv run scripts/migrations/backfill_params.py \
+       --spec scripts/migrations/specs/<feature>.yaml --apply
+   uv run scripts/migrations/rehash_identities.py --apply
+   ```
+3. Re-launch training. The old runs now match the new hash → "already FINISHED,
+   skipping."
+4. Delete the duplicated FINISHED runs (or mark them `FAILED` for audit) so
+   downstream ensemble discovery does not mix them with the originals.
+
+**Takeaway:** the migration scripts are not optional ceremony for hash-included
+params — they are what makes "add a field with a safe default" a zero-cost
+operation. Without them, every schema change silently re-trains the entire
+experiment.
 
 ---
 
@@ -285,5 +330,5 @@ Before merging idempotency changes:
 
 - `docs/config_system.md`
 - `docs/telemetry_schema.md`
-- `ARCHITECTURE.md`
-- `CONTRIBUTING_AND_UPDATING.md`
+- `architecture.md`
+- `contributing.md`

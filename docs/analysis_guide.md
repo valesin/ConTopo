@@ -1,12 +1,7 @@
-# Analysis Consolidated Guide
+# Analysis Guide
 
-This is the single consolidated analysis guide for ConTopo.
-It merges and supersedes:
-
-- `ANALYSIS_GUIDE.md`
-- `notebooks/ANALYSIS.md`
-
-The content below is aligned to the current runtime code (`scripts/`, `src/`, `notebooks/mlflow/mlflow_helpers.py`) as of 2026-04-12.
+The single analysis reference for ConTopo. Aligned to the current runtime code
+under `scripts/`, `src/`, and `notebooks/mlflow/mlflow_helpers.py`.
 
 ---
 

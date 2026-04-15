@@ -1,4 +1,4 @@
-# FFCV Param Assumptions & Migration Guide
+# FFCV Parameter Migration Guide
 
 ## Why This Document Exists
 

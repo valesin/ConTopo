@@ -217,7 +217,7 @@ training set. The test split is the dataset's native held-out partition.
 
 ### Adding a new dataset
 
-See `docs/CONTRIBUTING_AND_UPDATING.md` §10 for the step-by-step guide.
+See [`docs/contributing.md`](docs/contributing.md) §10 for the step-by-step guide.
 
 ## Training backends
 
@@ -269,38 +269,86 @@ uv run scripts/01_train_models.py +sweeps=training_rho_imagenet100_ffcv \
 
 ### Config validation
 
-`scripts/01_train_models.py` validates the composed config before doing any work.
-Some training fields are *conditional* — they are only meaningful when a parent
-feature is active. Setting them when the feature is inactive (or omitting them when
-it is active) causes an immediate, descriptive error:
+The training script validates the composed config at startup and fails fast on
+invalid combinations (e.g. `scheduler=cyclic` without `lr_peak_epoch`). See
+[`docs/config_system.md`](docs/config_system.md) §5 for the full rule set.
 
+## Running experiments under different conditions
+
+The pipeline is configuration-driven — most changes are CLI overrides, no
+code edits needed. Common operational patterns:
+
+### Use a specific dataset
+
+```bash
+# CIFAR-10 (default)
+python main.py
+
+# ImageNet100 + ResNet34
+python main.py dataset=imagenet100 model=resnet34_imagenet100 \
+  profiling=imagenet100 mlflow.experiment_name=contopo_imagenet100
 ```
-Training config validation failed:
-  - scheduler=cyclic requires lr_peak_epoch to be set (e.g. training.lr_peak_epoch=2)
+
+### Switch the training backend
+
+```bash
+# torch DataLoader (default; works everywhere)
+python scripts/01_train_models.py training.loading_backend=torch ...
+
+# FFCV (fast binary loading — requires `uv sync --group ffcv`)
+python main.py +sweeps=training_rho_imagenet100_ffcv
 ```
 
-Rules enforced:
-- `lr_peak_epoch` must be set iff `scheduler=cyclic`
-- progressive resolution ramp fields must be set iff `progressive_res_min` is set
-- `lr_tta=True` and progressive resolution require `loading_backend=ffcv`
+See the "Training backends" section below for the full FFCV recipe.
 
-See `src/config/validation.py` for the full rule set.
+### Smoke-test with a single epoch
+
+Use `training.epochs=1` for any verification run; never launch a full training
+by accident when testing.
+
+```bash
+python scripts/01_train_models.py training.epochs=1 trial=99
+```
+
+### Resume from a specific pipeline step
+
+```bash
+python main.py pipeline.from_step=ensemble
+```
+
+### Force re-execution of a stage
+
+Every post-training stage checks idempotency and skips if a matching
+`FINISHED` run already exists. To force re-execution:
+
+```bash
+python scripts/02_cache_inference.py execution.force=true loss.rho=0.0 trial=0
+```
+
+### Use a different MLflow experiment
+
+```bash
+python main.py mlflow.experiment_name=my_experiment_name ...
+```
+
+The active dataset config automatically sets its own experiment name
+(e.g. `contopo_imagenet100` for the ImageNet100 sweep) to keep ensembles
+from mixing models across datasets.
+
+### Run a custom sweep
+
+Define a YAML under `conf/sweeps/<name>.yaml` and activate it with
+`+sweeps=<name>`:
+
+```bash
+python main.py +sweeps=training_small_ffcv_cifar
+```
 
 ## Configuration model
 
-Main config: `conf/config.yaml`
-
-Primary groups:
-
-- `model`, `loss`, `dataset`, `training`: model-identity inputs.
-- `runtime`, `mlflow`: execution and tracking environment.
-- `execution`: split + force controls.
-- `profiling`: anchors, profile metrics, diagnostics toggles.
-- `groups`: component discovery for ensemble/analysis stages.
-- `ensemble`: vote methods.
-- `adapter`: metalearner setup.
-- `pipeline`: orchestrator step graph.
-- `sweeps`: multirun presets.
+All Hydra config groups live under `conf/`. For the full config reference
+(groups, fields, hash-included vs. hash-excluded, validation rules) see
+[`docs/config_system.md`](docs/config_system.md).
 
 ## Minimal command set
 
@@ -334,7 +382,13 @@ python scripts/05_train_adapters.py
 
 ## Developer references
 
-- `ARCHITECTURE.md`: runtime architecture and boundaries.
-- `CONTRIBUTING_AND_UPDATING.md`: safe change procedures.
-- `ANALYSIS_GUIDE.md`: notebook/query workflows.
-- `doc_drift_report.md`: documentation drift findings and resolution map.
+Deep internals and extension guides live in `docs/`:
+
+- [`docs/README.md`](docs/README.md) — index and where-to-start
+- [`docs/architecture.md`](docs/architecture.md) — runtime architecture, stage flow, MLflow boundaries
+- [`docs/config_system.md`](docs/config_system.md) — Hydra groups, hash inclusion, validation rules, adding parameters
+- [`docs/idempotency.md`](docs/idempotency.md) — identity hashes, registry, migration semantics
+- [`docs/telemetry_schema.md`](docs/telemetry_schema.md) — MLflow logging contract per run kind
+- [`docs/contributing.md`](docs/contributing.md) — safe change procedures and migration checklists
+- [`docs/ffcv_param_assumptions.md`](docs/ffcv_param_assumptions.md) — worked example: FFCV migration
+- [`docs/analysis_guide.md`](docs/analysis_guide.md) — notebook and MLflow analysis reference

@@ -43,7 +43,7 @@ literal strings: "None", "False", "0.0", etc.
 ── RUNNING ORDER ────────────────────────────────────────────────────────────
     For hash-included param changes: run this script first, then run
     scripts/migrations/rehash_identities.py to update identity_hash tags.
-    See CONTRIBUTING_AND_UPDATING.md §11 for the full protocol.
+    See contributing.md §11 for the full protocol.
 """
 
 from __future__ import annotations

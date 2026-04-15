@@ -47,8 +47,9 @@ def get_or_write_beton(
     """Return the .beton path for (dataset, split, beton config), writing it if absent.
 
     Args:
-        cfg:             Full Hydra config.  Uses ``cfg.runtime.beton`` and
-                         ``cfg.dataset``.
+        cfg:             Full Hydra config. Uses ``cfg.training.beton`` (format
+                         settings — hash-included), ``cfg.runtime.beton.dir``
+                         (storage location — hash-excluded), and ``cfg.dataset``.
         split:           One of ``"train"``, ``"val"``, or ``"test"``.
         dataset_factory: Factory from ``_DATASET_FACTORIES`` — called as
                          ``factory(root, train=<bool>, transform=None)``.

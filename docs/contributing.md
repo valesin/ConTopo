@@ -1,4 +1,4 @@
-# Contributing and Updating
+# Contributing Guide
 
 This guide describes safe update procedures for the current ConTopo architecture.
 
@@ -74,12 +74,12 @@ For notebook-facing retrieval/format conveniences, update:
 
 Keep this layer focused on analysis ergonomics, not pipeline control flow.
 
-## 10. Adding a new dataset
+## 9. Adding a new dataset
 
 The pipeline is dataset-agnostic. Adding support for a new dataset requires touching
 exactly two source files and creating a few config files — no pipeline logic changes.
 
-### 10.1 Register the loader factory (`src/data/loaders.py`)
+### 9.1 Register the loader factory (`src/data/loaders.py`)
 
 Add a factory function with this signature:
 
@@ -109,7 +109,7 @@ _DATASET_FACTORIES["<name>"] = _<name>_factory
 DATASET_NUM_CLASSES["<name>"] = <num_classes>
 ```
 
-### 10.2 Create the dataset config (`conf/dataset/<name>.yaml`)
+### 9.2 Create the dataset config (`conf/dataset/<name>.yaml`)
 
 All required fields are already defined in the config schema — no `structured.py` changes needed:
 
@@ -128,7 +128,7 @@ transforms:
   preset: <preset_name>   # must exist in src/data/transforms.py
 ```
 
-### 10.3 Add a transform preset if needed (`src/data/transforms.py`)
+### 9.3 Add a transform preset if needed (`src/data/transforms.py`)
 
 If the dataset needs a distinct augmentation strategy (e.g. different crop size or
 a Resize+CenterCrop eval pipeline), add a named preset function and register it in
@@ -137,7 +137,7 @@ a Resize+CenterCrop eval pipeline), add a named preset function and register it 
 Preset names are included in `cfg_hash`, so changing a preset's behaviour requires
 creating a new version (`mydata_v2`) rather than modifying the existing one.
 
-### 10.4 Create supporting configs
+### 9.4 Create supporting configs
 
 - **`conf/profiling/<name>.yaml`** — if the default anchor-per-class count (100) is
   inappropriate (e.g. 100 × 100 classes = 10 000 anchors for a 10 000-image test set).
@@ -150,7 +150,7 @@ creating a new version (`mydata_v2`) rather than modifying the existing one.
   `override /dataset: <name>`, `override /model: <name>`, and dataset-specific
   training hyperparameters (batch_size, lr, epochs).
 
-### 10.5 MLflow experiment isolation
+### 9.5 MLflow experiment isolation
 
 Always use a distinct `mlflow.experiment_name` per dataset:
 
@@ -162,7 +162,7 @@ python main.py +sweeps=training_rho_<name>
 This prevents ensemble discovery (`conf/groups/default.yaml` uses `filter: {}`)
 from mixing models trained on different datasets within the same experiment.
 
-### 10.6 Checklist
+### 9.6 Checklist
 
 - [ ] Factory function added to `_DATASET_FACTORIES` in `src/data/loaders.py`
 - [ ] Class count added to `DATASET_NUM_CLASSES` in `src/data/loaders.py`
@@ -173,7 +173,7 @@ from mixing models trained on different datasets within the same experiment.
 - [ ] `conf/sweeps/training_rho_<name>.yaml` created with `mlflow.experiment_name`
 - [ ] Smoke run completes: `python scripts/01_train_models.py dataset=<name> model=<name> training.epochs=1 trial=0`
 
-## 11. Adding new configuration parameters
+## 10. Adding new configuration parameters
 
 Every new parameter requires at least two updates regardless of type:
 1. **YAML + structured config** — the value must be representable in the config system.
@@ -181,11 +181,14 @@ Every new parameter requires at least two updates regardless of type:
    `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`. Add it to `"optional"` so
    existing runs that pre-date the field still pass telemetry validation.
 
-Beyond those two, the protocol depends on three properties of the new parameter:
+Beyond those two, the protocol depends on three properties of the new parameter.
+The decision guide (three cases) is canonical in
+[`config_system.md`](config_system.md) §8; this section covers the full
+migration workflow.
 
 ---
 
-### 11.1 Decision framework
+### 10.1 Decision framework
 
 Answer these questions in order:
 
@@ -194,17 +197,17 @@ computation, optimiser behaviour)?
 
 - **Yes** → place in a hash-included config group (`training.*`, `model.*`, `loss.*`,
   `dataset.*`). Changing this param creates a semantically different model.
-  → **Migration is mandatory** (§11.3).
+  → **Migration is mandatory** (§10.2).
 - **No** → place in a hash-excluded group (`runtime.*`, `execution.*`, etc.). The
   param controls how a run executes, not what it produces.
-  → **Migration is optional** but recommended for observability (§11.4).
+  → **Migration is optional** but recommended for observability (§10.3).
 
 **Q2: Is the parameter only meaningful when another setting is active** (e.g. a
 scheduler-specific knob, or a format setting that only applies when a certain backend
 is selected)?
 
 - **Yes** → it is a **conditional field**. It must be `None` when its parent is
-  inactive, and explicitly set when it is active. Requires validation rules (§11.5).
+  inactive, and explicitly set when it is active. Requires validation rules (§10.4).
 - **No** → it is an **unconditional field** with a concrete default.
 
 These questions are independent. A conditional field can be hash-included (e.g.
@@ -212,7 +215,7 @@ These questions are independent. A conditional field can be hash-included (e.g.
 
 ---
 
-### 11.2 Hash-included parameters (mandatory migration)
+### 10.2 Hash-included parameters (mandatory migration)
 
 New fields in hash-included config groups (`training.*`, `model.*`, `loss.*`,
 `dataset.*`) change the `identity_hash` for **all existing model runs**.  Without
@@ -266,7 +269,7 @@ for the rationale.
 - [ ] `scripts/migrations/rehash_identities.py` dry-run reviewed
 - [ ] Struct field added with correct default in `src/config/structured.py`
 - [ ] `conf/<group>/default.yaml` updated with comment
-- [ ] If conditional: validation rules added to `src/config/validation.py` (see §11.5)
+- [ ] If conditional: validation rules added to `src/config/validation.py` (see §10.4)
 - [ ] Script wires up the feature and logs the param
 - [ ] `TELEMETRY_SCHEMA` updated (`"optional"` list)
 - [ ] Migration scripts applied to all affected experiments
@@ -274,7 +277,7 @@ for the rationale.
 
 ---
 
-### 11.3 Hash-excluded parameters (observability migration, optional)
+### 10.3 Hash-excluded parameters (observability migration, optional)
 
 New fields in hash-excluded groups (`runtime.*`, `execution.*`, etc.) do **not** break
 idempotency — existing runs still have correct identity hashes. Migration is not
@@ -284,7 +287,7 @@ However, backfilling the migration default is still **recommended** for observab
 it allows you to query MLflow for "what value did this param have on older runs?" and
 to see a consistent set of params across all runs in the UI.
 
-The procedure is the same as §11.2 Steps A–C, except:
+The procedure is the same as §10.2 Steps A–C, except:
 - No identity hash rehash is needed (skip the second migration script).
 - Document the old hardcoded behaviour in `docs/<feature>_param_assumptions.md`
   under a "Runtime (hash-excluded)" section.
@@ -293,7 +296,7 @@ The procedure is the same as §11.2 Steps A–C, except:
 
 - [ ] Struct field added with correct default in `src/config/structured.py`
 - [ ] `conf/<group>/default.yaml` updated
-- [ ] If conditional: validation rules added to `src/config/validation.py` (see §11.5)
+- [ ] If conditional: validation rules added to `src/config/validation.py` (see §10.4)
 - [ ] Script wires up the feature and logs the param
 - [ ] `TELEMETRY_SCHEMA` updated (`"optional"` list)
 - [ ] *(Optional)* Param backfill script written and applied for observability
@@ -301,7 +304,7 @@ The procedure is the same as §11.2 Steps A–C, except:
 
 ---
 
-### 11.4 Conditional parameters
+### 10.4 Conditional parameters
 
 A parameter is conditional when it is only meaningful if a parent feature is active
 (e.g. `lr_peak_epoch` is only used when `scheduler=cyclic`; beton format fields are
@@ -318,10 +321,63 @@ only used when `loading_backend=ffcv`).
   - Error when the conditional field is set but the parent feature is inactive
     (orphaned field).
 
-See §5 of `docs/config_system.md` for the full table of current conditional fields
-and the validation rules they enforce.
+See §5 of [`config_system.md`](config_system.md) for the full table of current
+conditional fields and the validation rules they enforce.
 
-## 9. Suggested verification commands
+## 11. Verifying a migration was applied
+
+After running `backfill_params.py` and/or `rehash_identities.py`, verify the
+effect on MLflow directly rather than trusting the script's "X applied" summary.
+
+### 11.1 Confirm params were backfilled
+
+Query MLflow for a FINISHED run that existed before the migration:
+
+```python
+from src.repositories.functional_run_repository import configure_run_repository, get_run
+
+configure_run_repository(tracking_uri="...", experiment_name="...")
+run = get_run("<known_old_run_id>")
+print({k: run.data.params.get(k) for k in ["<new_param_1>", "<new_param_2>"]})
+# Expected: each param has the migration default value, not missing.
+```
+
+Or via the CLI:
+
+```bash
+mlflow runs describe --run-id <known_old_run_id> | jq '.data.params | {new_param_1, new_param_2}'
+```
+
+### 11.2 Confirm identity hashes were rehashed
+
+Pick a representative run and reproduce its identity hash from its stored config:
+
+```bash
+# Rehash dry-run over the whole experiment prints "would change 0 runs"
+# when everything is already consistent:
+uv run scripts/migrations/rehash_identities.py --experiment <name>
+# Expected on a fully-migrated experiment: "0 runs need rehashing."
+```
+
+### 11.3 Confirm idempotency is restored
+
+Re-launch a training command that matches an existing run:
+
+```bash
+uv run scripts/01_train_models.py trial=0 loss.rho=0.0 loss.topology=torus training.epochs=1
+# Expected: "Run already exists (identity_hash=...), skipping."
+# If training starts instead, the rehash did not cover this run — investigate.
+```
+
+### 11.4 Regenerate downstream stages if identity-affecting
+
+If the migration changed `identity_hash` for a run kind downstream of `model`
+(e.g. `inference`, `category_similarity_profile`), run the affected pipeline
+step with `execution.force=true` for one representative config to confirm it
+produces the same artifacts. After one successful regeneration, the rehash
+migration should cover the rest.
+
+## 12. Suggested verification commands
 
 ```bash
 pytest tests/test_idempotency_registry.py

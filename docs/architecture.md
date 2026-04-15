@@ -12,18 +12,30 @@ Each stage is independently executable and tied together through MLflow run line
 
 ## 2. Data/control flow
 
-1. **Model training** (`kind=model`)
-   - produces best model artifact (`e2e_best`) and core training/test metrics.
-2. **Inference caching** (`kind=inference`)
-   - consumes model run, logs `{split}_inference_results.parquet` and `{split}_tensors.npz`.
-3. **Profiling + diagnostics**
-   - `kind=category_similarity_profile` consumes inference embeddings.
-   - `kind=diagnostics` computes optional per-model diagnostics.
-4. **Ensemble + analyses**
-   - `kind=ensemble` combines component logits.
-   - `kind=diversity` and `kind=consistency` compute group-level analyses.
-5. **Meta-learner training** (`kind=metalearner`)
-   - consumes ensemble component artifacts and optional profile-derived features.
+Each stage consumes artifacts from MLflow (produced by an upstream stage) and
+writes its own artifacts back to MLflow. Lineage is expressed through tags
+(`parent_run_id`, `component_run_ids_csv`, etc.) rather than filesystem paths.
+
+### 2.1 Stage inputs and outputs
+
+| Stage | Run `kind` | Consumes (from where) | Produces |
+|---|---|---|---|
+| `01_train_models.py` | `model` | Dataset (torchvision/FFCV) | `e2e_best` model artifact, metrics (`test_accuracy`, `best_val_acc`, etc.) |
+| `02_cache_inference.py` | `inference` | Model run (`e2e_best`) | `inference/{split}_inference_results.parquet`, `inference/{split}_tensors.npz` |
+| `03_compute_profiles.py` | `category_similarity_profile` | Inference tensors (embeddings) | `profiles/{split}_{metric}_profiles.pt` |
+| `03b_compute_diagnostics.py` | `diagnostics` | Model weights; inference tensors | `diagnostics/*.pt`, metrics (`morans_i`, `weight_norms_*`, etc.) |
+| `04_run_ensemble.py` | `ensemble` | Inference parquets from component runs | `ensemble/composition_map.json`, `ensemble/*_inference.parquet` |
+| `04b_compute_diversity.py` | `diversity` | Component inference parquets | Metrics only (`q_statistic`, `disagreement`, etc.) |
+| `04c_compute_consistency.py` | `consistency` | Component inference tensors | `consistency/rsa_matrix.pt`, `consistency/run_id_ordering.json` |
+| `05_train_adapters.py` | `metalearner` | Ensemble component artifacts; optional profiles | Adapter model, holdout parquets |
+
+### 2.2 Stage summary
+
+1. **Model training** (`kind=model`) — trains one configuration.
+2. **Inference caching** (`kind=inference`) — materialises per-split tensors for downstream stages.
+3. **Profiling + diagnostics** — `category_similarity_profile` consumes inference embeddings; `diagnostics` computes optional per-model metrics.
+4. **Ensemble + analyses** — `ensemble` combines component logits; `diversity` and `consistency` compute group-level metrics.
+5. **Meta-learner training** (`kind=metalearner`) — consumes ensemble component artifacts + optional profile-derived features.
 
 ## 3. Configuration system
 
@@ -62,7 +74,7 @@ Adding a new dataset requires:
 2. A `conf/dataset/<name>.yaml` config file.
 3. Optionally: a new transform preset in `src/data/transforms.py`.
 
-See `CONTRIBUTING_AND_UPDATING.md` §10 for the full checklist.
+See `contributing.md` §10 for the full checklist.
 
 ### 3.2 Data loading backend
 
@@ -118,30 +130,13 @@ Reference:
 
 ### 3.3 Training config validation
 
-`src/config/validation.py` provides `validate_training_config(cfg)`, called as the
-first operation inside `scripts/01_train_models.py`. It enforces the **conditional
-fields** principle: some `TrainingConfig` fields are only meaningful when a parent
-feature is active. These fields must be `None` when the feature is inactive, and must
-be explicitly set when it is.
+`src/config/validation.py` runs as the first operation inside
+`scripts/01_train_models.py`. It enforces the **conditional fields** principle:
+some `TrainingConfig` fields are only meaningful when a parent feature is
+active (e.g. `lr_peak_epoch` requires `scheduler=cyclic`). Violations raise
+`ValueError` at startup, before any work is done.
 
-Rules enforced:
-
-| Rule | Fields |
-|---|---|
-| `scheduler=cyclic` requires `lr_peak_epoch` to be set | `lr_peak_epoch` |
-| `lr_peak_epoch` set but `scheduler != cyclic` | orphaned field |
-| `progressive_res_min` and `progressive_res_max` must be set together or both null | |
-| Progressive resolution active requires `progressive_res_start_ramp` and `_end_ramp` | ramp fields |
-| Ramp fields set but `progressive_res_min` is null | orphaned fields |
-| `progressive_res_min >= progressive_res_max` | ordering error |
-| `lr_tta=True` requires `loading_backend=ffcv` | TTA is FFCV-only |
-| Progressive resolution requires `loading_backend=ffcv` | FFCV-only feature |
-| `loading_backend=ffcv` requires all three beton format fields to be set | `beton.max_resolution`, `beton.jpeg_quality`, `beton.compress_probability` |
-| Beton format fields set but `loading_backend != ffcv` | orphaned fields |
-
-Violations raise `ValueError` with a human-readable list of every detected problem.
-This catches configuration mistakes at startup, before any data loading or model
-building.
+Full rule table and rationale → [`config_system.md`](config_system.md) §5.
 
 ## 4. MLflow architecture boundaries
 
@@ -170,21 +165,19 @@ schema changes.
 
 ### 4.3 Telemetry contract boundary
 
-`src/mlflow_schema_logger.py` defines required telemetry per run `kind` and validates run completeness on successful exit.
+`src/mlflow_schema_logger.py` defines required telemetry per run `kind` and
+validates run completeness on successful exit. Full schema contract →
+[`telemetry_schema.md`](telemetry_schema.md).
 
 ## 5. Idempotency model
 
-Identity source of truth:
+Every stage computes an `identity_hash` over its semantic inputs and skips if a
+matching `FINISHED` MLflow run already exists (unless `execution.force=true`).
+The registry that defines each run kind's identity fields lives at
+`IDEMPOTENCY_REGISTRY` in `src/config/hash.py`.
 
-- `IDEMPOTENCY_REGISTRY` in `src/config/hash.py`
-
-`identity_hash(kind, **fields)` enforces:
-
-- no unknown fields,
-- all required exact fields present,
-- all wildcard groups represented where configured.
-
-Pipeline scripts compute an identity hash for their semantic inputs, then skip if a matching `FINISHED` run exists (unless `execution.force=true`).
+Full idempotency model (registry semantics, step-by-step behavior, migration
+protocol) → [`idempotency.md`](idempotency.md).
 
 ## 6. Ensemble discovery architecture
 
@@ -207,6 +200,6 @@ This layer is allowed to consume `src/*`, but pipeline scripts should not depend
 
 1. **Repository-first retrieval**: no duplicate MLflow finder wrappers outside repository module.
 2. **Schema-aligned logging**: any new logged param/tag/metric/artifact must appear in `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`. Add it to `"optional"` so existing runs still pass validation.
-3. **Identity parity**: if a parameter affects semantic outputs (lives in a hash-included group), existing run identity hashes must be migrated before deployment. See `CONTRIBUTING_AND_UPDATING.md` §11.
+3. **Identity parity**: if a parameter affects semantic outputs (lives in a hash-included group), existing run identity hashes must be migrated before deployment. See `contributing.md` §11.
 4. **Config truth in YAML**: operational behavior is defined by active Hydra YAML groups + script usage.
 5. **Conditional fields**: fields that are only meaningful when a parent feature is active must default to `None` and be enforced by `src/config/validation.py` — never backfill a fictitious value.
