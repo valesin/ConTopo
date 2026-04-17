@@ -110,14 +110,16 @@ def _build_proposed_params(cfg: DictConfig, seed: int) -> dict[str, str]:
 
 # ── MLflow filter from dry_filter.* overrides ─────────────────────────────────
 
-def _build_filter(cfg: DictConfig) -> str:
+def _build_filter(cfg: DictConfig) -> tuple[str, bool]:
     clauses = ["tags.kind = 'model'", "attributes.status = 'FINISHED'"]
+    has_filters = False
     dry = OmegaConf.to_container(cfg.dry_filter, resolve=True) if hasattr(cfg, "dry_filter") else {}
     if dry:
         for k, v in sorted(dry.items()):
             if v is not None:
+                has_filters = True
                 clauses.append(f"params.{k} = '{v}'")
-    return " and ".join(clauses)
+    return " and ".join(clauses), has_filters
 
 
 # ── Diff printing ─────────────────────────────────────────────────────────────
@@ -231,7 +233,7 @@ def main(cfg: DictConfig) -> None:
     proposed_params = _build_proposed_params(cfg, seed)
     identity_fields = set(model_identity_fields(cfg, seed).keys())
 
-    filter_str = _build_filter(cfg)
+    filter_str, has_filters = _build_filter(cfg)
     runs_df = search_runs(filter_str, output_format="pandas")
 
     if runs_df is None or runs_df.empty:
@@ -279,6 +281,11 @@ def main(cfg: DictConfig) -> None:
         scores.append((score, run_id, existing_params, existing_id_hash))
 
     scores.sort(key=lambda x: x[0], reverse=True)
+
+    if not has_filters and len(scores) > 5:
+        print("  (No +dry_filter.* specified — limiting output to the top 5 closest matches)")
+        print("  (Append +dry_filter.<param>=<value> to narrow the search instead)\n")
+        scores = scores[:5]
 
     found_stale = False
     for score, run_id, existing_params, existing_id_hash in scores:
