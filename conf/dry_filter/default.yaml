@@ -1,0 +1,12 @@
+# dry_filter — Optional MLflow filter params for 01_dry_run_models.py
+#
+# Each non-null key is translated to a `params.<key> = '<value>'` clause
+# appended to the MLflow candidate-run search filter.
+#
+# Usage — prefix each filter key with + since keys are not pre-declared:
+#
+#   uv run python scripts/01_dry_run_models.py \
+#       loss.rho=0.008 loss.topology=torus trial=0 \
+#       +dry_filter.topology=torus +dry_filter.trial=0
+#
+# These keys do NOT affect any identity hash.

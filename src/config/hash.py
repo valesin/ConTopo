@@ -65,6 +65,7 @@ EXCLUDED_KEYS = frozenset(
         "ensemble",
         "adapter",
         "pipeline",
+        "dry_filter",
     }
 )
 

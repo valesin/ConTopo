@@ -158,7 +158,7 @@ After both migration steps, verify that idempotency is restored:
 
 ```bash
 # Re-running with an existing config should hit the idempotency check and skip:
-uv run scripts/01_train_models.py trial=0 loss.rho=0.0 loss.topology=torus
+uv run scripts/01_train_models.py trial=0 loss.rho=0.0 loss.topology=grid
 # Expected log line: "Run already exists, skipping." — training does NOT restart.
 ```
 

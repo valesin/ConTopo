@@ -407,6 +407,7 @@ Deep internals and extension guides live in `docs/`:
 - [`docs/architecture.md`](docs/architecture.md) — runtime architecture, stage flow, MLflow boundaries
 - [`docs/config_system.md`](docs/config_system.md) — Hydra groups, hash inclusion, validation rules, adding parameters
 - [`docs/idempotency.md`](docs/idempotency.md) — identity hashes, registry, migration semantics
+- [`docs/dry_run_models.md`](docs/dry_run_models.md) — idempotency dry run tool for diagnosing hash misses
 - [`docs/telemetry_schema.md`](docs/telemetry_schema.md) — MLflow logging contract per run kind
 - [`docs/contributing.md`](docs/contributing.md) — safe change procedures and migration checklists
 - [`docs/ffcv_param_assumptions.md`](docs/ffcv_param_assumptions.md) — worked example: FFCV migration

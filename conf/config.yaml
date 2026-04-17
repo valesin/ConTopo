@@ -15,6 +15,7 @@ defaults:
   - ensemble: dynamic
   - adapter: default
   - pipeline: default
+  - dry_filter: default
   - _self_
 
 # ── Schema ──

@@ -13,6 +13,7 @@ non-overlapping role:
 | [`telemetry_schema.md`](telemetry_schema.md) | MLflow logging contract, run kinds, required vs optional |
 | [`contributing.md`](contributing.md) | Safe change procedures + migration protocols |
 | [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) | Worked example: FFCV training recipe migration |
+| [`dry_run_models.md`](dry_run_models.md) | Idempotency dry run — diagnose hash misses before retraining |
 | [`analysis_guide.md`](analysis_guide.md) | Notebook + MLflow analysis reference |
 
 ## Common tasks — where to start
@@ -28,6 +29,10 @@ See [`idempotency.md`](idempotency.md) §5 for the migration protocol.
 **Adding a new pipeline stage?**
 See [`contributing.md`](contributing.md) §6 and
 [`telemetry_schema.md`](telemetry_schema.md) for declaring the run kind.
+
+**A run that should be skipped is training again?**
+Run [`scripts/01_dry_run_models.py`](../scripts/01_dry_run_models.py) — see
+[`dry_run_models.md`](dry_run_models.md) for the full guide.
 
 **Writing a notebook that queries MLflow?**
 Use [`analysis_guide.md`](analysis_guide.md) — `mlflow_helpers.py` inventory
