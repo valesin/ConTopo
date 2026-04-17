@@ -103,13 +103,20 @@ change to production. The scripts are idempotent — safe to re-run.
 # Dry-run first (no writes — review PATCH/SKIP output):
 uv run scripts/migrations/backfill_params.py \
     --spec scripts/migrations/specs/ffcv_training_params.yaml \
-    --experiment <experiment_name>
+    --experiment "${MLFLOW_EXPERIMENT_NAME}" \
+    ${MLFLOW_TRACKING_URI:+--tracking-uri "$MLFLOW_TRACKING_URI"}
 
 # Apply (writes missing params to all FINISHED model runs):
 uv run scripts/migrations/backfill_params.py \
     --spec scripts/migrations/specs/ffcv_training_params.yaml \
-    --experiment <experiment_name> --apply
+    --experiment "${MLFLOW_EXPERIMENT_NAME}" --apply \
+    ${MLFLOW_TRACKING_URI:+--tracking-uri "$MLFLOW_TRACKING_URI"}
 ```
+
+> **Remote tracking servers** — `--tracking-uri` must be passed explicitly;
+> the script defaults to `sqlite:///outputs/mlflow.db` and does **not** read
+> `MLFLOW_TRACKING_URI` from the environment. The snippet above uses conditional
+> expansion: the flag is omitted if `MLFLOW_TRACKING_URI` is unset.
 
 Adds all thirteen `training.*` params listed above to runs that do not already
 have them. Runs that already have a param set are skipped unchanged. This includes
@@ -120,10 +127,14 @@ have them. Runs that already have a param set are skipped unchanged. This includ
 
 ```bash
 # Dry-run first (prints old vs new hash for each affected run):
-uv run scripts/migrations/rehash_identities.py --experiment <experiment_name>
+uv run scripts/migrations/rehash_identities.py \
+    --experiment "${MLFLOW_EXPERIMENT_NAME}" \
+    ${MLFLOW_TRACKING_URI:+--tracking-uri "$MLFLOW_TRACKING_URI"}
 
 # Apply (updates identity_hash tag on affected runs):
-uv run scripts/migrations/rehash_identities.py --experiment <experiment_name> --apply
+uv run scripts/migrations/rehash_identities.py \
+    --experiment "${MLFLOW_EXPERIMENT_NAME}" --apply \
+    ${MLFLOW_TRACKING_URI:+--tracking-uri "$MLFLOW_TRACKING_URI"}
 ```
 
 Recomputes `tags.identity_hash` for every FINISHED model run by downloading its

@@ -10,7 +10,7 @@ from src.config.hash import cfg_hash
 
 
 def _make_cfg(**overrides):
-    """Build a minimal DictConfig that mirrors the new two-tier layout."""
+    """Build a minimal DictConfig matching the real config schema for hash tests."""
     base = {
         "schema_version": 1,
         "trial": 0,
@@ -21,7 +21,7 @@ def _make_cfg(**overrides):
             "head": {"bias": True},
         },
         "loss": {
-            "type": "cross_entropy",
+            "name": "cross_entropy",
             "topography_type": "ws",
             "topology": "torus",
             "rho": 0.05,
@@ -29,7 +29,7 @@ def _make_cfg(**overrides):
         },
         "dataset": {
             "name": "cifar10",
-            "split": {"strategy": "seeded_per_class", "seed": 0, "val_per_class": 500},
+            "split": {"strategy": "first_n_per_class", "val_per_class": 500},
             "transforms": {"preset": "cifar10_resizedcrop_v1"},
         },
         "training": {

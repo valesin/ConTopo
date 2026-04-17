@@ -239,9 +239,14 @@ Two scripts are needed:
    ```bash
    uv run scripts/migrations/backfill_params.py \
        --spec scripts/migrations/specs/<feature>.yaml \
-       --experiment <experiment_name> [--apply]
+       --experiment "${MLFLOW_EXPERIMENT_NAME}" \
+       ${MLFLOW_TRACKING_URI:+--tracking-uri "$MLFLOW_TRACKING_URI"} [--apply]
    ```
    The script is idempotent: runs that already have a param set are skipped.
+   `--tracking-uri` must be passed explicitly — the script defaults to
+   `sqlite:///outputs/mlflow.db` and does **not** read `MLFLOW_TRACKING_URI`
+   from the environment. The conditional expansion above omits the flag when
+   `MLFLOW_TRACKING_URI` is unset (local SQLite fallback).
    See `scripts/migrations/specs/ffcv_training_params.yaml` as the canonical example.
 
 2. **Identity hash rehash** (`scripts/migrations/rehash_identities.py`) — recomputes

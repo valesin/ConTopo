@@ -1,6 +1,6 @@
 # ConTopo
 
-ConTopo is a Hydra + PyTorch + MLflow research pipeline for topographic regularization experiments on CIFAR-10.
+ConTopo is a Hydra + PyTorch + MLflow research pipeline for topographic regularization experiments on CIFAR-10 and ImageNet100.
 
 Pipeline stages:
 1. Train base models.
@@ -67,31 +67,6 @@ Resume from a step:
 python main.py pipeline.from_step=ensemble
 ```
 
-Passing additional overrides from the pipeline definition
-
-The pipeline step graph (`conf/pipeline/*.yaml`) may include per-step overrides.
-Each step can declare a `sweep` (becomes `+sweeps=<name>`) and an `overrides` list.
-Values in `overrides` are forwarded as Hydra CLI overrides to the child script when
-the orchestrator launches it as a subprocess. Example step excerpt:
-
-```yaml
-	- id: inference
-		script: 02_cache_inference.py
-		sweep: training_rho_loss
-		overrides:
-			- "loss.rho=0.05"
-			- "trial=0"
-```
-
-When `main.py` runs that step, the script is executed roughly as:
-
-```bash
-python scripts/02_cache_inference.py +sweeps=training_rho_loss loss.rho=0.05 trial=0
-```
-
-Use this to pin per-step params (for example, a specific rho or trial) without
-editing the top-level CLI. This is useful for preset pipelines in `conf/pipeline`.
-
 ## Pipeline scripts
 
 - `scripts/01_train_models.py`: train one model run (`kind=model`).
@@ -104,6 +79,30 @@ editing the top-level CLI. This is useful for preset pipelines in `conf/pipeline
 - `scripts/05_train_adapters.py`: meta-learner training (`kind=metalearner`).
 
 The orchestrator reads `conf/pipeline/default.yaml` (or `conf/pipeline/small.yaml`).
+
+### Per-step overrides
+
+Each step in the pipeline YAML can declare a `sweep` and an `overrides` list.
+Values in `overrides` are forwarded as Hydra CLI overrides when the orchestrator
+launches that step as a subprocess:
+
+```yaml
+- id: inference
+  script: 02_cache_inference.py
+  sweep: training_rho_loss
+  overrides:
+    - "loss.rho=0.05"
+    - "trial=0"
+```
+
+`main.py` runs that step roughly as:
+
+```bash
+python scripts/02_cache_inference.py +sweeps=training_rho_loss loss.rho=0.05 trial=0
+```
+
+Use this to pin per-step params without editing the top-level CLI. See
+`conf/pipeline/` for working examples.
 
 ## Docker runs
 
@@ -170,32 +169,9 @@ sky jobs logs <job_name>
 The pipeline is dataset-agnostic. The active dataset is controlled by the `dataset`
 config group (`conf/dataset/<name>.yaml`). The default is CIFAR-10.
 
-### Switching datasets
-
-Pass `dataset=<name>` and a matching `model=<name>` on the CLI:
-
-```bash
-# CIFAR-10 (default)
-python scripts/01_train_models.py loss.rho=0.0 trial=0
-
-# ImageNet100 with ResNet34
-python scripts/01_train_models.py \
-  dataset=imagenet100 model=resnet34_imagenet100 profiling=imagenet100 \
-  mlflow.experiment_name=contopo_imagenet100 \
-  loss.rho=0.0 trial=0
-```
-
-Use the sweep preset for a full ImageNet100 training run:
-
-```bash
-python main.py +sweeps=training_rho_imagenet100
-```
-
-### Experiment isolation
-
-Use a distinct `mlflow.experiment_name` per dataset. This prevents ensemble
-discovery (which uses `filter: {}` by default) from mixing models across datasets.
-The ImageNet100 sweep sets `mlflow.experiment_name=contopo_imagenet100` automatically.
+Use a distinct `mlflow.experiment_name` per dataset to prevent ensemble discovery
+from mixing models trained on different datasets. The ImageNet100 sweep sets
+`mlflow.experiment_name=contopo_imagenet100` automatically.
 
 ### Built-in datasets
 
@@ -299,7 +275,7 @@ python scripts/01_train_models.py training.loading_backend=torch ...
 python main.py +sweeps=training_rho_imagenet100_ffcv
 ```
 
-See the "Training backends" section below for the full FFCV recipe.
+See [Training backends](#training-backends) above for the full FFCV recipe.
 
 ### Smoke-test with a single epoch
 
