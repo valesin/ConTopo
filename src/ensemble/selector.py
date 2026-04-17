@@ -51,7 +51,7 @@ def _discover(
     filter_string = "attributes.status = 'FINISHED' and tags.kind = 'model'"
     if base_filter:
         for k, v in base_filter.items():
-            filter_string += f" and params.{k} = '{v}'"
+            filter_string += f" and {k} = '{v}'"
 
     runs = search_runs(filter_string, output_format="list")
 

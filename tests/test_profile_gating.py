@@ -50,6 +50,8 @@ class TestProfilingProfilesSkipFlag:
         assert "metrics" in cfg.profiling.profiles
         assert len(cfg.profiling.profiles.metrics) > 0
 
-    def test_pipeline_key_absent(self, cfg):
-        """pipeline key must not exist — replaced by profiling/execution/etc."""
-        assert "pipeline" not in cfg
+    def test_pipeline_key_present_and_has_steps(self, cfg):
+        """pipeline config group must be present and expose a steps list."""
+        assert "pipeline" in cfg
+        assert "steps" in cfg.pipeline
+        assert len(cfg.pipeline.steps) > 0

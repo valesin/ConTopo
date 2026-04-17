@@ -278,7 +278,52 @@ python scripts/02_cache_inference.py execution.split=val
 
 ---
 
-## 11) Related docs
+## 11) MLflow param name stripping and filter keys
+
+### How params are logged
+
+`schema_log_params` logs each param using the **field name only** — the Hydra
+config-group prefix is stripped. Examples:
+
+| Hydra path | MLflow param key |
+|---|---|
+| `training.epochs` | `epochs` |
+| `training.loading_backend` | `loading_backend` |
+| `loss.rho` | `rho` |
+| `loss.topology` | `topology` |
+| `dataset.name` | (see `TELEMETRY_SCHEMA` for exact key) |
+
+Tag fields (e.g. `trial`, `kind`, `cfg_hash`) are logged via `set_tags` and
+are accessed in MLflow as `tags.<name>`.
+
+### Consequence for `groups.filter`
+
+Keys in `conf/groups/*.yaml` `filter` dicts are appended **verbatim** to the
+MLflow filter string. They must use full MLflow entity paths:
+
+```yaml
+# Correct — full entity prefix
+filter: {"params.epochs": "1", "tags.trial": "3"}
+
+# Wrong — Hydra path, not an MLflow entity path
+filter: {"training.epochs": "1"}
+```
+
+Values must be strings; MLflow stores all params and tags as strings.
+
+### Global uniqueness requirement
+
+Because the config-group prefix is stripped on logging, two config groups
+cannot define a field with the same leaf name. For example, adding
+`training.rho` alongside the existing `loss.rho` would cause both to log
+as `rho`, silently overwriting one another.
+
+When adding a new parameter, verify its field name is globally unique across
+all config groups before proceeding with the migration checklist in §8.
+
+---
+
+## 12) Related docs
 
 - `architecture.md`
 - `docs/telemetry_schema.md`

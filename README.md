@@ -325,6 +325,43 @@ Every post-training stage checks idempotency and skips if a matching
 python scripts/02_cache_inference.py execution.force=true loss.rho=0.0 trial=0
 ```
 
+### Change the ensemble group definition
+
+Steps 04, 04b, 04c, and 05 use `cfg.groups` to discover which finished model
+runs to combine into ensembles. The active group config is selected with
+`groups=<name>` (default: `default`).
+
+| Config | `group_by` | `sample_size` | `filter` | Effect |
+|---|---|---|---|---|
+| `default` | `[topology, rho]` | `null` (full group) | none | One ensemble per `(topology, rho)` pair using all component runs |
+| `samples9` | `[topology, rho]` | `2` (all pairs) | `{params.epochs: "1"}` | All C(n, 2) pairs per group; scoped to 1-epoch runs |
+
+Filter keys use **full MLflow entity paths** (`params.<name>`, `tags.<name>`,
+`attributes.<name>`), not Hydra config paths.
+
+```bash
+# Run ensemble step with default grouping (one ensemble per rho/topology pair)
+python scripts/04_run_ensemble.py
+
+# Run ensemble step with k-combination sampling (all pairs within each group)
+python scripts/04_run_ensemble.py groups=samples9
+
+# Re-run all downstream steps from ensemble onward with a different grouping
+python main.py pipeline.from_step=ensemble groups=samples9
+
+# Ad-hoc: filter to a specific topology without creating a new config
+python scripts/04_run_ensemble.py "groups.filter={params.topology: torus}"
+
+# Ad-hoc: filter by a tag (e.g. specific trial)
+python scripts/04_run_ensemble.py "groups.filter={tags.trial: '3'}"
+
+# Ad-hoc: change k-combination size on the fly
+python scripts/04_run_ensemble.py groups.sample_size=3
+```
+
+Steps 04b, 04c, and 05 accept the same `groups=` override. Use a consistent
+group definition across all downstream steps so ensemble identity hashes match.
+
 ### Use a different MLflow experiment
 
 ```bash
@@ -374,11 +411,17 @@ python scripts/03b_compute_diagnostics.py loss.rho=0.05 loss.topology=grid trial
 Run downstream singleton stages once per experiment:
 
 ```bash
+# Group-based steps — discover models from MLflow, no sweep params needed
 python scripts/04_run_ensemble.py
 python scripts/04b_compute_diversity.py
 python scripts/04c_compute_consistency.py
-python scripts/05_train_adapters.py
+python scripts/05_train_adapters.py +sweeps=metalearning
 ```
+
+Steps 01–03b are **sweep-based**: they accept per-model Hydra params (e.g.
+`loss.rho=0.05 trial=0`) and run one MLflow run per config.
+Steps 04–05 are **group-based**: they run once per experiment and discover
+which trained models to combine via `conf/groups/`.
 
 ## Developer references
 
