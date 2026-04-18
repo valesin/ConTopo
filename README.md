@@ -36,23 +36,27 @@ source .env.secrets
 ```
 
 By default, scripts use local tracking (`outputs/mlflow.db` and `outputs/mlruns`).
-To use remote tracking/storage, pass Hydra overrides with conditional expansion so unset variables are skipped safely:
+To use remote tracking, set the environment variables before running any script — scripts
+read them automatically, no extra CLI flags needed. If `.env.secrets` already contains
+them, a single `source .env.secrets` is enough. If not, export them in your shell or
+add them to your env file:
 
 ```bash
-${MLFLOW_TRACKING_URI:+mlflow.tracking_uri="$MLFLOW_TRACKING_URI"}
-${MLFLOW_ARTIFACT_LOCATION:+mlflow.artifact_location="$MLFLOW_ARTIFACT_LOCATION"}
-${MLFLOW_EXPERIMENT_NAME:+mlflow.experiment_name="$MLFLOW_EXPERIMENT_NAME"}
+export MLFLOW_TRACKING_URI=http://...
+export MLFLOW_ARTIFACT_LOCATION=s3://...
+export MLFLOW_EXPERIMENT_NAME=my-experiment
+# then source the file if using one:
+source .env.secrets
 ```
+
+Unset variables fall back to local defaults silently.
 
 ### 3) Run the pipeline
 
 Full pipeline:
 
 ```bash
-python main.py \
-	${MLFLOW_TRACKING_URI:+mlflow.tracking_uri="$MLFLOW_TRACKING_URI"} \
-	${MLFLOW_ARTIFACT_LOCATION:+mlflow.artifact_location="$MLFLOW_ARTIFACT_LOCATION"} \
-	${MLFLOW_EXPERIMENT_NAME:+mlflow.experiment_name="$MLFLOW_EXPERIMENT_NAME"}
+python main.py
 ```
 
 Smoke preset:
@@ -131,10 +135,7 @@ docker run --gpus all \
 	-e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
 	-e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
 	ghcr.io/${SKYPILOT_DOCKER_USERNAME}/contopo:latest \
-	python scripts/01_train_models.py loss.rho=0.05 trial=0 \
-		${MLFLOW_TRACKING_URI:+mlflow.tracking_uri="$MLFLOW_TRACKING_URI"} \
-		${MLFLOW_ARTIFACT_LOCATION:+mlflow.artifact_location="$MLFLOW_ARTIFACT_LOCATION"} \
-		${MLFLOW_EXPERIMENT_NAME:+mlflow.experiment_name="$MLFLOW_EXPERIMENT_NAME"}
+	python scripts/01_train_models.py loss.rho=0.05 trial=0
 ```
 
 ## Cloud runs (SkyPilot)

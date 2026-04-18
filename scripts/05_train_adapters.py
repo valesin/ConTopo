@@ -34,6 +34,7 @@ from src.data.loaders import get_num_classes, get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg, encode_groups_signature
 from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
+    apply_mlflow_env_overrides,
     behaviour_tags,
     component_set_hash,
     log_resolved_config,
@@ -78,6 +79,7 @@ from src.training.adapter_training import (
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 

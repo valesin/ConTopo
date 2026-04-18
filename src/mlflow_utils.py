@@ -25,7 +25,7 @@ from mlflow.tracking import MlflowClient
 import torch
 import numpy as np
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 # ── Re-export cfg_hash from canonical location ──
 from src.config.hash import (  # noqa: F401
@@ -104,6 +104,24 @@ def _load_artifact_from_local_path(
 
 
 # ───────────────── setup ─────────────────
+
+
+def apply_mlflow_env_overrides(cfg: DictConfig) -> None:
+    """Apply MLFLOW_* env vars to cfg.mlflow, overriding YAML defaults.
+
+    Precedence (low → high): YAML default < env var < Hydra CLI override.
+    CLI overrides are applied by Hydra before Python runs, so they always win.
+    """
+    overrides = {
+        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI"),
+        "artifact_location": os.getenv("MLFLOW_ARTIFACT_LOCATION"),
+        "experiment_name": os.getenv("MLFLOW_EXPERIMENT_NAME"),
+    }
+    active = {k: v for k, v in overrides.items() if v}
+    if active:
+        with open_dict(cfg):
+            for key, value in active.items():
+                cfg.mlflow[key] = value
 
 
 def setup_mlflow(cfg: DictConfig) -> None:

@@ -22,7 +22,7 @@ import hydra
 from omegaconf import DictConfig
 
 from src.ensemble.selector import _discover
-from src.mlflow_utils import setup_mlflow
+from src.mlflow_utils import apply_mlflow_env_overrides, setup_mlflow
 from src.repositories.functional_run_repository import (
     configure_run_repository,
     get_run,
@@ -70,6 +70,7 @@ def _combinations_count(n: int, k: int) -> int:
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 

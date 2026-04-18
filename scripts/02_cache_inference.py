@@ -26,6 +26,7 @@ from omegaconf import DictConfig
 from src.data.loaders import get_dataset_eval_loader, shutdown_dataloader_workers
 from src.inference import run_combined_model_inference
 from src.mlflow_utils import (
+    apply_mlflow_env_overrides,
     setup_mlflow,
     resolve_seed,
     resolve_device,
@@ -49,6 +50,7 @@ from src.mlflow_schema_logger import (
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 

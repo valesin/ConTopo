@@ -1,9 +1,11 @@
 # ── MLflow tracking (excluded from cfg_hash) ──
 
-# Note: we use ${hydra:runtime.cwd} to ensure paths are always absolute from the root
-# regardless of whether the script is run from root or a subfolder like notebooks/
-# To use remote tracking/storage, pass as Hydra CLI overrides:
-#   mlflow.tracking_uri="$MLFLOW_TRACKING_URI" mlflow.artifact_location="$MLFLOW_ARTIFACT_LOCATION"
+# Paths use ${hydra:runtime.cwd} to stay absolute regardless of invocation directory.
+#
+# Environment variables (optional, override YAML defaults, overridden by Hydra CLI args):
+#   MLFLOW_TRACKING_URI      — remote tracking server URL
+#   MLFLOW_ARTIFACT_LOCATION — remote artifact store URL
+#   MLFLOW_EXPERIMENT_NAME   — experiment name
 tracking_uri: sqlite:///${hydra:runtime.cwd}/outputs/mlflow.db
 artifact_location: ${hydra:runtime.cwd}/outputs/mlruns
 artifact_cache_dir: ${hydra:runtime.cwd}/outputs/mlflow_artifact_cache

@@ -37,6 +37,7 @@ from src.data.loaders import (
 from src.losses.balancer import GradNormBalancer
 from src.losses.topographic import Global_Topographic_Loss, Local_WS_Loss
 from src.mlflow_utils import (
+    apply_mlflow_env_overrides,
     log_resolved_config,
     model_tags,
     setup_mlflow,
@@ -213,6 +214,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── Idempotency ──
     hash_val = cfg_hash(cfg)
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 

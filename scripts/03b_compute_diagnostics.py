@@ -31,6 +31,7 @@ from omegaconf import DictConfig
 import tempfile
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
+    apply_mlflow_env_overrides,
     setup_mlflow,
     resolve_seed,
     resolve_device,
@@ -119,6 +120,7 @@ def _log_diagnostic_run(
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 

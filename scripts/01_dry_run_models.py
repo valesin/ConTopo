@@ -28,7 +28,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.config.hash import cfg_hash, model_identity_fields
 from src.config.validation import validate_training_config
-from src.mlflow_utils import resolve_seed, setup_mlflow
+from src.mlflow_utils import apply_mlflow_env_overrides, resolve_seed, setup_mlflow
 from src.repositories.functional_run_repository import (
     configure_run_repository,
     find_finished_model_run,
@@ -215,6 +215,7 @@ def main(cfg: DictConfig) -> None:
     seed = resolve_seed(cfg)
     cfg.seed = seed
     hash_val = cfg_hash(cfg)
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 

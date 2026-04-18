@@ -36,6 +36,7 @@ from src.profiling.category_similarity import (
     compute_similarity_profile,
 )
 from src.mlflow_utils import (
+    apply_mlflow_env_overrides,
     category_similarity_profile_tags,
     log_resolved_config,
     setup_mlflow,
@@ -59,6 +60,7 @@ from src.mlflow_schema_logger import (
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
