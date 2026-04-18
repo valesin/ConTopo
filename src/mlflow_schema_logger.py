@@ -4,6 +4,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime
 import tempfile
+from collections.abc import Iterator
 from typing import Any, Mapping
 
 import mlflow
@@ -19,7 +20,7 @@ class TelemetryContractError(Exception):
 
 
 @contextmanager
-def _timed_log(description: str):
+def _timed_log(description: str) -> Iterator[None]:
     """Context manager that prints wall-clock start/end timestamps around an MLflow upload."""
     start = datetime.now()
     print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — {description}")
@@ -34,21 +35,21 @@ def _timed_log(description: str):
         )
 
 
-def timed_log_metrics(metrics: dict, **kwargs) -> None:
+def timed_log_metrics(metrics: Mapping[str, float], **kwargs: Any) -> None:
     """Wrapper around ``mlflow.log_metrics`` with timing output."""
     step = kwargs.get("step", "")
     desc = f"Logging metrics (step={step})" if step != "" else "Logging metrics"
     with _timed_log(desc):
-        mlflow.log_metrics(metrics, **kwargs)
+        mlflow.log_metrics(dict(metrics), **kwargs)
 
 
-def timed_log_metric(key: str, value: float, **kwargs) -> None:
+def timed_log_metric(key: str, value: float, **kwargs: Any) -> None:
     """Wrapper around ``mlflow.log_metric`` with timing output."""
     with _timed_log(f"Logging metric: {key}={value}"):
         mlflow.log_metric(key, value, **kwargs)
 
 
-def timed_log_artifact(local_path: str, **kwargs) -> None:
+def timed_log_artifact(local_path: str, **kwargs: Any) -> None:
     """Wrapper around ``mlflow.log_artifact`` with timing output."""
     artifact_path = kwargs.get("artifact_path", "")
     fname = os.path.basename(local_path)
@@ -61,7 +62,7 @@ def timed_log_artifact(local_path: str, **kwargs) -> None:
         mlflow.log_artifact(local_path, **kwargs)
 
 
-def timed_log_model(model, **kwargs) -> None:
+def timed_log_model(model: Any, **kwargs: Any) -> None:
     """Wrapper around ``mlflow.pytorch.log_model`` with timing output."""
     name = kwargs.pop("name", "model")
     signature = kwargs.pop("signature", None)
@@ -408,7 +409,7 @@ def _check_artifact_exists(
     )
 
 
-def _validate_telemetry_schema(kind: str, run_id: str):
+def _validate_telemetry_schema(kind: str, run_id: str) -> None:
     """Ensure the finished run strictly adheres to our telemetry contract."""
     client = mlflow.tracking.MlflowClient()
     run = client.get_run(run_id)
@@ -457,7 +458,11 @@ def _validate_telemetry_schema(kind: str, run_id: str):
 
 
 @contextmanager
-def start_run(kind: str, run_name: str, tags: Mapping[str, Any] | None = None):
+def start_run(
+    kind: str,
+    run_name: str,
+    tags: Mapping[str, Any] | None = None,
+) -> Iterator[Any]:
     _ensure_known_kind(kind)
     merged_tags = {"kind": kind, **(tags or {})}
     allowed_tags = set(

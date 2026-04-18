@@ -3,14 +3,15 @@ import sys
 import mlflow
 from hydra import initialize_config_dir, compose
 from hydra.core.hydra_config import HydraConfig
+from mlflow.entities import Experiment
 from omegaconf import DictConfig
 
 
 def setup_environment(
     config_name: str = "config",
-    overrides: list[str] = None,
+    overrides: list[str] | None = None,
     mlflow_config: str = "notebook",
-) -> tuple[DictConfig, mlflow.entities.Experiment]:
+) -> tuple[DictConfig, Experiment]:
     """
     Robust setup for interactive environments (Jupyter, Marimo).
 
@@ -71,5 +72,7 @@ def setup_environment(
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     experiment = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
+    if experiment is None:
+        raise ValueError(f"Experiment '{cfg.mlflow.experiment_name}' not found")
 
     return cfg, experiment

@@ -19,6 +19,8 @@ Supported metrics:
 
 from __future__ import annotations
 
+from typing import Literal
+
 import torch
 import torch.nn.functional as F
 
@@ -27,7 +29,7 @@ def compute_similarity_profile(
     embeddings: torch.Tensor,
     anchor_embeddings: torch.Tensor,
     num_classes: int,
-    metric: str = "cosine",
+    metric: Literal["cosine", "l2"] = "cosine",
 ) -> torch.Tensor:
     """
     Compute similarity profile for every sample against all anchors.

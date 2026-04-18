@@ -13,7 +13,7 @@ Adding a new dataset
 import contextlib
 import io
 import os
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -25,7 +25,12 @@ from src.data.transforms import get_transforms
 # ─────────── per-dataset factories ───────────
 
 
-def _cifar10_factory(root: str, train: bool, transform, download: bool = True):
+def _cifar10_factory(
+    root: str,
+    train: bool,
+    transform: Callable[[Any], Any] | None,
+    download: bool = True,
+) -> datasets.CIFAR10:
     """Wrapper around CIFAR10 that suppresses the 'Files already downloaded' stdout noise."""
     with contextlib.redirect_stdout(io.StringIO()):
         return datasets.CIFAR10(
@@ -33,7 +38,12 @@ def _cifar10_factory(root: str, train: bool, transform, download: bool = True):
         )
 
 
-def _imagenet100_factory(root: str, train: bool, transform, download: bool = False):
+def _imagenet100_factory(
+    root: str,
+    train: bool,
+    transform: Callable[[Any], Any] | None,
+    download: bool = False,
+) -> datasets.ImageFolder:
     """ImageFolder loader for ImageNet100.
 
     Expects data at ``<root>/imagenet100/train/`` and ``<root>/imagenet100/val/``.

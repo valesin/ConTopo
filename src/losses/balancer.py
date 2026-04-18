@@ -39,7 +39,7 @@ class GradNormBalancer:
         beta: float = 0.1,
         eps: float = 1e-8,
         lambda_max: float = 1e4,
-    ):
+    ) -> None:
         self.rho = rho
         self.beta = beta
         self.eps = eps

@@ -11,27 +11,30 @@ Artifacts per run (logged to MLflow):
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from collections.abc import Sized
+from typing import Any
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+
+from src.types import InferenceOutput
 
 
 @torch.no_grad()
 def run_combined_model_inference(
     model: nn.Module,
     loader: DataLoader,
-    device: torch.device,
-) -> Dict[str, Any]:
+    device: Any,
+) -> InferenceOutput:
     """
     Run inference on a model that returns ``(embeddings, logits)`` or just ``logits``.
     """
     model.eval()
 
-    total = len(loader.dataset)
-    preds_buf = torch.empty(total, dtype=torch.long)
-    labels_buf = torch.empty(total, dtype=torch.long)
+    total = len(loader.dataset if isinstance(loader.dataset, Sized) else loader)
+    preds_buf: torch.Tensor | None = None
+    labels_buf: torch.Tensor | None = None
     emb_list: list[torch.Tensor] = []
     logits_buf: torch.Tensor | None = None
     offset = 0
@@ -48,21 +51,36 @@ def run_combined_model_inference(
 
         batch_preds = logits.argmax(dim=1)
         logits_cpu = logits.detach().cpu()
+        batch_preds_cpu = batch_preds.cpu()
+        labs_cpu = labs.cpu()
 
         if logits_buf is None:
-            logits_buf = torch.empty(total, logits_cpu.size(1), dtype=logits_cpu.dtype)
+            logits_buf = logits_cpu.new_empty(total, logits_cpu.size(1))
+            preds_buf = batch_preds_cpu.new_empty(total)
+            labels_buf = labs_cpu.new_empty(total)
 
-        preds_buf[offset : offset + bs] = batch_preds.cpu()
-        labels_buf[offset : offset + bs] = labs.cpu()
+        if logits_buf is None or preds_buf is None or labels_buf is None:
+            raise RuntimeError("Inference buffers failed to initialize")
+
+        preds_buf[offset : offset + bs] = batch_preds_cpu
+        labels_buf[offset : offset + bs] = labs_cpu
         logits_buf[offset : offset + bs] = logits_cpu
         emb_list.append(embeddings_batch.detach().cpu())
         offset += bs
 
-    if logits_buf is None:
-        logits_buf = torch.empty(total, 0)
+    if logits_buf is None or preds_buf is None or labels_buf is None:
+        raise RuntimeError(
+            "Inference loader produced no batches; cannot build outputs."
+        )
 
-    embeddings_all = torch.cat(emb_list, dim=0)
-    probs = torch.softmax(logits_buf, dim=1)
+    embeddings_all = emb_list[0].new_empty((total, emb_list[0].size(1)))
+    emb_offset = 0
+    for emb in emb_list:
+        emb_bs = emb.size(0)
+        embeddings_all[emb_offset : emb_offset + emb_bs] = emb
+        emb_offset += emb_bs
+
+    probs = logits_buf.softmax(dim=1)
     acc = float((preds_buf == labels_buf).float().mean().item())
 
     return {

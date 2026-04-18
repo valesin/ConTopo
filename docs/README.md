@@ -15,6 +15,7 @@ non-overlapping role:
 | [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) | Worked example: FFCV training recipe migration |
 | [`dry_run_models.md`](dry_run_models.md) | Idempotency dry run — diagnose hash misses before retraining |
 | [`analysis_guide.md`](analysis_guide.md) | Notebook + MLflow analysis reference |
+| [`typing.md`](typing.md) | Type coverage status, basedpyright policy, and strictness roadmap |
 
 ## Common tasks — where to start
 

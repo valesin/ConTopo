@@ -15,11 +15,12 @@ causes a loud, immediate error.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import cast
 
 import torch
 
 from src.config.hash import compute_anchor_spec_hash
+from src.types import AnchorOutput, AnchorSpec
 
 
 def get_anchor_spec_dict(
@@ -28,7 +29,7 @@ def get_anchor_spec_dict(
     strategy: str,
     order_by: str,
     num_classes: int,
-) -> Dict[str, Any]:
+) -> AnchorSpec:
     """Return the plain dictionary representation of an anchor specification."""
     return {
         "source_split": source_split,
@@ -46,7 +47,7 @@ def select_anchors(
     strategy: str,
     order_by: str,
     num_classes: int,
-) -> Dict[str, Any]:
+) -> AnchorOutput:
     """
     Select anchor indices from ground-truth labels.
 
@@ -101,15 +102,15 @@ def select_anchors(
     }
 
 
-def save_anchors(anchors: Dict[str, Any], path: str) -> None:
+def save_anchors(anchors: AnchorOutput, path: str) -> None:
     """Save anchors dict to disk."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     torch.save(anchors, path)
 
 
-def load_anchors(path: str) -> Dict[str, Any]:
+def load_anchors(path: str) -> AnchorOutput:
     """Load anchors dict from disk."""
-    return torch.load(path, weights_only=False)
+    return cast(AnchorOutput, torch.load(path, weights_only=False))
 
 
 def get_or_create_anchors(
@@ -121,7 +122,7 @@ def get_or_create_anchors(
     num_classes: int,
     artifacts_root: str,
     dataset_name: str = "cifar10",
-) -> Dict[str, Any]:
+) -> AnchorOutput:
     """
     Get cached anchors or create them from labels.
 

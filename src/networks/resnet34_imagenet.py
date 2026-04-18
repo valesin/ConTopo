@@ -23,6 +23,7 @@ Both match the ``(embeddings, logits)`` contract of ``LinearResNet18``.
 
 from __future__ import annotations
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as tvm
@@ -30,11 +31,10 @@ from torchvision.models import ResNet34_Weights
 
 
 def _make_resnet34_backbone(pretrained: bool) -> nn.Module:
-    """Return a ResNet34 with the final FC replaced by Identity (exposes 512-dim GAP)."""
+    """Return a ResNet34 feature extractor that outputs pooled 512-dim features."""
     weights = ResNet34_Weights.IMAGENET1K_V1 if pretrained else None
     backbone = tvm.resnet34(weights=weights)
-    backbone.fc = nn.Identity()
-    return backbone
+    return nn.Sequential(*list(backbone.children())[:-1])
 
 
 class FinetuneResNet34(nn.Module):
@@ -61,7 +61,7 @@ class FinetuneResNet34(nn.Module):
         use_dropout: bool = True,
         ret_emb: bool = False,
         head_bias: bool = True,
-    ):
+    ) -> None:
         super().__init__()
         self.ret_emb = ret_emb
         self.backbone = _make_resnet34_backbone(pretrained=True)
@@ -69,8 +69,10 @@ class FinetuneResNet34(nn.Module):
         self.dropout = nn.Dropout(p_dropout) if use_dropout else nn.Identity()
         self.classifier = nn.Linear(emb_dim, num_classes, bias=head_bias)
 
-    def forward(self, x):
-        gap = self.backbone(x)  # (B, 512)
+    def forward(
+        self, x: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        gap = self.backbone(x).flatten(1)  # (B, 512)
         embeddings = self.neck(gap)  # (B, emb_dim) — topographic grid, pre-ReLU
         activated = F.relu(embeddings)
         logits = self.classifier(self.dropout(activated))
@@ -101,7 +103,7 @@ class ScratchResNet34(nn.Module):
         use_dropout: bool = True,
         ret_emb: bool = False,
         head_bias: bool = True,
-    ):
+    ) -> None:
         super().__init__()
         self.ret_emb = ret_emb
         self.backbone = _make_resnet34_backbone(pretrained=False)
@@ -109,8 +111,10 @@ class ScratchResNet34(nn.Module):
         self.dropout = nn.Dropout(p_dropout) if use_dropout else nn.Identity()
         self.classifier = nn.Linear(emb_dim, num_classes, bias=head_bias)
 
-    def forward(self, x):
-        gap = self.backbone(x)  # (B, 512)
+    def forward(
+        self, x: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        gap = self.backbone(x).flatten(1)  # (B, 512)
         embeddings = self.neck(gap)  # (B, emb_dim) — topographic grid, pre-ReLU
         activated = F.relu(embeddings)
         logits = self.classifier(self.dropout(activated))

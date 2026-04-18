@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import sys
 import time
-from typing import Tuple
+from typing import Any, TypedDict, cast
 
 import torch
 import torch.nn as nn
-from torch.amp import autocast, GradScaler
+from torch.cuda.amp import GradScaler, autocast
+from torch.utils.data import DataLoader
 
 from src.losses.balancer import GradNormBalancer
 from src.networks.registry import unwrap
@@ -26,20 +27,24 @@ from src.networks.registry import unwrap
 class AverageMeter:
     """Running average tracker."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self.val = self.avg = self.sum = self.count = 0.0
 
-    def update(self, val: float, n: int = 1):
+    def update(self, val: float, n: int = 1) -> None:
         self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
 
 
-def accuracy(output: torch.Tensor, target: torch.Tensor, topk: tuple = (1,)):
+def accuracy(
+    output: torch.Tensor,
+    target: torch.Tensor,
+    topk: tuple[int, ...] = (1,),
+) -> list[torch.Tensor]:
     """Top-k accuracy (%) for a batch."""
     with torch.no_grad():
         maxk = max(topk)
@@ -57,8 +62,16 @@ def accuracy(output: torch.Tensor, target: torch.Tensor, topk: tuple = (1,)):
 # ───────────── training ─────────────
 
 
+class TrainEpochMetrics(TypedDict):
+    total_loss: float
+    task_loss: float
+    topo_loss: float
+    lambda_hat: float
+    train_acc: float
+
+
 def train_one_epoch(
-    train_loader,
+    train_loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
     model: nn.Module,
     task_loss_fn: nn.Module,
     topo_loss_fn: nn.Module,
@@ -71,7 +84,7 @@ def train_one_epoch(
     use_amp: bool = False,
     scaler: GradScaler | None = None,
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
-) -> dict:
+) -> TrainEpochMetrics:
     """
     Train for one epoch.  Returns a dict of averaged metrics.
 
@@ -89,7 +102,7 @@ def train_one_epoch(
         labels = labels.to(device, non_blocking=True).squeeze()
         bsz = labels.shape[0]
 
-        with autocast("cuda", enabled=use_amp):
+        with autocast(enabled=use_amp):
             embeddings, logits = model(images)
             task_loss = task_loss_fn(logits, labels)
 
@@ -104,13 +117,13 @@ def train_one_epoch(
         # NOTE: GradNormBalancer uses torch.autograd.grad which requires
         # float32 loss. We compute topo_loss outside autocast when AMP is on.
         if topography_type == "ws":
-            base = unwrap(model)
+            base = cast(Any, unwrap(model))
             linear_layer = base.encoder.fc
             topo_loss = topo_loss_fn(linear_layer=linear_layer)
             measure_params = list(linear_layer.parameters())
         elif topography_type == "global":
             topo_loss = topo_loss_fn(embeddings.float())
-            base = unwrap(model)
+            base = cast(Any, unwrap(model))
             measure_params = [p for p in base.encoder.parameters() if p.requires_grad]
         else:
             topo_loss = torch.tensor(0.0, device=device)
@@ -170,18 +183,18 @@ class _LogitsOnly(nn.Module):
         super().__init__()
         self.model = model
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = self.model(x)
         return out[1] if isinstance(out, (tuple, list)) else out
 
 
 def validate(
-    loader,
+    loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
     model: nn.Module,
     loss_fn: nn.Module,
     *,
     print_freq: int = 10,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Evaluate on a loader.  Returns (avg_loss, accuracy_fraction).
 

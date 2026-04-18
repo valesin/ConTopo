@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+from typing import Literal, TypeAlias
+
 import numpy as np
 import torch
 
 # ─── HYBRID PROFILE MASKS ───
 
-HYBRID_MASKS = {
+ProfileMaskType: TypeAlias = Literal[
+    "true_class",
+    "argmax_similarity",
+    "argmax_logits",
+    "none",
+    "hybrid_trueclass_argmaxlogits",
+    "hybrid_trueclass_argmaxsimilarity",
+]
+
+HYBRID_MASKS: dict[
+    Literal[
+        "hybrid_trueclass_argmaxlogits",
+        "hybrid_trueclass_argmaxsimilarity",
+    ],
+    tuple[Literal["true_class"], Literal["argmax_logits", "argmax_similarity"]],
+] = {
     "hybrid_trueclass_argmaxlogits": ("true_class", "argmax_logits"),
     "hybrid_trueclass_argmaxsimilarity": ("true_class", "argmax_similarity"),
 }
@@ -13,7 +30,7 @@ HYBRID_MASKS = {
 
 def apply_profile_mask(
     P: torch.Tensor,
-    mask_type: str,
+    mask_type: ProfileMaskType,
     labels: torch.Tensor,
     component_logit_preds: list[torch.Tensor | None],
     indices: np.ndarray | None = None,
@@ -39,25 +56,23 @@ def apply_profile_mask(
     """
     N, M, C = P.shape
 
-    if not torch.isfinite(P).all():
+    if not P.isfinite().all():
         raise ValueError("Profile tensor P contains NaN/Inf values")
 
     if mask_type == "true_class":
-        mask = torch.ones(N, C, dtype=torch.bool, device=P.device)
-        mask[torch.arange(N), labels] = False
-        mask_3d = mask.unsqueeze(1).expand(N, M, C)
+        mask_3d = P.new_ones((N, M, C)).bool()
+        for i in range(N):
+            mask_3d[i, :, int(labels[i].item())] = False
         return P[mask_3d].view(N, M, C - 1)
 
     elif mask_type == "argmax_similarity":
         mean_similarity = P.mean(dim=1)
         preds = mean_similarity.argmax(dim=1)
-        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
-        mask[
-            torch.arange(N).unsqueeze(1),
-            torch.arange(M).unsqueeze(0),
-            preds.unsqueeze(1),
-        ] = False
-        return P[mask].view(N, M, C - 1)
+        mask_3d = P.new_ones((N, M, C)).bool()
+        for i in range(N):
+            cls_idx = int(preds[i].item())
+            mask_3d[i, :, cls_idx] = False
+        return P[mask_3d].view(N, M, C - 1)
 
     elif mask_type == "argmax_logits":
         if any(p is None for p in component_logit_preds):
@@ -65,31 +80,27 @@ def apply_profile_mask(
                 "Cannot use argmax_logits profile mask because not all components have cached logits."
             )
 
-        if any(
-            not torch.isfinite(p).all() for p in component_logit_preds if p is not None
-        ):
+        logits_preds = [p for p in component_logit_preds if p is not None]
+
+        if any(not p.isfinite().all() for p in logits_preds):
             raise ValueError(
                 "Cannot use argmax_logits profile mask because logits contain NaN/Inf values."
             )
 
         if indices is not None:
-            mean_logits = (
-                torch.stack([p[indices] for p in component_logit_preds], dim=1)
-                .to(P.device)
-                .mean(dim=1)
-            )
+            selected_logits = [p[indices].to(P.device) for p in logits_preds]
         else:
-            mean_logits = (
-                torch.stack(component_logit_preds, dim=1).to(P.device).mean(dim=1)
-            )
+            selected_logits = [p.to(P.device) for p in logits_preds]
+        mean_logits = selected_logits[0].new_zeros(selected_logits[0].shape)
+        for logits in selected_logits:
+            mean_logits += logits
+        mean_logits /= float(len(selected_logits))
         preds = mean_logits.argmax(dim=1)
-        mask = torch.ones(N, M, C, dtype=torch.bool, device=P.device)
-        mask[
-            torch.arange(N).unsqueeze(1),
-            torch.arange(M).unsqueeze(0),
-            preds.unsqueeze(1),
-        ] = False
-        return P[mask].view(N, M, C - 1)
+        mask_3d = P.new_ones((N, M, C)).bool()
+        for i in range(N):
+            cls_idx = int(preds[i].item())
+            mask_3d[i, :, cls_idx] = False
+        return P[mask_3d].view(N, M, C - 1)
 
     elif mask_type == "none":
         return P
@@ -110,12 +121,18 @@ def compute_rdm_features(P_masked: torch.Tensor) -> torch.Tensor:
     P_norm = Pc.norm(dim=2, keepdim=True).clamp_min(1e-8)
     P_n = Pc / P_norm
 
-    corr = torch.bmm(P_n, P_n.transpose(1, 2))
+    corr = P_n.bmm(P_n.transpose(1, 2))
     rdm = 1.0 - corr
 
     K = P_n.size(1)
-    idx = torch.triu_indices(K, K, offset=1)
-    return rdm[:, idx[0], idx[1]]
+    pair_count = K * (K - 1) // 2
+    out = rdm.new_empty((rdm.size(0), pair_count))
+    col = 0
+    for i in range(K):
+        for j in range(i + 1, K):
+            out[:, col] = rdm[:, i, j]
+            col += 1
+    return out
 
 
 def assert_valid_feature_tensor(
@@ -127,5 +144,5 @@ def assert_valid_feature_tensor(
         raise ValueError(
             f"{name} row mismatch: expected {expected_rows}, got {tensor.shape[0]}"
         )
-    if not torch.isfinite(tensor).all():
+    if not tensor.isfinite().all():
         raise ValueError(f"{name} contains NaN/Inf values")

@@ -7,7 +7,7 @@ State is held at module scope, initialized once via `configure_service`.
 from __future__ import annotations
 
 from threading import Lock
-from typing import Optional
+from typing import Optional, cast
 
 import mlflow
 from mlflow.entities import Run
@@ -71,11 +71,14 @@ def find_finished_run_by_identity(kind: str, identity_hash: str) -> Optional[Run
         f"tags.identity_hash = '{identity_hash}' and "
         "attributes.status = 'FINISHED'"
     )
-    runs = mlflow.search_runs(
-        experiment_ids=[get_experiment_id()],
-        filter_string=filter_str,
-        max_results=1,
-        output_format="list",
+    runs = cast(
+        list[Run],
+        mlflow.search_runs(
+            experiment_ids=[get_experiment_id()],
+            filter_string=filter_str,
+            max_results=1,
+            output_format="list",
+        ),
     )
     return runs[0] if runs else None
 

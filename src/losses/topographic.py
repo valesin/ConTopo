@@ -81,7 +81,7 @@ def torus_diffs(W: torch.Tensor) -> list[torch.Tensor]:
 class Global_Topographic_Loss(nn.Module):
     """Global topographic regulariser on pre-activation features."""
 
-    def __init__(self, weight: float = 1.0, emb_dim: int = 256):
+    def __init__(self, weight: float = 1.0, emb_dim: int = 256) -> None:
         super().__init__()
         self.weight = weight
         self.D = pos_dist(emb_dim)
@@ -103,7 +103,7 @@ class Global_Topographic_Loss(nn.Module):
 class Local_WS_Loss(nn.Module):
     """Local weight-smoothing regulariser for a linear layer."""
 
-    def __init__(self, weight: float = 1.0, topology: str = "grid"):
+    def __init__(self, weight: float = 1.0, topology: str = "grid") -> None:
         super().__init__()
         self.weight = weight
         if topology == "grid":

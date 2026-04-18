@@ -7,7 +7,7 @@ single configured experiment context.
 from __future__ import annotations
 
 from threading import Lock
-from typing import Optional, Literal, Any
+from typing import Any, Literal, Optional, TypedDict
 
 import mlflow
 from mlflow.entities import Run
@@ -17,7 +17,16 @@ from src.config.hash import (
 )
 
 _STATE_LOCK = Lock()
-_STATE = {
+
+
+class _RepositoryState(TypedDict):
+    configured: bool
+    tracking_uri: Optional[str]
+    experiment_name: Optional[str]
+    experiment_id: Optional[str]
+
+
+_STATE: _RepositoryState = {
     "configured": False,
     "tracking_uri": None,
     "experiment_name": None,

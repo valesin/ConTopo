@@ -11,7 +11,7 @@ import torch.nn.functional as F
 class SimpleCNN(nn.Module):
     """Simple CNN backbone for CIFAR-10."""
 
-    def __init__(self, in_channels: int = 3, emb_dim: int = 256):
+    def __init__(self, in_channels: int = 3, emb_dim: int = 256) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, 3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(32)
@@ -25,13 +25,13 @@ class SimpleCNN(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(128, emb_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
         out = F.relu(self.bn3(self.conv3(out)))
 
         out = self.avgpool(out)
-        out = torch.flatten(out, 1)
+        out = out.flatten(1)
         return self.fc(out)
 
 
@@ -46,14 +46,16 @@ class LinearSimpleCNN(nn.Module):
         use_dropout: bool = True,
         ret_emb: bool = False,
         head_bias: bool = True,
-    ):
+    ) -> None:
         super().__init__()
         self.ret_emb = ret_emb
         self.encoder = SimpleCNN(emb_dim=emb_dim)
         self.dropout = nn.Dropout(p_dropout) if use_dropout else nn.Identity()
         self.fc = nn.Linear(emb_dim, num_classes, bias=head_bias)
 
-    def forward(self, x):
+    def forward(
+        self, x: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         embeddings = self.encoder(x)
         logits = self.fc(self.dropout(embeddings))
         return (embeddings, logits) if self.ret_emb else logits

@@ -124,7 +124,7 @@ IDEMPOTENCY_REGISTRY: dict[str, StepIdentity] = {
 }
 
 
-def _deep_sort(obj):
+def _deep_sort(obj: object) -> object:
     """Recursively sort dicts by key for canonical serialisation."""
     if isinstance(obj, dict):
         return {k: _deep_sort(v) for k, v in sorted(obj.items())}
@@ -144,7 +144,7 @@ def cfg_hash(cfg: DictConfig) -> str:
       3. Canonicalise via ``json.dumps(sort_keys=True)``.
       4. Return first 16 hex chars of SHA-256.
     """
-    keys_to_include = [k for k in cfg.keys() if k not in EXCLUDED_KEYS]
+    keys_to_include = [str(k) for k in cfg.keys() if str(k) not in EXCLUDED_KEYS]
     filtered = OmegaConf.masked_copy(cfg, keys_to_include)
     resolved = OmegaConf.to_container(filtered, resolve=True)
     canonical = json.dumps(_deep_sort(resolved), sort_keys=True, ensure_ascii=True)

@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
-from typing import Any, Dict, List, Optional
+from typing import TypedDict
 
 from omegaconf import DictConfig
 from src.repositories.functional_run_repository import search_runs
@@ -17,7 +17,7 @@ from src.repositories.functional_run_repository import search_runs
 def discover_ensembles_from_cfg(
     cfg: DictConfig,
     experiment_name: str,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Auto-discovers ensemble groupings using discovery controls from cfg.groups.
 
@@ -34,7 +34,7 @@ def discover_ensembles_from_cfg(
     )
 
 
-def _combo_hash(sorted_ids: List[str]) -> str:
+def _combo_hash(sorted_ids: list[str]) -> str:
     """6-char deterministic hash of a sorted run-id list."""
     canonical = json.dumps(sorted_ids, ensure_ascii=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:6]
@@ -42,11 +42,11 @@ def _combo_hash(sorted_ids: List[str]) -> str:
 
 def _discover(
     experiment_name: str,
-    group_by: List[str],
+    group_by: list[str],
     min_components: int,
-    base_filter: Dict[str, Any],
-    sample_size: Optional[int] = None,
-) -> Dict[str, List[str]]:
+    base_filter: dict[str, object],
+    sample_size: int | None = None,
+) -> dict[str, list[str]]:
     # 1. Base MLflow fetch
     filter_string = "attributes.status = 'FINISHED' and tags.kind = 'model'"
     if base_filter:
@@ -59,7 +59,7 @@ def _discover(
         raise ValueError(f"No FINISHED models found matching: {filter_string}")
 
     # 2. Form groups based on distinct keys
-    groups: Dict[str, List[str]] = {}
+    groups: dict[str, list[str]] = {}
 
     for r in runs:
         params = r.data.params
@@ -75,7 +75,7 @@ def _discover(
         groups[group_name].append(r.info.run_id)
 
     # 3. Filter minimum component clusters and sort ID sequences
-    final_ensembles = {}
+    final_ensembles: dict[str, list[str]] = {}
     for g_name, r_ids in groups.items():
         if len(r_ids) >= min_components:
             final_ensembles[g_name] = sorted(r_ids)
@@ -87,7 +87,7 @@ def _discover(
     if sample_size < 2:
         raise ValueError(f"sample_size must be >= 2, got {sample_size}")
 
-    expanded: Dict[str, List[str]] = {}
+    expanded: dict[str, list[str]] = {}
     for g_name, r_ids in final_ensembles.items():
         if len(r_ids) < sample_size:
             continue
@@ -103,7 +103,7 @@ def _discover(
 # ─────────────────────── groups signature ───────────────────────
 
 
-def encode_groups_signature(groups_cfg) -> str:
+def encode_groups_signature(groups_cfg: DictConfig) -> str:
     """
     Human-readable, deterministic signature of a groups discovery config.
 
@@ -120,7 +120,13 @@ def encode_groups_signature(groups_cfg) -> str:
     return f"group_by={','.join(group_by)}|k={k}|filter={filter_str}"
 
 
-def decode_groups_signature(sig: str) -> dict:
+class DecodedGroupsSignature(TypedDict):
+    group_by: list[str]
+    sample_size: int | None
+    filter: dict[str, str]
+
+
+def decode_groups_signature(sig: str) -> DecodedGroupsSignature:
     """
     Parse a groups signature string back to a plain dict.
 
@@ -132,7 +138,7 @@ def decode_groups_signature(sig: str) -> dict:
     k_raw = parts.get("k", "null")
     sample_size = None if k_raw == "null" else int(k_raw)
     filter_raw = parts.get("filter", "")
-    filter_dict: Dict[str, str] = {}
+    filter_dict: dict[str, str] = {}
     if filter_raw:
         for pair in filter_raw.split(","):
             fk, fv = pair.split(":", 1)

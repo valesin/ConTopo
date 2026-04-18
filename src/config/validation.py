@@ -10,8 +10,10 @@ Raises ``ValueError`` with a human-readable list of every detected problem.
 
 from __future__ import annotations
 
+from src.config.structured import ConTopoConfig
 
-def validate_training_config(cfg) -> None:
+
+def validate_training_config(cfg: ConTopoConfig) -> None:
     """Fail early if the training config contains orphaned or conflicting fields.
 
     Args:

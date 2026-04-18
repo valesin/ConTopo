@@ -31,7 +31,8 @@ dev = [
     "basedpyright>=1.39.2",
     "pytest==9.0.2",
     "pytest-cov",
-    "black>=24.0.0",    
+    "black>=24.0.0",
+    "pre-commit>=4.5.1",
 ]
 sky = [
     "skypilot-nightly[runpod]",
@@ -66,7 +67,7 @@ pythonpath = ["."]
 
 [tool.black]
 line-length = 88
-target-version = ["py313"]
+target-version = ["py312"]
 include = '\.pyi?$'
 # Common excludes (Black has defaults too, but this makes intent explicit)
 extend-exclude = '''
@@ -82,13 +83,19 @@ extend-exclude = '''
 '''
 
 [tool.basedpyright]
+include = ["src"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
+reportMissingImports = "none"
 reportUnknownParameterType = "none"
 reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"
 reportUnknownArgumentType = "none"
-reportMissingParameterType = "none"
+reportPrivateImportUsage = "none"
+reportAttributeAccessIssue = "warning"
+reportMissingParameterType = "error"
+reportReturnType = "error"
+reportArgumentType = "error"
 reportMissingTypeArgument = "none"
 reportUntypedFunctionDecorator = "none"
 reportUntypedBaseClass = "none"

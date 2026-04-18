@@ -17,9 +17,10 @@ import logging
 import tempfile
 import pandas as pd
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, cast
 
 import mlflow
+from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
 import torch
 import numpy as np
@@ -260,17 +261,16 @@ def load_mlflow_artifact(
         )
 
 
-def safe_to_numpy_float64(tensor_or_numpy):
+def safe_to_numpy_float64(tensor_or_numpy: torch.Tensor | np.ndarray) -> np.ndarray:
     """
     Helper function to safely convert a PyTorch tensor (or already numpy array)
     to a numpy float64 array, standardizing inputs to MLflow data schema tracing.
     """
-    arr = (
-        tensor_or_numpy.numpy()
-        if hasattr(tensor_or_numpy, "numpy")
-        else tensor_or_numpy
-    )
-    return arr.astype("float64")
+    if isinstance(tensor_or_numpy, np.ndarray):
+        arr = tensor_or_numpy
+    else:
+        arr = tensor_or_numpy.detach().cpu().numpy()
+    return arr.astype(np.float64, copy=False)
 
 
 def log_dataset_lineage(
@@ -285,7 +285,13 @@ def log_dataset_lineage(
             "label": safe_to_numpy_float64(labels),
         }
     )
-    eval_dataset = mlflow.data.from_pandas(
+    mlflow_data = getattr(mlflow, "data", None)
+    from_pandas = getattr(mlflow_data, "from_pandas", None)
+    if from_pandas is None:
+        raise RuntimeError(
+            "mlflow.data.from_pandas is unavailable in this MLflow build"
+        )
+    eval_dataset = cast(Callable[..., Any], from_pandas)(
         dataset_df, targets="label", name=f"{dataset_name}_{split}"
     )
     start = datetime.now()
@@ -323,7 +329,7 @@ def resolve_device(device_name: str) -> torch.device:
     return torch.device(device_name)
 
 
-def get_run_context(run: mlflow.entities.Run) -> tuple[str, str, str]:
+def get_run_context(run: Run) -> tuple[str, str, str]:
     """Extract common run metadata as (rho, trial, topology)."""
     params = run.data.params
     tags = run.data.tags

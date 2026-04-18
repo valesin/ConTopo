@@ -10,7 +10,7 @@ import inspect
 from dataclasses import dataclass
 from enum import Enum, auto
 from functools import cached_property, partial
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Union
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import torch
@@ -53,7 +53,7 @@ class Strategy(Enum):
 
 
 class MetricSpec(NamedTuple):
-    fn: Callable
+    fn: Callable[..., float]
     strategy: Strategy
     context_key: str
 
@@ -63,9 +63,9 @@ class MetricSpec(NamedTuple):
 
 @dataclass
 class EvalContext:
-    preds: List[torch.Tensor]
+    preds: list[torch.Tensor]
     labels: torch.Tensor
-    logits: Optional[List[torch.Tensor]] = None
+    logits: list[torch.Tensor] | None = None
 
     @cached_property
     def counts_stack(self) -> np.ndarray:
@@ -78,11 +78,15 @@ class EvalContext:
 
 # ─────────── registry ───────────
 
-METRIC_REGISTRY: Dict[str, MetricSpec] = {}
+METRIC_REGISTRY: dict[str, MetricSpec] = {}
 
 
-def register_metric(name: str, strategy: Strategy, context_key: str):
-    def decorator(fn):
+def register_metric(
+    name: str,
+    strategy: Strategy,
+    context_key: str,
+) -> Callable[[Callable[..., float]], Callable[..., float]]:
+    def decorator(fn: Callable[..., float]) -> Callable[..., float]:
         METRIC_REGISTRY[name] = MetricSpec(fn, strategy, context_key)
         return fn
 
@@ -91,11 +95,11 @@ def register_metric(name: str, strategy: Strategy, context_key: str):
 
 def compute_metrics(
     context: EvalContext,
-    metrics: List[str],
-    config: Dict[str, Any] | None = None,
+    metrics: list[str],
+    config: dict[str, Any] | None = None,
     reduce_group: bool = True,
-) -> Dict[str, Union[float, np.ndarray]]:
-    results: Dict[str, Any] = {}
+) -> dict[str, float | np.ndarray]:
+    results: dict[str, float | np.ndarray] = {}
     config = config or {}
     for name in metrics:
         spec = METRIC_REGISTRY[name]
@@ -103,17 +107,21 @@ def compute_metrics(
         fn_sig = inspect.signature(spec.fn)
         kwargs = {k: config[k] for k in fn_sig.parameters if k in config}
         if spec.strategy == Strategy.PAIRWISE_COUNTS:
-            mat = _apply_counts(data, partial(spec.fn, **kwargs))
+            matrix = _apply_counts(data, partial(spec.fn, **kwargs))
+            if reduce_group:
+                results[name] = _avg_off_diag(matrix)
+            else:
+                results[name] = matrix
         elif spec.strategy == Strategy.PAIRWISE_LIST:
-            mat = _apply_list(data, spec.fn, **kwargs)
+            matrix = _apply_list(data, spec.fn, **kwargs)
+            if reduce_group:
+                results[name] = _avg_off_diag(matrix)
+            else:
+                results[name] = matrix
         elif spec.strategy == Strategy.GLOBAL:
-            mat = spec.fn(data, **kwargs)
+            results[name] = float(spec.fn(data, **kwargs))
         else:
             raise ValueError(f"Unknown strategy for {name}")
-        if reduce_group and spec.strategy != Strategy.GLOBAL:
-            results[name] = _avg_off_diag(mat)
-        else:
-            results[name] = mat
     return results
 
 
@@ -165,7 +173,10 @@ def _iou_top_n(la: torch.Tensor, lb: torch.Tensor, n: int = 5) -> float:
 # ─────────── internals ───────────
 
 
-def _vectorized_counts(preds_list, labels):
+def _vectorized_counts(
+    preds_list: list[torch.Tensor],
+    labels: torch.Tensor,
+) -> np.ndarray:
     R = len(preds_list)
     stack = torch.stack(preds_list).to(labels.device)
     C = (stack == labels.unsqueeze(0)).T.float()
@@ -178,7 +189,10 @@ def _vectorized_counts(preds_list, labels):
     return counts
 
 
-def _apply_counts(stack, fn):
+def _apply_counts(
+    stack: np.ndarray,
+    fn: Callable[[AgreementCounts], float],
+) -> np.ndarray:
     R = stack.shape[1]
     mat = np.full((R, R), np.nan)
     for i in range(R):
@@ -194,7 +208,11 @@ def _apply_counts(stack, fn):
     return mat
 
 
-def _apply_list(items, fn, **kw):
+def _apply_list(
+    items: list[torch.Tensor],
+    fn: Callable[..., float],
+    **kw: Any,
+) -> np.ndarray:
     R = len(items)
     mat = np.full((R, R), np.nan)
     for i in range(R):
@@ -203,7 +221,7 @@ def _apply_list(items, fn, **kw):
     return mat
 
 
-def _avg_off_diag(mat):
+def _avg_off_diag(mat: np.ndarray) -> float:
     R = mat.shape[0]
     if R < 2:
         return float("nan")

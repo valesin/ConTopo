@@ -4,9 +4,16 @@ Ensemble accuracy utilities.
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import TypedDict
 
 import torch
+
+
+class ComponentAccuracies(TypedDict):
+    mean_acc: float
+    max_acc: float
+    per_component: list[float]
+    num_components: int
 
 
 def ensemble_accuracy(probs: torch.Tensor, labels: torch.Tensor) -> float:
@@ -16,9 +23,9 @@ def ensemble_accuracy(probs: torch.Tensor, labels: torch.Tensor) -> float:
 
 
 def component_accuracies(
-    logits_list: List[torch.Tensor],
+    logits_list: list[torch.Tensor],
     labels: torch.Tensor,
-) -> Dict[str, float]:
+) -> ComponentAccuracies:
     """Compute per-component and summary accuracies."""
     accs = []
     for logits in logits_list:
