@@ -20,6 +20,7 @@ import sys
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from typing import Any, cast
 
 
 def run_script(script: str, overrides: list[str]) -> None:
@@ -37,7 +38,10 @@ def run_script(script: str, overrides: list[str]) -> None:
 
 @hydra.main(config_path="conf", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    steps = OmegaConf.to_container(cfg.pipeline.steps, resolve=True)
+    steps = cast(
+        list[dict[str, Any]],
+        OmegaConf.to_container(OmegaConf.select(cfg, "pipeline.steps"), resolve=True),
+    )
     from_step: str | None = OmegaConf.select(cfg, "pipeline.from_step")
 
     active = from_step is None

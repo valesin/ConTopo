@@ -30,7 +30,7 @@ from omegaconf import DictConfig
 
 from src.ensemble.combine import combine_logits, METHODS
 from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
-from src.ensemble.selector import discover_ensembles_from_cfg, encode_groups_signature
+from src.ensemble.selector import discover_ensembles_from_cfg
 from src.data.loaders import get_split_labels
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
@@ -119,7 +119,6 @@ def _run_votes(
     cs_hash,
     split_name,
     rho_val: str | None = None,
-    groups_sig: str | None = None,
 ):
     """Run vote-based methods and log identical artifact structures to 02_cache_inference."""
     results = []
@@ -157,8 +156,6 @@ def _run_votes(
             "feature_type": "logits",
             "identity_hash": step_identity_hash,
         }
-        if groups_sig is not None:
-            extra["groups_signature"] = groups_sig
 
         tags = behaviour_tags(
             kind="ensemble",
@@ -247,8 +244,6 @@ def main(cfg: DictConfig) -> None:
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 
     split = cfg.execution.split
-    groups_sig = encode_groups_signature(cfg.groups)
-
     labels = get_split_labels(cfg, split)
 
     vote_methods = list(cfg.ensemble.votes)
@@ -327,7 +322,6 @@ def main(cfg: DictConfig) -> None:
                 cs_hash,
                 split,
                 rho_val=rho_sum,
-                groups_sig=groups_sig,
             )
 
     print("\nEnsemble computation complete.")

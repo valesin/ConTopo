@@ -3,6 +3,6 @@ hydra:
   mode: MULTIRUN
   sweeper:
     params:
-      trial: range(0, 5) 
+      trial: range(0, 10) 
       loss.rho: 0.0, 0.2, 0.04, 0.008, 1.0, 5.0
-      training.early_stopping_method: val_loss
+      loss.topology: torus

@@ -1,0 +1,8 @@
+# ── Ensemble component discovery controls ──
+# Variant of samples9 with 3-model combinations instead of 2.
+# Produces larger ensembles for comparison against samples9.
+
+group_by: [topology, rho]
+min_components: 3
+filter: {"params.epochs": "1", "param.loading_backend": "torch"}
+sample_size: 3

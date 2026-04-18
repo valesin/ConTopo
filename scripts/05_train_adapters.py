@@ -31,7 +31,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.data.loaders import get_num_classes, get_split_labels
-from src.ensemble.selector import discover_ensembles_from_cfg, encode_groups_signature
+from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
     apply_mlflow_env_overrides,
@@ -120,8 +120,6 @@ def main(cfg: DictConfig) -> None:
     labels_tensor = get_split_labels(cfg, split)
     total_examples = len(labels_tensor)
 
-    groups_sig = encode_groups_signature(cfg.groups)
-
     # 2. Discover Ensemble Components from MLflow
     groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
     if not groups:
@@ -190,7 +188,6 @@ def main(cfg: DictConfig) -> None:
                 "ensemble_name": ens_name,
                 "identity_hash": step_identity_hash,
                 "run_name": f"{ens_name}_adapter_{meta_type}",
-                "groups_signature": groups_sig,
             },
         )
 

@@ -9,7 +9,6 @@ from typing import Any, Mapping
 
 import mlflow
 
-
 _verbose_upload_log: bool = False
 
 
@@ -250,7 +249,6 @@ TELEMETRY_SCHEMA = {
                 "component_run_ids_csv",
                 "feature_type",
                 "rho",
-                "groups_signature",
             ],
             "optional": ["run_name"],
         },
@@ -277,7 +275,6 @@ TELEMETRY_SCHEMA = {
                 "identity_hash",
                 "ensemble_name",
                 "component_set_hash",
-                "groups_signature",
             ],
             "optional": ["run_name", "component_run_ids_csv"],
         },
@@ -307,7 +304,6 @@ TELEMETRY_SCHEMA = {
                 "component_set_hash",
                 "consistency_hash",
                 "anchor_spec_hash",
-                "groups_signature",
             ],
             "optional": ["run_name"],
         },
@@ -348,7 +344,6 @@ TELEMETRY_SCHEMA = {
                 "behaviour_input_hash",
                 "component_run_ids_csv",
                 "rho",
-                "groups_signature",
             ],
             "optional": ["run_name"],
         },
