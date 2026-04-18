@@ -108,22 +108,28 @@ class TrainingConfig:
     optimiser: str = "adam"
     weight_decay: float = 0.0
     momentum: float = 0.9
-    scheduler: str = "none"           # "none" | "cyclic" | "cosine"
-    lr_peak_epoch: Optional[int] = None  # only for scheduler=cyclic; None means not applicable
+    scheduler: str = "none"  # "none" | "cyclic" | "cosine"
+    lr_peak_epoch: Optional[int] = (
+        None  # only for scheduler=cyclic; None means not applicable
+    )
     amp: bool = False
     save_freq_epochs: int = 20
     save_checkpoints: bool = False
     early_stopping_patience: int = 25
     early_stopping_method: str = "val_acc"
-    label_smoothing: float = 0.0      # CrossEntropyLoss label smoothing
-    use_blurpool: bool = False         # antialiased pooling on strided layers
+    label_smoothing: float = 0.0  # CrossEntropyLoss label smoothing
+    use_blurpool: bool = False  # antialiased pooling on strided layers
     optimizer_selective_wd: bool = False  # WD only on non-BN/bias params
-    lr_tta: bool = False               # test-time augmentation (LR flip average)
-    progressive_res_min: Optional[int] = None   # start resolution (progressive training)
-    progressive_res_max: Optional[int] = None   # end resolution
-    progressive_res_start_ramp: Optional[float] = None  # only when progressive_res_min is set
-    progressive_res_end_ramp: Optional[float] = None    # only when progressive_res_min is set
-    loading_backend: str = "torch"    # "torch" | "ffcv" — hash-included
+    lr_tta: bool = False  # test-time augmentation (LR flip average)
+    progressive_res_min: Optional[int] = None  # start resolution (progressive training)
+    progressive_res_max: Optional[int] = None  # end resolution
+    progressive_res_start_ramp: Optional[float] = (
+        None  # only when progressive_res_min is set
+    )
+    progressive_res_end_ramp: Optional[float] = (
+        None  # only when progressive_res_min is set
+    )
+    loading_backend: str = "torch"  # "torch" | "ffcv" — hash-included
     beton: TrainingBetonConfig = field(default_factory=TrainingBetonConfig)
     balancer: BalancerConfig = field(default_factory=BalancerConfig)
 
@@ -325,8 +331,6 @@ class AdapterConfig:
     anchor_selection: AnchorSelectionConfig = field(
         default_factory=AnchorSelectionConfig
     )
-
-
 
 
 # ─────────── pipeline ───────────

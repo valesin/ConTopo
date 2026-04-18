@@ -22,13 +22,15 @@ from omegaconf import DictConfig
 
 from src.data.transforms import get_transforms
 
-
 # ─────────── per-dataset factories ───────────
+
 
 def _cifar10_factory(root: str, train: bool, transform, download: bool = True):
     """Wrapper around CIFAR10 that suppresses the 'Files already downloaded' stdout noise."""
     with contextlib.redirect_stdout(io.StringIO()):
-        return datasets.CIFAR10(root=root, train=train, transform=transform, download=download)
+        return datasets.CIFAR10(
+            root=root, train=train, transform=transform, download=download
+        )
 
 
 def _imagenet100_factory(root: str, train: bool, transform, download: bool = False):
@@ -144,7 +146,9 @@ def _get_torch_loaders(cfg: DictConfig):
 
     root = cfg.runtime.data_root
     val_per_class = cfg.dataset.split.val_per_class
-    train_indices, val_indices = _split_train_val_indices(root, dataset_name, val_per_class)
+    train_indices, val_indices = _split_train_val_indices(
+        root, dataset_name, val_per_class
+    )
 
     train_ds = factory(root=root, train=True, transform=train_transform)
     val_ds = factory(root=root, train=True, transform=eval_transform)
@@ -210,12 +214,14 @@ def _get_ffcv_loaders(cfg: DictConfig):
     factory = _DATASET_FACTORIES[dataset_name]
     root = cfg.runtime.data_root
     val_per_class = cfg.dataset.split.val_per_class
-    train_indices, val_indices = _split_train_val_indices(root, dataset_name, val_per_class)
+    train_indices, val_indices = _split_train_val_indices(
+        root, dataset_name, val_per_class
+    )
 
     # Write beton files if absent
     train_beton = get_or_write_beton(cfg, "train", factory, train_indices)
-    val_beton   = get_or_write_beton(cfg, "val",   factory, val_indices)
-    test_beton  = get_or_write_beton(cfg, "test",  factory, None)
+    val_beton = get_or_write_beton(cfg, "val", factory, val_indices)
+    test_beton = get_or_write_beton(cfg, "test", factory, None)
 
     bs = int(cfg.training.batch_size)
     nw = int(cfg.runtime.num_workers)
@@ -224,7 +230,7 @@ def _get_ffcv_loaders(cfg: DictConfig):
     device_idx = 0
 
     mean = tuple(cfg.dataset.mean)
-    std  = tuple(cfg.dataset.std)
+    std = tuple(cfg.dataset.std)
 
     # Val / test loaders (always single, at full image_size)
     image_size = int(cfg.dataset.image_size)
@@ -235,8 +241,10 @@ def _get_ffcv_loaders(cfg: DictConfig):
     max_stored = int(cfg.training.beton.max_resolution)
     effective_stored = min(max_stored, image_size)
     eval_ratio = min(256 / 224, effective_stored / image_size)
-    eval_img, eval_lbl = build_ffcv_eval_pipeline(image_size, device_idx, mean, std, ratio=eval_ratio)
-    val_loader  = build_ffcv_loader(val_beton,  eval_img, eval_lbl, bs, nw)
+    eval_img, eval_lbl = build_ffcv_eval_pipeline(
+        image_size, device_idx, mean, std, ratio=eval_ratio
+    )
+    val_loader = build_ffcv_loader(val_beton, eval_img, eval_lbl, bs, nw)
     test_loader = build_ffcv_loader(test_beton, eval_img, eval_lbl, bs, nw)
 
     # Train loader(s)
@@ -255,7 +263,9 @@ def _get_ffcv_loaders(cfg: DictConfig):
         return train_loaders, val_loader, test_loader
 
     train_img, train_lbl = build_ffcv_train_pipeline(image_size, device_idx, mean, std)
-    train_loader = build_ffcv_loader(train_beton, train_img, train_lbl, bs, nw, shuffled=True)
+    train_loader = build_ffcv_loader(
+        train_beton, train_img, train_lbl, bs, nw, shuffled=True
+    )
     return train_loader, val_loader, test_loader
 
 
@@ -338,7 +348,9 @@ def get_dataset_eval_loader(
         )
 
     if split in ("val", "train"):
-        train_indices, val_indices = _split_train_val_indices(root, dataset_name, val_per_class)
+        train_indices, val_indices = _split_train_val_indices(
+            root, dataset_name, val_per_class
+        )
         base_ds = factory(root=root, train=True, transform=eval_transform)
         indices = val_indices if split == "val" else train_indices
         return DataLoader(
@@ -372,14 +384,26 @@ def get_cifar10_eval_loader(
 
     if split == "test":
         ds = _cifar10_factory(root=root, train=False, transform=eval_transform)
-        return DataLoader(ds, batch_size=batch_size, shuffle=False,
-                          num_workers=num_workers, pin_memory=pin_memory)
+        return DataLoader(
+            ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
 
     if split in ("val", "train"):
-        train_indices, val_indices = _split_train_val_indices(root, "cifar10", val_per_class)
+        train_indices, val_indices = _split_train_val_indices(
+            root, "cifar10", val_per_class
+        )
         base_ds = _cifar10_factory(root=root, train=True, transform=eval_transform)
         indices = val_indices if split == "val" else train_indices
-        return DataLoader(Subset(base_ds, indices), batch_size=batch_size,
-                          shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
+        return DataLoader(
+            Subset(base_ds, indices),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
 
     raise ValueError(f"Unknown split '{split}'. Expected 'test', 'val', or 'train'.")

@@ -67,7 +67,6 @@ class TestHydraComposition:
         assert cfg.mlflow.experiment_name == "contopo"
 
 
-
 class TestExecutionConfig:
     """Verify execution config group is accessible."""
 
@@ -222,7 +221,6 @@ class TestExcludedKeys:
 
     def test_mlflow_excluded(self):
         assert "mlflow" in EXCLUDED_KEYS
-
 
     def test_cfg_hash_ignores_execution(self, cfg):
         """Changing execution.split must NOT change model cfg_hash."""

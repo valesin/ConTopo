@@ -94,7 +94,9 @@ def _load_inference_artifacts(cfg, run_ids, split="test"):
         logits_tensor = torch.from_numpy(data["logits"])
         logits_list.append(logits_tensor)
 
-        print(f"  Loaded inference artifacts for component {i:03d} (model={model_run_id[:8]}… inf={inf_run_id[:8]}…)")
+        print(
+            f"  Loaded inference artifacts for component {i:03d} (model={model_run_id[:8]}… inf={inf_run_id[:8]}…)"
+        )
 
         # Map tracker
         composition_map[f"component_{i:03d}"] = {

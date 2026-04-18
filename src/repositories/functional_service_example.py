@@ -12,7 +12,6 @@ from typing import Optional
 import mlflow
 from mlflow.entities import Run
 
-
 _STATE_LOCK = Lock()
 _STATE = {
     "configured": False,

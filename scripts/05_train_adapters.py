@@ -75,6 +75,7 @@ from src.training.adapter_training import (
     evaluate_holdout,
 )
 
+
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     setup_mlflow(cfg)

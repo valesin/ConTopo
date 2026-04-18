@@ -10,10 +10,12 @@ from src.mlflow_utils import load_mlflow_artifact
 from src.config.hash import identity_hash
 from src.profiling.masking import assert_valid_feature_tensor
 
+
 class ComponentFeatures(NamedTuple):
     base_tensors: list[torch.Tensor]
     profile_tensors: list[torch.Tensor]
     component_logit_preds: list[torch.Tensor | None]
+
 
 def extract_component_features(
     run_ids: list[str],
@@ -101,9 +103,7 @@ def extract_component_features(
         else:
             raise ValueError(f"Unknown feature_type: {feature_type}")
 
-        assert_valid_feature_tensor(
-            "base_tensor", base_tensor, total_examples
-        )
+        assert_valid_feature_tensor("base_tensor", base_tensor, total_examples)
         base_tensors.append(base_tensor)
 
     return ComponentFeatures(

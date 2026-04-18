@@ -70,8 +70,8 @@ class FinetuneResNet34(nn.Module):
         self.classifier = nn.Linear(emb_dim, num_classes, bias=head_bias)
 
     def forward(self, x):
-        gap = self.backbone(x)           # (B, 512)
-        embeddings = self.neck(gap)      # (B, emb_dim) — topographic grid, pre-ReLU
+        gap = self.backbone(x)  # (B, 512)
+        embeddings = self.neck(gap)  # (B, emb_dim) — topographic grid, pre-ReLU
         activated = F.relu(embeddings)
         logits = self.classifier(self.dropout(activated))
         return (embeddings, logits) if self.ret_emb else logits
@@ -110,8 +110,8 @@ class ScratchResNet34(nn.Module):
         self.classifier = nn.Linear(emb_dim, num_classes, bias=head_bias)
 
     def forward(self, x):
-        gap = self.backbone(x)           # (B, 512)
-        embeddings = self.neck(gap)      # (B, emb_dim) — topographic grid, pre-ReLU
+        gap = self.backbone(x)  # (B, 512)
+        embeddings = self.neck(gap)  # (B, emb_dim) — topographic grid, pre-ReLU
         activated = F.relu(embeddings)
         logits = self.classifier(self.dropout(activated))
         return (embeddings, logits) if self.ret_emb else logits

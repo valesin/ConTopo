@@ -66,7 +66,7 @@ def build_ffcv_train_pipeline(
     )
 
     mean_np = np.array(mean, dtype=np.float32) * 255
-    std_np  = np.array(std,  dtype=np.float32) * 255
+    std_np = np.array(std, dtype=np.float32) * 255
 
     image_pipeline = [
         RandomResizedCropRGBImageDecoder((image_size, image_size)),
@@ -124,7 +124,7 @@ def build_ffcv_eval_pipeline(
     )
 
     mean_np = np.array(mean, dtype=np.float32) * 255
-    std_np  = np.array(std,  dtype=np.float32) * 255
+    std_np = np.array(std, dtype=np.float32) * 255
 
     image_pipeline = [
         CenterCropRGBImageDecoder((image_size, image_size), ratio=ratio),

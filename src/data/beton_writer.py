@@ -28,7 +28,7 @@ from omegaconf import DictConfig
 
 def _beton_path(cfg: DictConfig, split: str) -> str:
     """Deterministic beton file path for (dataset, split, beton config)."""
-    bc = cfg.training.beton          # format settings — hash-included
+    bc = cfg.training.beton  # format settings — hash-included
     beton_dir = cfg.runtime.beton.dir  # storage location — hash-excluded
     name = cfg.dataset.name
     res = bc.max_resolution
@@ -70,7 +70,7 @@ def get_or_write_beton(
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    bc = cfg.training.beton          # format settings — hash-included
+    bc = cfg.training.beton  # format settings — hash-included
     data_root = cfg.runtime.data_root
 
     # For imagenet100-style datasets: train split = load train partition;

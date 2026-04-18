@@ -91,15 +91,13 @@ def validate_training_config(cfg) -> None:
     # beton format fields are conditional on loading_backend=ffcv
     beton = cfg.training.beton
     beton_fields = {
-        "beton.max_resolution":       beton.max_resolution,
-        "beton.jpeg_quality":         beton.jpeg_quality,
+        "beton.max_resolution": beton.max_resolution,
+        "beton.jpeg_quality": beton.jpeg_quality,
         "beton.compress_probability": beton.compress_probability,
     }
     for name, val in beton_fields.items():
         if backend == "ffcv" and val is None:
-            errors.append(
-                f"loading_backend=ffcv requires training.{name} to be set"
-            )
+            errors.append(f"loading_backend=ffcv requires training.{name} to be set")
         if backend != "ffcv" and val is not None:
             errors.append(
                 f"training.{name}={val} is set but loading_backend={backend!r} "

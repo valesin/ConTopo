@@ -16,7 +16,6 @@ from src.config.hash import (
     model_identity_fields as _model_identity_fields,
 )
 
-
 _STATE_LOCK = Lock()
 _STATE = {
     "configured": False,

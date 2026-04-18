@@ -35,8 +35,8 @@ from src.repositories.functional_run_repository import (
     search_runs,
 )
 
-
 # ── Identity-field detection ──────────────────────────────────────────────────
+
 
 def _is_identity_param(mlflow_key: str, identity_fields: set[str]) -> bool:
     """Return True if this MLflow param name traces back to an identity field.
@@ -53,6 +53,7 @@ def _is_identity_param(mlflow_key: str, identity_fields: set[str]) -> bool:
 
 
 # ── Proposed param dict (mirrors 01_train_models.py lines 289–336) ───────────
+
 
 def _build_proposed_params(cfg: DictConfig, seed: int) -> dict[str, str]:
     """Build the same param dict that schema_log_params would log.
@@ -110,10 +111,15 @@ def _build_proposed_params(cfg: DictConfig, seed: int) -> dict[str, str]:
 
 # ── MLflow filter from dry_filter.* overrides ─────────────────────────────────
 
+
 def _build_filter(cfg: DictConfig) -> tuple[str, bool]:
     clauses = ["tags.kind = 'model'", "attributes.status = 'FINISHED'"]
     has_filters = False
-    dry = OmegaConf.to_container(cfg.dry_filter, resolve=True) if hasattr(cfg, "dry_filter") else {}
+    dry = (
+        OmegaConf.to_container(cfg.dry_filter, resolve=True)
+        if hasattr(cfg, "dry_filter")
+        else {}
+    )
     if dry:
         for k, v in sorted(dry.items()):
             if v is not None:
@@ -123,6 +129,7 @@ def _build_filter(cfg: DictConfig) -> tuple[str, bool]:
 
 
 # ── Diff printing ─────────────────────────────────────────────────────────────
+
 
 def _print_diff(
     run_id: str,
@@ -154,7 +161,9 @@ def _print_diff(
     )
 
     if is_stale_hash:
-        print(f"!!! run {run_id[:12]} ({score}/{total} params match) — STALE IDENTITY HASH !!!")
+        print(
+            f"!!! run {run_id[:12]} ({score}/{total} params match) — STALE IDENTITY HASH !!!"
+        )
         print(f"  All logged params match but identity_hash differs.")
         print(f"  Proposed : {proposed_identity_hash}")
         print(f"  Stored   : {existing_identity_hash}")
@@ -170,19 +179,21 @@ def _print_diff(
         else:
             # Dynamic column widths
             w_param = max(len(r[0]) for r in diff_rows)
-            w_prop  = max(max(len(r[1]) for r in diff_rows), len("Proposed"))
+            w_prop = max(max(len(r[1]) for r in diff_rows), len("Proposed"))
             w_exist = max(max(len(r[2]) for r in diff_rows), len("Existing"))
             # Cap at 30 chars to avoid wrapping
-            w_prop  = min(w_prop, 30)
+            w_prop = min(w_prop, 30)
             w_exist = min(w_exist, 30)
 
-            print(f"  {'Param':<{w_param}}   {'Proposed':<{w_prop}}   {'Existing':<{w_exist}}")
+            print(
+                f"  {'Param':<{w_param}}   {'Proposed':<{w_prop}}   {'Existing':<{w_exist}}"
+            )
             print(f"  {'─'*w_param}   {'─'*w_prop}   {'─'*w_exist}")
             for disp_k, p_val, e_val in diff_rows:
                 if len(p_val) > w_prop:
-                    p_val = p_val[:w_prop - 3] + "..."
+                    p_val = p_val[: w_prop - 3] + "..."
                 if len(e_val) > w_exist:
-                    e_val = e_val[:w_exist - 3] + "..."
+                    e_val = e_val[: w_exist - 3] + "..."
                 print(f"  {disp_k:<{w_param}}   {p_val:<{w_prop}}   {e_val:<{w_exist}}")
 
     print()
@@ -191,6 +202,7 @@ def _print_diff(
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -246,7 +258,9 @@ def main(cfg: DictConfig) -> None:
 
     # Extract params and tags from MLflow pandas df
     param_cols = [c for c in runs_df.columns if c.startswith("params.")]
-    tag_id_col = "tags.identity_hash" if "tags.identity_hash" in runs_df.columns else None
+    tag_id_col = (
+        "tags.identity_hash" if "tags.identity_hash" in runs_df.columns else None
+    )
 
     scores: list[tuple[int, str, dict[str, str], str | None]] = []
 
@@ -268,8 +282,7 @@ def main(cfg: DictConfig) -> None:
             continue
 
         score = sum(
-            1 for k, v in proposed_params.items()
-            if existing_params.get(k) == v
+            1 for k, v in proposed_params.items() if existing_params.get(k) == v
         )
 
         existing_id_hash: str | None = None
@@ -283,7 +296,9 @@ def main(cfg: DictConfig) -> None:
     scores.sort(key=lambda x: x[0], reverse=True)
 
     if not has_filters and len(scores) > 5:
-        print("  (No +dry_filter.* specified — limiting output to the top 5 closest matches)")
+        print(
+            "  (No +dry_filter.* specified — limiting output to the top 5 closest matches)"
+        )
         print("  (Append +dry_filter.<param>=<value> to narrow the search instead)\n")
         scores = scores[:5]
 

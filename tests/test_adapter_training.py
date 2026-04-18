@@ -15,6 +15,7 @@ from src.training.adapter_training import (
 )
 from src.networks.heads import LinearAdapter
 
+
 def test_three_way_split_determinism():
     fractions = {"train": 0.5, "val": 0.25, "holdout": 0.25}
     t1, v1, h1 = three_way_split(100, fractions, seed=42)
@@ -24,13 +25,15 @@ def test_three_way_split_determinism():
     assert np.array_equal(v1, v2)
     assert np.array_equal(h1, h2)
 
+
 def test_three_way_split_coverage():
     fractions = {"train": 0.4, "val": 0.3, "holdout": 0.3}
     t, v, h = three_way_split(100, fractions, seed=123)
-    
+
     all_indices = np.concatenate([t, v, h])
     assert len(all_indices) == 100
     assert len(np.unique(all_indices)) == 100
+
 
 def test_standardize_features_zero_mean_unit_std():
     # Simulate data
@@ -41,12 +44,13 @@ def test_standardize_features_zero_mean_unit_std():
 
     t_s, v_s, h_s = standardize_features(train_feat, val_feat, holdout_feat)
 
-    # Train means should be ~0 and stds ~1 
+    # Train means should be ~0 and stds ~1
     assert torch.allclose(t_s.mean(dim=0), torch.zeros(10), atol=1e-5)
     assert torch.allclose(t_s.std(dim=0), torch.ones(10), atol=1e-4)
 
     # Validation should be roughly scaled by train norm, but not exactly 0.
     assert not torch.allclose(v_s.mean(dim=0), torch.zeros(10), atol=1e-5)
+
 
 def test_train_adapter_improves_over_random():
     # Setup data: signal is in the first two dimensions
@@ -64,20 +68,24 @@ def test_train_adapter_improves_over_random():
 
     model = LinearAdapter(emb_dim=5, num_classes=3)
     initial_model = copy.deepcopy(model)
-    
+
     criterion = nn.CrossEntropyLoss()
 
-    _, initial_acc, _ = evaluate_holdout(initial_model, torch.device("cpu"), val_loader, criterion)
-
-    trained_model, history = train_adapter(
-        model, 
-        device=torch.device("cpu"), 
-        train_loader=train_loader, 
-        val_loader=val_loader, 
-        epochs=15, 
-        lr=0.05
+    _, initial_acc, _ = evaluate_holdout(
+        initial_model, torch.device("cpu"), val_loader, criterion
     )
 
-    _, final_acc, _ = evaluate_holdout(trained_model, torch.device("cpu"), val_loader, criterion)
+    trained_model, history = train_adapter(
+        model,
+        device=torch.device("cpu"),
+        train_loader=train_loader,
+        val_loader=val_loader,
+        epochs=15,
+        lr=0.05,
+    )
+
+    _, final_acc, _ = evaluate_holdout(
+        trained_model, torch.device("cpu"), val_loader, criterion
+    )
     assert len(history) == 15
     assert final_acc > initial_acc

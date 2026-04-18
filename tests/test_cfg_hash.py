@@ -210,6 +210,10 @@ class TestCfgHash:
         """training.beton.max_resolution is hash-included — changing it changes hash."""
         c1 = _make_cfg()
         c2_training = dict(_make_cfg().training)
-        c2_training["beton"] = {"max_resolution": 256, "jpeg_quality": 90, "compress_probability": 0.5}
+        c2_training["beton"] = {
+            "max_resolution": 256,
+            "jpeg_quality": 90,
+            "compress_probability": 0.5,
+        }
         c2 = _make_cfg(**{"training": c2_training})
         assert cfg_hash(c1) != cfg_hash(c2)

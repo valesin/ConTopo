@@ -104,6 +104,7 @@ def _normalise_loss(d: dict) -> dict:
 
 # ── Canonical section helper ─────────────────────────────────────────────────
 
+
 def _canonical_section(stored: dict, struct_class) -> dict:
     """Produce a canonical section dict that exactly matches what the training
     script sees after OmegaConf composition.
@@ -158,7 +159,9 @@ def _flatten_section(prefix: str, section: dict) -> Dict[str, str]:
     return out
 
 
-def _recompute_identity_hash(run_id: str, client: MlflowClient, verbose: bool) -> str | None:
+def _recompute_identity_hash(
+    run_id: str, client: MlflowClient, verbose: bool
+) -> str | None:
     """Download stored config, reconstruct identity fields, return new hash.
 
     Returns None if the config artifact cannot be loaded.
@@ -169,7 +172,9 @@ def _recompute_identity_hash(run_id: str, client: MlflowClient, verbose: bool) -
         # (runs logged before the fix used a random tempfile name).
         local_path = None
         try:
-            local_path = client.download_artifacts(run_id, "config/resolved_config.yaml", tmpdir)
+            local_path = client.download_artifacts(
+                run_id, "config/resolved_config.yaml", tmpdir
+            )
         except Exception:
             pass
 
@@ -180,30 +185,34 @@ def _recompute_identity_hash(run_id: str, client: MlflowClient, verbose: bool) -
                 if not yaml_artifacts:
                     log.warning("run %s — no YAML artifact found under config/", run_id)
                     return None
-                local_path = client.download_artifacts(run_id, yaml_artifacts[0].path, tmpdir)
+                local_path = client.download_artifacts(
+                    run_id, yaml_artifacts[0].path, tmpdir
+                )
             except Exception as exc:
-                log.warning("run %s — could not download config artifact: %s", run_id, exc)
+                log.warning(
+                    "run %s — could not download config artifact: %s", run_id, exc
+                )
                 return None
 
         raw = OmegaConf.load(local_path)
         stored = OmegaConf.to_container(raw, resolve=True)
 
     # Extract stored sections
-    stored_model    = _normalise_model(stored.get("model", {}))
-    stored_loss     = _normalise_loss(stored.get("loss", {}))
-    stored_dataset  = _normalise_dataset(stored.get("dataset", {}))
+    stored_model = _normalise_model(stored.get("model", {}))
+    stored_loss = _normalise_loss(stored.get("loss", {}))
+    stored_dataset = _normalise_dataset(stored.get("dataset", {}))
     stored_training = _normalise_training(stored.get("training", {}))
 
     # Canonicalise against current structured schema
-    canon_model    = _canonical_section(stored_model, ModelConfig)
-    canon_loss     = _canonical_section(stored_loss, LossConfig)
-    canon_dataset  = _canonical_section(stored_dataset, DatasetConfig)
+    canon_model = _canonical_section(stored_model, ModelConfig)
+    canon_loss = _canonical_section(stored_loss, LossConfig)
+    canon_dataset = _canonical_section(stored_dataset, DatasetConfig)
     canon_training = _canonical_section(stored_training, TrainingConfig)
 
     # Reconstruct identity fields
     schema_version = str(stored.get("schema_version", "1"))
-    trial          = str(stored.get("trial", "0"))
-    seed           = str(stored.get("seed", "None"))
+    trial = str(stored.get("trial", "0"))
+    seed = str(stored.get("seed", "None"))
 
     fields: Dict[str, str] = {
         "schema_version": schema_version,
@@ -280,10 +289,7 @@ def main() -> None:
             skipped += 1
         else:
             status = "PATCH" if args.apply else "WOULD PATCH"
-            print(
-                f"{status} {run_id}  "
-                f"old={stored_hash!r}  →  new={new_hash!r}"
-            )
+            print(f"{status} {run_id}  " f"old={stored_hash!r}  →  new={new_hash!r}")
             if args.apply:
                 client.set_tag(run_id, "identity_hash", new_hash)
             patched += 1

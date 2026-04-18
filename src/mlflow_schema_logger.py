@@ -11,10 +11,12 @@ import mlflow
 
 class TelemetryContractError(Exception):
     """Raised when an MLflow run fails to meet its telemetry schema constraints."""
+
     pass
 
 
 # ───────────────── timed upload helpers ─────────────────
+
 
 @contextmanager
 def _timed_log(description: str):
@@ -78,162 +80,270 @@ TELEMETRY_SCHEMA = {
     "model": {
         "params": {
             "required": [
-                "rho", "seed", "epochs", "batch_size", "learning_rate", "optimiser",
-                "weight_decay", "momentum", "scheduler", "amp", "save_freq_epochs",
-                "early_stopping_patience", "early_stopping_method", "beta", "eps",
-                "lambda_max", "topography_type", "topology", "neighbourhood_type",
-                "neighbourhood_radius", "embedding_dim", "p_dropout", "head_bias",
-                "model_arch", "dataset", "transforms_preset", "split_strategy", "val_per_class"
+                "rho",
+                "seed",
+                "epochs",
+                "batch_size",
+                "learning_rate",
+                "optimiser",
+                "weight_decay",
+                "momentum",
+                "scheduler",
+                "amp",
+                "save_freq_epochs",
+                "early_stopping_patience",
+                "early_stopping_method",
+                "beta",
+                "eps",
+                "lambda_max",
+                "topography_type",
+                "topology",
+                "neighbourhood_type",
+                "neighbourhood_radius",
+                "embedding_dim",
+                "p_dropout",
+                "head_bias",
+                "model_arch",
+                "dataset",
+                "transforms_preset",
+                "split_strategy",
+                "val_per_class",
             ],
             "optional": [
                 # FFCV full-recipe params — optional so existing runs without them still pass
-                "loading_backend", "label_smoothing", "use_blurpool",
-                "optimizer_selective_wd", "lr_tta",
+                "loading_backend",
+                "label_smoothing",
+                "use_blurpool",
+                "optimizer_selective_wd",
+                "lr_tta",
                 "lr_peak_epoch",
-                "progressive_res_min", "progressive_res_max",
-                "progressive_res_start_ramp", "progressive_res_end_ramp",
+                "progressive_res_min",
+                "progressive_res_max",
+                "progressive_res_start_ramp",
+                "progressive_res_end_ramp",
                 # FFCV beton format settings — optional; None for torch runs
-                "beton_max_resolution", "beton_jpeg_quality", "beton_compress_probability",
-            ]
+                "beton_max_resolution",
+                "beton_jpeg_quality",
+                "beton_compress_probability",
+            ],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "schema_version", "cfg_hash", "trial"],
-            "optional": ["run_name"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "schema_version",
+                "cfg_hash",
+                "trial",
+            ],
+            "optional": ["run_name"],
         },
         "metrics": {
             "required": ["test_accuracy", "test_loss", "best_val_acc", "best_val_loss"],
-            "optional": []
+            "optional": [],
         },
-        "artifacts": {
-            "required": ["e2e_best"],
-            "optional": []
-        }
+        "artifacts": {"required": ["e2e_best"], "optional": []},
     },
     "inference": {
         "params": {
             "required": ["dataset", "split", "transforms_preset", "rho"],
-            "optional": []
+            "optional": [],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "trained_model_run_id", "parent_run_name", "cfg_hash"],
-            "optional": ["run_name"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "trained_model_run_id",
+                "parent_run_name",
+                "cfg_hash",
+            ],
+            "optional": ["run_name"],
         },
-        "metrics": {
-            "required": ["accuracy"],
-            "optional": []
-        },
+        "metrics": {"required": ["accuracy"], "optional": []},
         "artifacts": {
-            "required": ["inference/{split}_inference_results.parquet", "inference/{split}_tensors.npz"],
-            "optional": []
-        }
+            "required": [
+                "inference/{split}_inference_results.parquet",
+                "inference/{split}_tensors.npz",
+            ],
+            "optional": [],
+        },
     },
     "category_similarity_profile": {
         "params": {
-            "required": ["similarity_metric", "split", "profile_hash", "num_anchors", "num_samples", "rho", "trial", "topology"],
-            "optional": []
+            "required": [
+                "similarity_metric",
+                "split",
+                "profile_hash",
+                "num_anchors",
+                "num_samples",
+                "rho",
+                "trial",
+                "topology",
+            ],
+            "optional": [],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "parent_run_id", "inference_run_id", "anchor_spec_hash", "profile_dim", "profile_hash", "similarity_metric", "split"],
-            "optional": ["run_name"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "parent_run_id",
+                "inference_run_id",
+                "anchor_spec_hash",
+                "profile_dim",
+                "profile_hash",
+                "similarity_metric",
+                "split",
+            ],
+            "optional": ["run_name"],
         },
-        "metrics": {
-            "required": [],
-            "optional": []
-        },
+        "metrics": {"required": [], "optional": []},
         "artifacts": {
             "required": ["profiles/{split}_{similarity_metric}_profiles.pt"],
-            "optional": []
-        }
+            "optional": [],
+        },
     },
     "diagnostics": {
-        "params": {
-            "required": ["diagnostic_metric", "split"],
-            "optional": []
-        },
+        "params": {"required": ["diagnostic_metric", "split"], "optional": []},
         "tags": {
             "required": ["kind", "identity_hash", "parent_run_id"],
-            "optional": ["run_name", "inference_run_id"]
+            "optional": ["run_name", "inference_run_id"],
         },
         "metrics": {
             "required": [],
-            "optional": ["morans_i", "weight_norms_mean", "weight_norms_std", "unit_dist_cos_correlation"]
+            "optional": [
+                "morans_i",
+                "weight_norms_mean",
+                "weight_norms_std",
+                "unit_dist_cos_correlation",
+            ],
         },
         "artifacts": {
             "required": [],
-            "optional": ["diagnostics/weight_norms.pt", "diagnostics/unit_distance_correlation.pt"]
-        }
+            "optional": [
+                "diagnostics/weight_norms.pt",
+                "diagnostics/unit_distance_correlation.pt",
+            ],
+        },
     },
     "ensemble": {
         "params": {
             "required": ["method", "method_type", "num_components", "split", "rho"],
-            "optional": []
+            "optional": [],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "ensemble_name", "component_set_hash", "behaviour_input_hash", "component_run_ids_csv", "feature_type", "rho", "groups_signature"],
-            "optional": ["run_name"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "ensemble_name",
+                "component_set_hash",
+                "behaviour_input_hash",
+                "component_run_ids_csv",
+                "feature_type",
+                "rho",
+                "groups_signature",
+            ],
+            "optional": ["run_name"],
         },
         "metrics": {
             "required": ["ensemble_accuracy", "comp_mean_acc", "comp_max_acc"],
-            "optional": []
+            "optional": [],
         },
         "artifacts": {
-            "required": ["ensemble/composition_map.json", "ensemble/{split}_{ensemble_name}_{method}_inference.parquet"],
-            "optional": ["ensemble/{split}_{ensemble_name}_{method}_tensors.npz"]
-        }
+            "required": [
+                "ensemble/composition_map.json",
+                "ensemble/{split}_{ensemble_name}_{method}_inference.parquet",
+            ],
+            "optional": ["ensemble/{split}_{ensemble_name}_{method}_tensors.npz"],
+        },
     },
     "diversity": {
         "params": {
             "required": ["num_components", "split", "diversity_metric"],
-            "optional": []
+            "optional": [],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "ensemble_name", "component_set_hash", "groups_signature"],
-            "optional": ["run_name", "component_run_ids_csv"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "ensemble_name",
+                "component_set_hash",
+                "groups_signature",
+            ],
+            "optional": ["run_name", "component_run_ids_csv"],
         },
         "metrics": {
             "required": [],
-            "optional": ["q_statistic", "disagreement", "double_fault", "correlation", "interrater_agreement", "iou_top_n"]
+            "optional": [
+                "q_statistic",
+                "disagreement",
+                "double_fault",
+                "correlation",
+                "interrater_agreement",
+                "iou_top_n",
+            ],
         },
-        "artifacts": {
-            "required": [],
-            "optional": []
-        }
+        "artifacts": {"required": [], "optional": []},
     },
     "consistency": {
         "params": {
             "required": ["num_components", "split", "anchors_per_class"],
-            "optional": []
+            "optional": [],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "ensemble_name", "component_set_hash", "consistency_hash", "anchor_spec_hash", "groups_signature"],
-            "optional": ["run_name"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "ensemble_name",
+                "component_set_hash",
+                "consistency_hash",
+                "anchor_spec_hash",
+                "groups_signature",
+            ],
+            "optional": ["run_name"],
         },
-        "metrics": {
-            "required": ["mean_rsa_correlation"],
-            "optional": []
-        },
+        "metrics": {"required": ["mean_rsa_correlation"], "optional": []},
         "artifacts": {
-            "required": ["consistency/rsa_matrix.pt", "consistency/run_id_ordering.json"],
-            "optional": []
-        }
+            "required": [
+                "consistency/rsa_matrix.pt",
+                "consistency/run_id_ordering.json",
+            ],
+            "optional": [],
+        },
     },
     "metalearner": {
         "params": {
             "required": [
-                "meta_type", "feature_type", "similarity_metric", "adapter_epochs",
-                "adapter_lr", "adapter_batch_size", "meta_split_seed", "meta_split_train",
-                "meta_split_val", "adapter_architecture", "standardization_applied",
-                "num_components", "profile_mask"
+                "meta_type",
+                "feature_type",
+                "similarity_metric",
+                "adapter_epochs",
+                "adapter_lr",
+                "adapter_batch_size",
+                "meta_split_seed",
+                "meta_split_train",
+                "meta_split_val",
+                "adapter_architecture",
+                "standardization_applied",
+                "num_components",
+                "profile_mask",
             ],
-            "optional": []
+            "optional": [],
         },
         "tags": {
-            "required": ["kind", "identity_hash", "ensemble_name", "component_set_hash", "behaviour_input_hash", "component_run_ids_csv", "rho", "groups_signature"],
-            "optional": ["run_name"]
+            "required": [
+                "kind",
+                "identity_hash",
+                "ensemble_name",
+                "component_set_hash",
+                "behaviour_input_hash",
+                "component_run_ids_csv",
+                "rho",
+                "groups_signature",
+            ],
+            "optional": ["run_name"],
         },
         "metrics": {
             "required": ["val_acc", "val_loss", "holdout_acc", "holdout_loss"],
-            "optional": []
+            "optional": [],
         },
         "artifacts": {
             "required": [
@@ -241,10 +351,10 @@ TELEMETRY_SCHEMA = {
                 "inputs/adapter_split_trace_{behaviour_input_hash}.parquet",
                 "data/adapter_holdout_{behaviour_input_hash}.parquet",
                 "data/adapter_holdout_{behaviour_input_hash}.npz",
-                "model"
+                "model",
             ],
-            "optional": []
-        }
+            "optional": [],
+        },
     },
 }
 
@@ -283,14 +393,19 @@ def _clean_tags(tags: Mapping[str, Any]) -> dict[str, str]:
     return out
 
 
-def _check_artifact_exists(client: mlflow.tracking.MlflowClient, run_id: str, expected_path: str) -> bool:
+def _check_artifact_exists(
+    client: mlflow.tracking.MlflowClient, run_id: str, expected_path: str
+) -> bool:
     """Helper to check if an artifact exists at the given path."""
     dirname = os.path.dirname(expected_path)
     try:
         items = client.list_artifacts(run_id, dirname if dirname else None)
     except Exception:
         return False
-    return any(item.path == expected_path or item.path.startswith(expected_path + "/") for item in items)
+    return any(
+        item.path == expected_path or item.path.startswith(expected_path + "/")
+        for item in items
+    )
 
 
 def _validate_telemetry_schema(kind: str, run_id: str):
@@ -303,19 +418,25 @@ def _validate_telemetry_schema(kind: str, run_id: str):
     logged_params = set(run.data.params.keys())
     missing_params = set(schema["params"]["required"]) - logged_params
     if missing_params:
-        raise TelemetryContractError(f"Run {run_id} (kind={kind}) validation failed: Missing required params: {missing_params}")
+        raise TelemetryContractError(
+            f"Run {run_id} (kind={kind}) validation failed: Missing required params: {missing_params}"
+        )
 
     # Tags
     logged_tags = set(run.data.tags.keys())
     missing_tags = set(schema["tags"]["required"]) - logged_tags
     if missing_tags:
-        raise TelemetryContractError(f"Run {run_id} (kind={kind}) validation failed: Missing required tags: {missing_tags}")
+        raise TelemetryContractError(
+            f"Run {run_id} (kind={kind}) validation failed: Missing required tags: {missing_tags}"
+        )
 
     # Metrics
     logged_metrics = set(run.data.metrics.keys())
     missing_metrics = set(schema["metrics"]["required"]) - logged_metrics
     if missing_metrics:
-        raise TelemetryContractError(f"Run {run_id} (kind={kind}) validation failed: Missing required metrics: {missing_metrics}")
+        raise TelemetryContractError(
+            f"Run {run_id} (kind={kind}) validation failed: Missing required metrics: {missing_metrics}"
+        )
 
     # Artifacts
     # Safely merge tags and params for formatting. Keys in params overwrite tags if they collide.
@@ -325,44 +446,61 @@ def _validate_telemetry_schema(kind: str, run_id: str):
         try:
             expected_path = art_template.format(**fmt_context)
         except KeyError as e:
-            raise TelemetryContractError(f"Run {run_id} (kind={kind}): Cannot resolve artifact path '{art_template}' because param/tag {e} is missing in tracked data.")
+            raise TelemetryContractError(
+                f"Run {run_id} (kind={kind}): Cannot resolve artifact path '{art_template}' because param/tag {e} is missing in tracked data."
+            )
 
         if not _check_artifact_exists(client, run_id, expected_path):
-            raise TelemetryContractError(f"Run {run_id} (kind={kind}) validation failed: Missing required artifact: '{expected_path}'")
+            raise TelemetryContractError(
+                f"Run {run_id} (kind={kind}) validation failed: Missing required artifact: '{expected_path}'"
+            )
 
 
 @contextmanager
 def start_run(kind: str, run_name: str, tags: Mapping[str, Any] | None = None):
     _ensure_known_kind(kind)
     merged_tags = {"kind": kind, **(tags or {})}
-    allowed_tags = set(TELEMETRY_SCHEMA[kind]["tags"]["required"] + TELEMETRY_SCHEMA[kind]["tags"]["optional"])
+    allowed_tags = set(
+        TELEMETRY_SCHEMA[kind]["tags"]["required"]
+        + TELEMETRY_SCHEMA[kind]["tags"]["optional"]
+    )
     _check_keys(kind, merged_tags, allowed_tags, "tag")
 
     start = datetime.now()
-    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})")
+    print(
+        f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})"
+    )
 
-    # The exception handling here allows MLflow's standard context manager to correctly 
+    # The exception handling here allows MLflow's standard context manager to correctly
     # catch anything that goes wrong during the block (including our contract validation)
     # and mark the run as FAILED automatically.
     with mlflow.start_run(run_name=run_name, tags=_clean_tags(merged_tags)) as run:
         yield run
-        
+
         # When execution hits here, the user's `with` block completed without exceptions.
         # So we trigger the final telemetry contract validation!
-        print(f"[VALIDATION] Enforcing telemetry contract for {run_name} (kind={kind})... ", end="")
+        print(
+            f"[VALIDATION] Enforcing telemetry contract for {run_name} (kind={kind})... ",
+            end="",
+        )
         mlflow.flush_artifact_async_logging()
         _validate_telemetry_schema(kind, run.info.run_id)
         print("PASS")
 
     end = datetime.now()
     elapsed = (end - start).total_seconds()
-    print(f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Run {run_name} (kind={kind}) finished & validated in {elapsed:.1f}s")
+    print(
+        f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Run {run_name} (kind={kind}) finished & validated in {elapsed:.1f}s"
+    )
 
 
 def log_params(kind: str, params: Mapping[str, Any]) -> None:
     _ensure_known_kind(kind)
     cleaned = _clean_params(params)
-    allowed_params = set(TELEMETRY_SCHEMA[kind]["params"]["required"] + TELEMETRY_SCHEMA[kind]["params"]["optional"])
+    allowed_params = set(
+        TELEMETRY_SCHEMA[kind]["params"]["required"]
+        + TELEMETRY_SCHEMA[kind]["params"]["optional"]
+    )
     _check_keys(kind, cleaned, allowed_params, "param")
     if cleaned:
         with _timed_log(f"Logging params (kind={kind}, n={len(cleaned)})"):
@@ -372,7 +510,10 @@ def log_params(kind: str, params: Mapping[str, Any]) -> None:
 def log_tags(kind: str, tags: Mapping[str, Any]) -> None:
     _ensure_known_kind(kind)
     cleaned = _clean_tags(tags)
-    allowed_tags = set(TELEMETRY_SCHEMA[kind]["tags"]["required"] + TELEMETRY_SCHEMA[kind]["tags"]["optional"])
+    allowed_tags = set(
+        TELEMETRY_SCHEMA[kind]["tags"]["required"]
+        + TELEMETRY_SCHEMA[kind]["tags"]["optional"]
+    )
     _check_keys(kind, cleaned, allowed_tags, "tag")
     if cleaned:
         with _timed_log(f"Logging tags (kind={kind}, n={len(cleaned)})"):

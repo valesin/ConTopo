@@ -16,12 +16,9 @@ ADAPTER_REGISTRY: dict[str, type[nn.Module]] = {
     "meta_mlp_4": FourLayerMLPAdapter,
 }
 
+
 def build_adapter(
-    meta_type: str,
-    input_dim: int,
-    num_classes: int,
-    bias: bool = True,
-    **kwargs
+    meta_type: str, input_dim: int, num_classes: int, bias: bool = True, **kwargs
 ) -> nn.Module:
     """Build an adapter module based on its meta_type string."""
     cls = ADAPTER_REGISTRY.get(meta_type)
@@ -44,8 +41,9 @@ def build_adapter(
         )
     elif meta_type in ("meta_mlp_3", "meta_mlp_4"):
         return cls(in_dim=input_dim, num_classes=num_classes, bias=bias)
-    
+
     raise ValueError(f"Unhandled meta_type logic for initialization: {meta_type}")
+
 
 def adapter_architecture_name(meta_type: str) -> str:
     """Get the string name of the adapter class for MLflow logging."""

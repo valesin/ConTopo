@@ -137,7 +137,13 @@ def main(cfg: DictConfig) -> None:
 
         # Build dynamic column widths.
         col_widths = {
-            f: max(len(f), max((len(str(meta.get(rid, {}).get(f, _ABSENT))) for rid in run_ids), default=1))
+            f: max(
+                len(f),
+                max(
+                    (len(str(meta.get(rid, {}).get(f, _ABSENT))) for rid in run_ids),
+                    default=1,
+                ),
+            )
             for f in varying
         }
         run_id_w = 12

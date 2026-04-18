@@ -90,4 +90,3 @@ def test_cfg_driven_matches_direct_discover(mock_search_runs):
     )
 
     assert result_cfg == result_direct
-

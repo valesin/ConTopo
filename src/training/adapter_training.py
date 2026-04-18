@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+
 def three_way_split(N: int, fractions: dict, seed: int):
     """Deterministically split N indices into train/val/holdout."""
     rng = np.random.default_rng(seed)
@@ -23,6 +24,7 @@ def three_way_split(N: int, fractions: dict, seed: int):
 
     return train_idx, val_idx, holdout_idx
 
+
 def standardize_features(
     train_feat: torch.Tensor, val_feat: torch.Tensor, holdout_feat: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -39,6 +41,7 @@ def standardize_features(
     holdout_std = (holdout_feat - mean) / (std + 1e-6)
 
     return train_std, val_std, holdout_std
+
 
 def train_adapter(
     model: nn.Module,
@@ -101,6 +104,7 @@ def train_adapter(
     if best_state is not None:
         model.load_state_dict(best_state)
     return model, history
+
 
 def evaluate_holdout(
     model: nn.Module, device: torch.device, loader: DataLoader, criterion: nn.Module

@@ -63,7 +63,7 @@ def _cifar10_resizedcrop_v1():
 # ------------- ImageNet presets ------------- #
 
 _IMAGENET_MEAN = (0.485, 0.456, 0.406)
-_IMAGENET_STD  = (0.229, 0.224, 0.225)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def _imagenet_v1():

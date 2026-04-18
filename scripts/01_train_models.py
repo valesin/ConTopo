@@ -68,11 +68,18 @@ def _build_optimiser(cfg: DictConfig, model):
     # Selective weight decay: apply WD only to non-BN, non-bias params (FFCV recipe)
     if cfg.training.optimizer_selective_wd:
         no_wd_names = ("bn", "bias")
-        wd_params    = [p for n, p in model.named_parameters()
-                        if not any(nd in n for nd in no_wd_names)]
-        no_wd_params = [p for n, p in model.named_parameters()
-                        if any(nd in n for nd in no_wd_names)]
-        param_groups = [{"params": wd_params}, {"params": no_wd_params, "weight_decay": 0.0}]
+        wd_params = [
+            p
+            for n, p in model.named_parameters()
+            if not any(nd in n for nd in no_wd_names)
+        ]
+        no_wd_params = [
+            p for n, p in model.named_parameters() if any(nd in n for nd in no_wd_names)
+        ]
+        param_groups = [
+            {"params": wd_params},
+            {"params": no_wd_params, "weight_decay": 0.0},
+        ]
     else:
         param_groups = model.parameters()
 
@@ -112,7 +119,9 @@ def _build_scheduler(cfg: DictConfig, optimiser, steps_per_epoch: int):
     return None  # "none"
 
 
-def _resolve_loader_for_epoch(train_loaders, epoch: int, total_epochs: int, cfg: DictConfig):
+def _resolve_loader_for_epoch(
+    train_loaders, epoch: int, total_epochs: int, cfg: DictConfig
+):
     """Return the appropriate train loader for this epoch.
 
     If ``train_loaders`` is a list (progressive resolution), selects based on the
@@ -131,7 +140,7 @@ def _resolve_loader_for_epoch(train_loaders, epoch: int, total_epochs: int, cfg:
         return train_loaders[0]
 
     start_frac = cfg.training.progressive_res_start_ramp
-    end_frac   = cfg.training.progressive_res_end_ramp
+    end_frac = cfg.training.progressive_res_end_ramp
     frac = (epoch - 1) / total_epochs  # 0-based
 
     if frac < start_frac:
@@ -238,15 +247,26 @@ def main(cfg: DictConfig) -> None:
         # ── Blurpool (antialiased downsampling) ──
         if cfg.training.use_blurpool:
             from antialiased_cnns import BlurPool
+
             for name, module in unwrap(model).named_modules():
                 if isinstance(module, torch.nn.MaxPool2d) and module.stride > 1:
                     parent, attr = name.rsplit(".", 1) if "." in name else ("", name)
-                    parent_mod = unwrap(model) if not parent else dict(unwrap(model).named_modules())[parent]
-                    setattr(parent_mod, attr, BlurPool(module.kernel_size, stride=module.stride))
+                    parent_mod = (
+                        unwrap(model)
+                        if not parent
+                        else dict(unwrap(model).named_modules())[parent]
+                    )
+                    setattr(
+                        parent_mod,
+                        attr,
+                        BlurPool(module.kernel_size, stride=module.stride),
+                    )
 
         # ── Losses ──
         label_smoothing = float(cfg.training.label_smoothing)
-        task_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(device)
+        task_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(
+            device
+        )
         topo_loss_fn = _build_topo_loss(cfg, cfg.model.embedding_dim)
         if isinstance(topo_loss_fn, torch.nn.Module):
             topo_loss_fn = topo_loss_fn.to(device)
@@ -264,7 +284,9 @@ def main(cfg: DictConfig) -> None:
 
         # ── Scheduler ──
         # steps_per_epoch: use first train loader for count (handles progressive list)
-        _first_loader = train_loader[0] if isinstance(train_loader, list) else train_loader
+        _first_loader = (
+            train_loader[0] if isinstance(train_loader, list) else train_loader
+        )
         steps_per_epoch = len(_first_loader)
         scheduler = _build_scheduler(cfg, optimiser, steps_per_epoch)
 
@@ -357,7 +379,9 @@ def main(cfg: DictConfig) -> None:
 
             # ── Create Signature and Input Example (Before Loop) ──
             # Grab one batch from the train_loader (use first loader if progressive list)
-            _sig_loader = train_loader[0] if isinstance(train_loader, list) else train_loader
+            _sig_loader = (
+                train_loader[0] if isinstance(train_loader, list) else train_loader
+            )
             sig_inputs, _ = next(iter(_sig_loader))
             sig_inputs = sig_inputs.to(device).float()
 
