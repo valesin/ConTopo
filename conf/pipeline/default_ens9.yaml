@@ -1,0 +1,21 @@
+# @package pipeline
+# Full production pipeline.
+# Usage: python main.py
+from_step: null
+steps:
+  - id: train
+    script: 01_train_models.py
+    sweep: training_rho
+    description: "Train CE models"
+  - id: inference
+    script: 02_cache_inference.py
+    sweep: training_rho
+    description: "Cache inference artifacts"
+  - id: ensemble
+    script: 04_run_ensemble.py
+    description: "Build ensembles"
+  - id: ensemble
+    script: 04_run_ensemble.py
+    description: "Build ensembles"
+    overrides:
+      - "groups=samples9"

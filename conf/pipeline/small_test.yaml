@@ -1,0 +1,16 @@
+# @package pipeline
+from_step: null
+steps:
+  - id: train
+    script: 01_train_models.py
+    sweep: training_small_10
+    description: "Train CE models"
+  - id: inference
+    script: 02_cache_inference.py
+    sweep: training_small_10
+    description: "Cache inference artifacts"
+  - id: ensemble
+    script: 04_run_ensemble.py
+    description: "Build ensembles"
+    overrides:
+      - "groups=samples9"
