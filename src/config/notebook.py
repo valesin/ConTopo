@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 def setup_environment(
     config_name: str = "config",
     overrides: list[str] | None = None,
-    mlflow_config: str = "notebook",
+    mlflow_config: str = "default",
 ) -> tuple[DictConfig, Experiment]:
     """
     Robust setup for interactive environments (Jupyter, Marimo).
@@ -21,8 +21,10 @@ def setup_environment(
     4. Composes Hydra config and initialises MLflow.
 
     mlflow_config selects conf/mlflow/<name>.yaml:
-      "notebook"  → http://localhost:5000  (remote server via SSH tunnel, default)
       "default"   → sqlite:///outputs/mlflow.db  (local DB used by pipeline scripts)
+      "notebook"  → http://localhost:5000  (remote server via SSH tunnel)
+    To use a remote tracking server without changing this value, set MLFLOW_TRACKING_URI
+    (and optionally MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD) in the environment.
     Additional Hydra overrides can be passed via overrides list.
 
     Returns:
@@ -77,3 +79,23 @@ def setup_environment(
         raise ValueError(f"Experiment '{cfg.mlflow.experiment_name}' not found")
 
     return cfg, experiment
+
+
+def compose_groups(groups_name: str) -> DictConfig:
+    """
+    Lightweight Hydra compose returning just cfg.groups for a named groups config.
+
+    Intended for reactive notebook cells that only need to recompute a groups
+    signature when a dropdown changes — without re-running MLflow setup.
+    Must be called after setup_environment() (relies on cwd and sys.path already set).
+    """
+    root_dir = os.getcwd()
+    config_dir = os.path.join(root_dir, "conf")
+    with initialize_config_dir(version_base=None, config_dir=config_dir):
+        cfg = compose(
+            config_name="config",
+            overrides=[f"groups={groups_name}"],
+            return_hydra_config=True,
+        )
+        HydraConfig.instance().set_config(cfg)
+    return cfg.groups

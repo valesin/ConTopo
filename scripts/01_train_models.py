@@ -24,7 +24,7 @@ import torch
 # Suppress torchvision's NumPy 2.4 deprecation warning in CIFAR dataset loading
 warnings.filterwarnings("ignore", category=VisibleDeprecationWarning)
 import torch.backends.cudnn as cudnn
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 from torch.amp import GradScaler
 
 from src.config.hash import cfg_hash
@@ -213,6 +213,9 @@ def main(cfg: DictConfig) -> None:
     cudnn.benchmark = True
 
     # ── Idempotency ──
+    # Coerce loss.rho to float so int sweep values (e.g. rho=5) hash identically to 5.0
+    with open_dict(cfg):
+        cfg.loss.rho = float(cfg.loss.rho)
     hash_val = cfg_hash(cfg)
     apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)

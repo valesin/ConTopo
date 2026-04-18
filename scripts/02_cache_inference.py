@@ -68,23 +68,7 @@ def main(cfg: DictConfig) -> None:
         )
         return
     run_id = model_run.info.run_id
-    model_uri = f"runs:/{run_id}/e2e_best"
-    print(f"Loading model weights from {model_uri}...")
-    try:
-        model = mlflow.pytorch.load_model(model_uri)
-    except Exception as e:
-        print(f"ERROR: failed to load model {model_uri}: {e}")
-        raise
-
-    # Extract parent run metadata
-    parent_run = mlflow.get_run(run_id)
-    parent_run_name = parent_run.info.run_name
-    rho, _, _ = get_run_context(parent_run)
-    if rho == "?":
-        rho = "N/A"
-
     split = cfg.execution.split
-    device = resolve_device(cfg.runtime.device)
     inf_identity_hash = identity_hash(
         "inference", trained_model_run_id=run_id, split=split
     )
@@ -97,6 +81,23 @@ def main(cfg: DictConfig) -> None:
                 f"Inference already cached for model {run_id} on split {split}. Skipping."
             )
             return
+
+    # Extract parent run metadata
+    parent_run = mlflow.get_run(run_id)
+    parent_run_name = parent_run.info.run_name
+    rho, _, _ = get_run_context(parent_run)
+    if rho == "?":
+        rho = "N/A"
+
+    model_uri = f"runs:/{run_id}/e2e_best"
+    print(f"Loading model weights from {model_uri}...")
+    try:
+        model = mlflow.pytorch.load_model(model_uri)
+    except Exception as e:
+        print(f"ERROR: failed to load model {model_uri}: {e}")
+        raise
+
+    device = resolve_device(cfg.runtime.device)
 
     loader = get_dataset_eval_loader(
         cfg=cfg,

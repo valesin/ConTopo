@@ -42,8 +42,8 @@ print(experiment.name)
 
 Notes:
 
-- Default notebook MLflow profile is `mlflow=notebook` (`conf/mlflow/notebook.yaml`, typically `http://localhost:5000`).
-- Pipeline scripts usually use `mlflow=default` (`sqlite:///.../outputs/mlflow.db`).
+- Default notebook MLflow profile uses `conf/mlflow/default.yaml` (`sqlite:///.../outputs/mlflow.db`).
+- To target a remote tracking server (DagHub, local MLflow server, etc.), set `MLFLOW_TRACKING_URI` (and optionally `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD`) in the environment before launching the notebook. `setup_environment` picks them up automatically via `apply_mlflow_env_overrides`.
 - If notebook queries return empty unexpectedly, check that `tracking_uri` and experiment are the intended ones.
 
 ---
@@ -188,6 +188,7 @@ Most analysis notebooks in `notebooks/*.py` follow this pattern:
 
 Representative scripts:
 
+- `notebooks/ensemble_samples_accuracy.py` — ensemble accuracy vs ρ for sampled combinations (interactive: groups config, vote method, split)
 - `notebooks/analysis_metalearner.py`
 - `notebooks/analysis_diversity.py`
 - `notebooks/analysis_profiles_comparison.py`

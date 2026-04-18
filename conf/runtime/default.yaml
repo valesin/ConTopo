@@ -5,6 +5,7 @@ num_workers: 2
 pin_memory: true
 persistent_workers: false
 print_freq: 30
+verbose_upload_log: false        # set true to print [UPLOAD START/END] timing for every MLflow call
 
 # Paths (platform-specific)
 data_root: ./dataset

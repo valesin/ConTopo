@@ -10,6 +10,14 @@ from typing import Any, Mapping
 import mlflow
 
 
+_verbose_upload_log: bool = False
+
+
+def set_upload_log_verbose(flag: bool) -> None:
+    global _verbose_upload_log
+    _verbose_upload_log = flag
+
+
 class TelemetryContractError(Exception):
     """Raised when an MLflow run fails to meet its telemetry schema constraints."""
 
@@ -21,18 +29,20 @@ class TelemetryContractError(Exception):
 
 @contextmanager
 def _timed_log(description: str) -> Iterator[None]:
-    """Context manager that prints wall-clock start/end timestamps around an MLflow upload."""
+    """Context manager that times an MLflow upload, printing if verbose_upload_log is set."""
     start = datetime.now()
-    print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — {description}")
+    if _verbose_upload_log:
+        print(f"[UPLOAD START] {start.strftime('%H:%M:%S')} — {description}")
     try:
         yield
     finally:
-        end = datetime.now()
-        elapsed = (end - start).total_seconds()
-        print(
-            f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — {description} "
-            f"completed in {elapsed:.1f}s"
-        )
+        if _verbose_upload_log:
+            end = datetime.now()
+            elapsed = (end - start).total_seconds()
+            print(
+                f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — {description} "
+                f"completed in {elapsed:.1f}s"
+            )
 
 
 def timed_log_metrics(metrics: Mapping[str, float], **kwargs: Any) -> None:
@@ -472,9 +482,10 @@ def start_run(
     _check_keys(kind, merged_tags, allowed_tags, "tag")
 
     start = datetime.now()
-    print(
-        f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})"
-    )
+    if _verbose_upload_log:
+        print(
+            f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Starting MLflow run: {run_name} (kind={kind})"
+        )
 
     # The exception handling here allows MLflow's standard context manager to correctly
     # catch anything that goes wrong during the block (including our contract validation)
@@ -492,11 +503,12 @@ def start_run(
         _validate_telemetry_schema(kind, run.info.run_id)
         print("PASS")
 
-    end = datetime.now()
-    elapsed = (end - start).total_seconds()
-    print(
-        f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Run {run_name} (kind={kind}) finished & validated in {elapsed:.1f}s"
-    )
+    if _verbose_upload_log:
+        end = datetime.now()
+        elapsed = (end - start).total_seconds()
+        print(
+            f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Run {run_name} (kind={kind}) finished & validated in {elapsed:.1f}s"
+        )
 
 
 def log_params(kind: str, params: Mapping[str, Any]) -> None:

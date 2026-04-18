@@ -21,10 +21,11 @@ dependencies = [
 
 [dependency-groups]
 analysis = [
-    "matplotlib",
+    "marimo[recommended]",
+    # "matplotlib",
     "plotly",
-    "ipython==8.28.0",
-    "jupyter==1.0.0",
+    # "ipython==8.28.0",
+    # "jupyter==1.0.0",
     "polars==1.12.0",
 ]
 dev = [

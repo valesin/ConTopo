@@ -3,8 +3,7 @@ hydra:
   mode: MULTIRUN
   sweeper:
     params:
-      # Sweeps trials 0, 1
       trial: range(0, 10) 
-      loss.rho: 0.0, 1.0
+      loss.rho: 0.0, 1.0, 5.0
       training.epochs: 1
       model: simple_cnn

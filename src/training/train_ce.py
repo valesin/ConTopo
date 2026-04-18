@@ -15,7 +15,7 @@ from typing import Any, TypedDict, cast
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from src.losses.balancer import GradNormBalancer
@@ -102,7 +102,7 @@ def train_one_epoch(
         labels = labels.to(device, non_blocking=True).squeeze()
         bsz = labels.shape[0]
 
-        with autocast(enabled=use_amp):
+        with autocast("cuda", enabled=use_amp):
             embeddings, logits = model(images)
             task_loss = task_loss_fn(logits, labels)
 

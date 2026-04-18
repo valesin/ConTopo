@@ -75,7 +75,7 @@ def build_ffcv_train_pipeline(
         ToDevice(torch.device(f"cuda:{device}"), non_blocking=True),
         ToTorchImage(),
         # NormalizeImage takes uint8 input and converts to the given output dtype in one step
-        NormalizeImage(mean_np, std_np, np.float16),
+        NormalizeImage(mean_np, std_np, np.dtype(np.float16)),
     ]
     label_pipeline = [
         IntDecoder(),
@@ -131,7 +131,7 @@ def build_ffcv_eval_pipeline(
         ToTensor(),
         ToDevice(torch.device(f"cuda:{device}"), non_blocking=True),
         ToTorchImage(),
-        NormalizeImage(mean_np, std_np, np.float16),
+        NormalizeImage(mean_np, std_np, np.dtype(np.float16)),
     ]
     label_pipeline = [
         IntDecoder(),
@@ -167,7 +167,7 @@ def build_ffcv_loader(
     from ffcv.loader import Loader, OrderOption
 
     if distributed:
-        order = OrderOption.DISTRIBUTED
+        order = OrderOption.DISTRIBUTED  # pyright: ignore[reportAttributeAccessIssue]
     elif shuffled:
         order = OrderOption.RANDOM
     else:

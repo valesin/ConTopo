@@ -35,6 +35,7 @@ from src.config.hash import (  # noqa: F401
     model_identity_fields as _model_identity_fields,
 )
 from src.config.paths import ensure_output_dirs
+from src.mlflow_schema_logger import _timed_log, set_upload_log_verbose
 
 
 def _resolve_artifact_cache_dir(cache_dir: str | None = None) -> str:
@@ -132,6 +133,8 @@ def setup_mlflow(cfg: DictConfig) -> None:
     # Ensure output directories exist
     ensure_output_dirs(cfg)
 
+    set_upload_log_verbose(bool(getattr(cfg.runtime, "verbose_upload_log", False)))
+
     mlflow.set_tracking_uri(cfg.mlflow.tracking_uri)
     experiment_name = cfg.mlflow.experiment_name
 
@@ -174,16 +177,8 @@ def log_resolved_config(cfg: DictConfig) -> None:
         dest = os.path.join(tmpdir, "resolved_config.yaml")
         with open(dest, "w") as f:
             f.write(OmegaConf.to_yaml(cfg, resolve=True))
-        start = datetime.now()
-        print(
-            f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml"
-        )
-        mlflow.log_artifact(dest, artifact_path="config")
-        end = datetime.now()
-        elapsed = (end - start).total_seconds()
-        print(
-            f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging artifact: config/resolved_config.yaml completed in {elapsed:.1f}s"
-        )
+        with _timed_log("Logging artifact: config/resolved_config.yaml"):
+            mlflow.log_artifact(dest, artifact_path="config")
 
 
 def load_mlflow_artifact(
@@ -312,16 +307,10 @@ def log_dataset_lineage(
     eval_dataset = cast(Callable[..., Any], from_pandas)(
         dataset_df, targets="label", name=f"{dataset_name}_{split}"
     )
-    start = datetime.now()
-    print(
-        f"[UPLOAD START] {start.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context})"
-    )
-    mlflow.log_input(eval_dataset, context=context)
-    end = datetime.now()
-    elapsed = (end - start).total_seconds()
-    print(
-        f"[UPLOAD  END ] {end.strftime('%H:%M:%S')} — Logging dataset lineage: {dataset_name}_{split} (context={context}) completed in {elapsed:.1f}s"
-    )
+    with _timed_log(
+        f"Logging dataset lineage: {dataset_name}_{split} (context={context})"
+    ):
+        mlflow.log_input(eval_dataset, context=context)
 
 
 # ───────────────── idempotency ─────────────────

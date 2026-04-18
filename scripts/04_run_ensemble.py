@@ -276,6 +276,32 @@ def main(cfg: DictConfig) -> None:
         print(f"Executing Ensemble: {ens_name}")
         print(f"  Components matched: {len(run_ids)} runs")
 
+        # Compute component set hash first (pure computation, no I/O)
+        cs_hash = component_set_hash(run_ids)
+
+        # ── Idempotency pre-check: skip artifact loading if all methods already cached ──
+        if vote_methods:
+            uncached_methods = [
+                m
+                for m in vote_methods
+                if find_finished_identity_run(
+                    "ensemble",
+                    identity_hash(
+                        "ensemble",
+                        component_set_hash=cs_hash,
+                        split=split,
+                        feature_type="logits",
+                        method=m,
+                    ),
+                )
+                is None
+            ]
+            if not uncached_methods:
+                print(f"  All vote methods already cached. Skipping.")
+                continue
+        else:
+            uncached_methods = []
+
         # Load logits matrices + composition tracking metadata
         logits_list, composition_map = _load_inference_artifacts(cfg, run_ids, split)
 
@@ -288,15 +314,12 @@ def main(cfg: DictConfig) -> None:
                 rhos.add(r_rho)
         rho_sum = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
 
-        # Compute component set hash for idempotency and tagging
-        cs_hash = component_set_hash(run_ids)
-
         # ── Vote methods ──
-        if vote_methods:
+        if uncached_methods:
             _run_votes(
                 cfg,
                 ens_name,
-                vote_methods,
+                uncached_methods,
                 logits_list,
                 labels,
                 composition_map,

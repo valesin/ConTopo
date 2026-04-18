@@ -119,6 +119,26 @@ def main(cfg: DictConfig) -> None:
         f"Anchors identified. Total anchors: {len(anchor_indices)}. Spec Hash: {a_spec_hash}"
     )
 
+    # ── Idempotency pre-check: skip artifact download if all metrics already cached ──
+    if not force:
+        all_cached = all(
+            find_finished_identity_run(
+                "category_similarity_profile",
+                identity_hash(
+                    "category_similarity_profile",
+                    parent_run_id=run_id,
+                    anchor_spec_hash=a_spec_hash,
+                    similarity_metric=m,
+                    split=split,
+                ),
+            )
+            is not None
+            for m in cfg.profiling.profiles.metrics
+        )
+        if all_cached:
+            print(f"  All profiles already computed for model {run_id}. Skipping.")
+            return
+
     # ── Load Inference Embeddings from MLflow Artifact ──
     try:
         data = load_mlflow_artifact(
