@@ -1,0 +1,9 @@
+# Groups config for the smoke-test pipeline (pipeline=small).
+# Scopes ensemble discovery to models trained by the training_small sweep
+# (training.epochs=1, model=simple_cnn) so steps 04+ don't pull in
+# pre-existing runs that lack profiles.
+
+group_by: [topology, rho]
+min_components: 2
+filter: {"params.epochs": "1", "param.loading_backend": "torch"}
+sample_size: null

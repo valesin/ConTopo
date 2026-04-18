@@ -5,19 +5,19 @@ from_step: null
 steps:
   - id: train
     script: 01_train_models.py
-    sweep: training_rho
+    sweep: training_val_acc
     description: "Train CE models"
   - id: inference
     script: 02_cache_inference.py
-    sweep: training_rho
+    sweep: training_val_acc
     description: "Cache inference artifacts"
   - id: profiles
     script: 03_compute_profiles.py
-    sweep: training_rho
+    sweep: training_val_acc
     description: "Compute category similarity profiles"
   - id: diagnostics
     script: 03b_compute_diagnostics.py
-    sweep: training_rho
+    sweep: training_val_acc
     description: "Compute per-model diagnostics"
   - id: ensemble
     script: 04_run_ensemble.py

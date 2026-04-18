@@ -21,14 +21,22 @@ steps:
     description: "Compute per-model diagnostics"
   - id: ensemble
     script: 04_run_ensemble.py
+    overrides:
+      - "groups=small"
     description: "Build ensembles"
   - id: diversity
     script: 04b_compute_diversity.py
+    overrides:
+      - "groups=small"
     description: "Compute ensemble diversity metrics"
   - id: consistency
     script: 04c_compute_consistency.py
+    overrides:
+      - "groups=small"
     description: "Compute ensemble RDM/RSA consistency"
   - id: adapters
     script: 05_train_adapters.py
     sweep: metalearning_small
+    overrides:
+      - "groups=small"
     description: "Train meta-learner adapters (small sweep)"

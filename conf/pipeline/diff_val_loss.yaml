@@ -3,13 +3,9 @@ from_step: null
 steps:
   - id: train
     script: 01_train_models.py
-    sweep: training_rho_loss
+    sweep: training_val_loss
     description: "Train CE models"
   - id: inference
     script: 02_cache_inference.py
-    sweep: training_rho_loss
+    sweep: training_val_loss
     description: "Cache inference artifacts"
-  - id: profiles
-    script: 03_compute_profiles.py
-    sweep: training_rho_loss
-    description: "Compute category similarity profiles"

@@ -6,5 +6,5 @@ hydra:
       # Sweeps trials 0, 1
       trial: range(0, 2) 
       loss.rho: 0.0, 1.0
-      training.epochs: 2
+      training.epochs: 1
       model: simple_cnn
