@@ -74,3 +74,7 @@ purge_bucket.py
 
 old_scripts/
 old_uv_project/
+
+notebooks/html-wasm/
+notebooks/wrangler.jsonc
+notebooks/index.js
