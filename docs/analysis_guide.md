@@ -99,6 +99,8 @@ These return full run tables (`tags.*`, `params.*`, `metrics.*` still prefixed) 
 
 Use for schema inspection, ad-hoc joins, and custom filters.
 
+**Inspection utility**: `varying_fields(df)` — prints and returns `params.*`/`tags.*` columns with more than one unique value. Call it after any raw list function to detect runs from different configurations in the same result set.
+
 ### 4.2 Normalized result functions (pandas)
 
 - `get_ensemble_results(experiment_name, split='test')`
@@ -128,6 +130,8 @@ Important behavior:
 - `get_inference_run(experiment_name, trained_model_run_id, split='test')`
 - `get_profile_run(experiment_name, parent_run_id, similarity_metric, split='test')`
 
+> **Note**: the `experiment_name` parameter in both functions is vestigial — neither function uses it (they delegate to `search_runs`, which already uses the configured experiment). Pass any string or `experiment.name`; it has no effect.
+
 ### 4.4 Artifact download/load helpers
 
 - `download_inference_artifacts(..., split='test')`, `load_inference_results(..., split='test')`
@@ -137,7 +141,20 @@ Important behavior:
 - `get_inference_artifacts(run_id)`
 - `get_run_artifact_uri(run_id)`
 
-### 4.5 Plot helper
+### 4.5 Metric history
+
+- `get_metric_history(run_id, metric_key)` — returns a pandas DataFrame with columns `step`, `value`, `timestamp_ms` for the full per-step history of a logged metric for one run. Returns an empty DataFrame if the metric was never logged.
+
+```python
+from notebooks.mlflow.mlflow_helpers import get_metric_history
+
+df = get_metric_history(run_id, "train_topo_loss")
+# df: step, value, timestamp_ms
+```
+
+Use this to plot learning curves or detect training instabilities for a specific run.
+
+### 4.6 Plot helper
 
 - `save_plot(fig, name, directory='notebooks/mlflow/saved_plots', ...)`
 
@@ -214,7 +231,11 @@ Representative scripts:
 
 - `notebooks/ensemble_samples_accuracy.py` — ensemble accuracy vs ρ for sampled combinations (interactive: groups config, vote method, split)
 - `notebooks/compare_groups_accuracy.py` — side-by-side accuracy comparison of two groups configs (interactive: groups A, groups B, vote method, split)
+- `notebooks/acc_vs_rho.py` — per-model accuracy joined with inference runs, plotted against ρ
+- `notebooks/ensemble_accuracy_vs_rho.py` — mean component vs ensemble accuracy across ρ values
+- `notebooks/accuracy_val_loss_vs_val_acc.py` — model accuracy grouped by early stopping method (marimo, matplotlib)
 - `notebooks/analysis_metalearner.py`
+- `notebooks/metalearners.py` — metalearner results with filtering by vote method, feature type, similarity metric
 - `notebooks/analysis_diversity.py`
 - `notebooks/analysis_profiles_comparison.py`
 - `notebooks/ensemble_consistency.py`
@@ -254,6 +275,11 @@ Representative scripts:
 
 5. **Adding retrieval functions in wrong layer**
    - Keep repository run lookup in `src/repositories/functional_run_repository.py`.
+
+6. **Import style mismatch between notebooks**
+   - Scripts under `notebooks/*.py` that run from the project root use `import notebooks.mlflow.mlflow_helpers as mh`.
+   - Marimo notebooks append `notebooks/mlflow` to `sys.path` and then do `from mlflow_helpers import ...`.
+   - Both work, but mixing styles in the same script will cause import errors. Pick one per file.
 
 ---
 

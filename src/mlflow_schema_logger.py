@@ -508,7 +508,14 @@ def start_run(
 
 def log_params(kind: str, params: Mapping[str, Any]) -> None:
     _ensure_known_kind(kind)
-    cleaned = _clean_params(params)
+    optional = set(TELEMETRY_SCHEMA[kind]["params"]["optional"])
+    # Optional fields with None value → "None" string so they are always present in
+    # MLflow (consistent with migration backfills). Required fields left as None so
+    # _clean_params drops them and _validate_telemetry_schema catches the gap.
+    normalized = {
+        k: ("None" if v is None and k in optional else v) for k, v in params.items()
+    }
+    cleaned = _clean_params(normalized)
     allowed_params = set(
         TELEMETRY_SCHEMA[kind]["params"]["required"]
         + TELEMETRY_SCHEMA[kind]["params"]["optional"]

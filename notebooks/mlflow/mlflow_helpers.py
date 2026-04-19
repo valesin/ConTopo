@@ -432,6 +432,26 @@ def load_inference_results_from_model_run_id(
     )
 
 
+# ── Metric history ───────────────────────────────────────────────────────────
+
+
+def get_metric_history(run_id: str, metric_key: str) -> pd.DataFrame:
+    """Return per-step history of *metric_key* for a single run.
+
+    Columns: step, value, timestamp_ms
+    """
+    client = mlflow.tracking.MlflowClient()
+    history = client.get_metric_history(run_id, metric_key)
+    if not history:
+        return pd.DataFrame(columns=["step", "value", "timestamp_ms"])
+    return pd.DataFrame(
+        [
+            {"step": m.step, "value": m.value, "timestamp_ms": m.timestamp}
+            for m in history
+        ]
+    )
+
+
 # ── Plot saving ──────────────────────────────────────────────────────────────
 
 _DEFAULT_PLOT_DIR = Path("notebooks/mlflow/saved_plots")
