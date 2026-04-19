@@ -31,7 +31,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.data.loaders import get_num_classes, get_split_labels
-from src.ensemble.selector import discover_ensembles_from_cfg
+from src.ensemble.selector import discover_ensembles_with_runs_from_cfg
 from src.config.hash import compute_anchor_spec_hash, identity_hash
 from src.mlflow_utils import (
     apply_mlflow_env_overrides,
@@ -48,7 +48,6 @@ from src.mlflow_utils import (
 from src.repositories.functional_run_repository import (
     configure_run_repository,
     find_finished_identity_run,
-    get_run,
 )
 
 from src.mlflow_schema_logger import (
@@ -121,7 +120,9 @@ def main(cfg: DictConfig) -> None:
     total_examples = len(labels_tensor)
 
     # 2. Discover Ensemble Components from MLflow
-    groups = discover_ensembles_from_cfg(cfg, cfg.mlflow.experiment_name)
+    groups, run_index = discover_ensembles_with_runs_from_cfg(
+        cfg, cfg.mlflow.experiment_name
+    )
     if not groups:
         print("No dynamic ensembles discovered. Exiting.")
         return
@@ -170,7 +171,7 @@ def main(cfg: DictConfig) -> None:
         # Determine Rho (unanimous or mixed)
         rhos = set()
         for rid in run_ids:
-            r = get_run(rid)
+            r = run_index[rid]
             r_rho, _, _ = get_run_context(r)
             if r_rho != "?":
                 rhos.add(r_rho)

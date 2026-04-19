@@ -202,6 +202,11 @@ def get_expected_component_hashes(groups_name: str, experiment_name: str) -> set
     Re-runs the same model discovery the pipeline uses (discover_ensembles_from_cfg),
     then hashes each expected combination. Robust to idempotency deduplication across
     different groups configs. Must be called after setup_environment().
+
+    NOTE: When sample_size is set, adding new model runs to the pool is safe — old
+    k-combinations remain valid subsets of the larger pool and their hashes are still
+    returned. When sample_size is null (full-pool), adding new models changes the
+    full-pool hash, making previously computed full-pool ensemble runs invisible.
     """
     from omegaconf import OmegaConf
     from src.ensemble.selector import discover_ensembles_from_cfg

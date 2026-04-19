@@ -82,7 +82,7 @@ def test_cfg_driven_matches_direct_discover(mock_search_runs):
     result_cfg = discover_ensembles_from_cfg(cfg, "exp")
 
     mock_search_runs.return_value = runs
-    result_direct = _discover(
+    result_direct, _ = _discover(
         experiment_name="exp",
         group_by=["topology", "rho"],
         min_components=2,

@@ -23,30 +23,27 @@ from omegaconf import DictConfig
 
 from src.ensemble.selector import _discover
 from src.mlflow_utils import apply_mlflow_env_overrides, setup_mlflow
-from src.repositories.functional_run_repository import (
-    configure_run_repository,
-    get_run,
-)
+from src.repositories.functional_run_repository import configure_run_repository
 
 _EXCLUDE_FIELDS = {"kind", "identity_hash", "cfg_hash", "run_name"}
 
 
-def _fetch_run_metadata(run_ids: list[str]) -> dict[str, dict]:
+def _meta_from_index(run_ids: list[str], run_index: dict) -> dict[str, dict]:
     """Return {run_id: {field: value, ...}} with all params+tags, excluding noise."""
     meta = {}
     for rid in run_ids:
-        try:
-            r = get_run(rid)
-            fields = {}
-            for k, v in r.data.params.items():
-                if not k.startswith("mlflow.") and k not in _EXCLUDE_FIELDS:
-                    fields[f"param.{k}"] = v
-            for k, v in r.data.tags.items():
-                if not k.startswith("mlflow.") and k not in _EXCLUDE_FIELDS:
-                    fields[f"tag.{k}"] = v
-            meta[rid] = fields
-        except Exception:
+        r = run_index.get(rid)
+        if r is None:
             meta[rid] = {}
+            continue
+        fields = {}
+        for k, v in r.data.params.items():
+            if not k.startswith("mlflow.") and k not in _EXCLUDE_FIELDS:
+                fields[f"param.{k}"] = v
+        for k, v in r.data.tags.items():
+            if not k.startswith("mlflow.") and k not in _EXCLUDE_FIELDS:
+                fields[f"tag.{k}"] = v
+        meta[rid] = fields
     return meta
 
 
@@ -95,7 +92,7 @@ def main(cfg: DictConfig) -> None:
 
     # Discover groups before applying sample_size expansion so we can show
     # the pool separately from the combinations it would generate.
-    groups_before_expansion = _discover(
+    groups_before_expansion, run_index = _discover(
         experiment_name=cfg.mlflow.experiment_name,
         group_by=group_by,
         min_components=min_components,
@@ -107,11 +104,11 @@ def main(cfg: DictConfig) -> None:
         print("\n  No groups discovered — nothing to run.")
         return
 
-    # Collect all unique run IDs across groups to fetch metadata in bulk.
+    # Collect all unique run IDs across groups to build metadata from the cache.
     all_run_ids = sorted(
         {rid for ids in groups_before_expansion.values() for rid in ids}
     )
-    meta = _fetch_run_metadata(all_run_ids)
+    meta = _meta_from_index(all_run_ids, run_index)
 
     total_ensembles = 0
 

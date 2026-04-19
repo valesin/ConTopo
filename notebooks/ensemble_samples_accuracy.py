@@ -15,7 +15,7 @@ def _():
 def _(mo):
     mo.md(
         """
-    # Ensemble accuracy vs ρ — sampled combinations
+    # Ensemble accuracy vs ρ — sampled combinations (samples9, soft, test)
     """
     )
     return
@@ -35,27 +35,6 @@ def _():
 
 
 @app.cell
-def _(mo):
-    groups_override = mo.ui.dropdown(
-        options=["samples9", "samples3", "default"],
-        value="samples9",
-        label="Groups config",
-    )
-    vote_method = mo.ui.dropdown(
-        options=["soft", "hard", "max_confidence", "conf_weighted"],
-        value="soft",
-        label="Vote method",
-    )
-    split = mo.ui.dropdown(
-        options=["test", "val"],
-        value="test",
-        label="Split",
-    )
-    mo.hstack([groups_override, vote_method, split], gap=2)
-    return groups_override, split, vote_method
-
-
-@app.cell
 def _(mo, setup_environment):
     cfg, experiment = setup_environment()
     mo.md(f"**Experiment:** `{experiment.name}`")
@@ -63,19 +42,13 @@ def _(mo, setup_environment):
 
 
 @app.cell
-def _(
-    experiment,
-    get_ensemble_results_for_groups,
-    groups_override,
-    mo,
-    pl,
-    split,
-    vote_method,
-):
-    runs_pd = get_ensemble_results_for_groups(
-        groups_override.value, experiment, split.value
-    )
-    runs_pd = runs_pd[runs_pd["vote_method"] == vote_method.value]
+def _(experiment, get_ensemble_results_for_groups, mo, pl):
+    _GROUPS = "samples9"
+    _SPLIT = "test"
+    _METHOD = "soft"
+
+    runs_pd = get_ensemble_results_for_groups(_GROUPS, experiment, _SPLIT)
+    runs_pd = runs_pd[runs_pd["vote_method"] == _METHOD]
 
     if runs_pd.empty:
         mo.stop(
@@ -99,6 +72,7 @@ def _(pl, runs):
             pl.col("accuracy").std().alias("std_acc"),
             pl.col("comp_mean_acc").mean().alias("mean_comp_acc"),
             pl.col("gain").mean().alias("mean_gain"),
+            pl.col("gain").std().alias("std_gain"),
             pl.len().alias("n"),
         )
         .sort("rho_numeric")
@@ -107,8 +81,18 @@ def _(pl, runs):
 
 
 @app.cell
-def _(agg, go, pl, vote_method):
-    rho = agg["rho_numeric"].to_list()
+def _(mo):
+    mo.md(
+        """
+    ### Ensemble vs solo component accuracy
+    """
+    )
+    return
+
+
+@app.cell
+def _(agg, go, pl):
+    rho = agg["rho"].to_list()
     mean = agg["mean_acc"].to_list()
     std = agg.with_columns(pl.col("std_acc").fill_null(0.0))["std_acc"].to_list()
     upper = [m + s for m, s in zip(mean, std)]
@@ -130,20 +114,21 @@ def _(agg, go, pl, vote_method):
                 y=mean,
                 mode="lines+markers",
                 line=dict(color="rgb(99,110,250)"),
-                name=f"Ensemble ({vote_method.value})",
+                name="Ensemble acc (soft, mean over combos)",
             ),
             go.Scatter(
                 x=rho,
                 y=agg["mean_comp_acc"].to_list(),
                 mode="lines+markers",
                 line=dict(color="rgb(239,85,59)", dash="dot"),
-                name="Component mean",
+                name="Solo component acc (mean over all N models in group)",
             ),
         ]
     )
     fig.update_layout(
         xaxis_title="ρ",
         yaxis_title="Accuracy",
+        xaxis=dict(type="category"),
         template="simple_white",
         legend=dict(orientation="h", y=1.1),
     )
@@ -155,7 +140,131 @@ def _(agg, go, pl, vote_method):
 def _(mo):
     mo.md(
         """
-    ### Aggregated by ρ — gain vs mean component accuracy across all ensembles in the group
+    ### Does gain increase with ρ?
+    """
+    )
+    return
+
+
+@app.cell
+def _(agg, go, pl):
+    _rho = agg["rho"].to_list()
+    _gain = agg["mean_gain"].to_list()
+    _std = agg.with_columns(pl.col("std_gain").fill_null(0.0))["std_gain"].to_list()
+    _upper = [g + s for g, s in zip(_gain, _std)]
+    _lower = [g - s for g, s in zip(_gain, _std)]
+
+    _fig = go.Figure(
+        [
+            go.Scatter(
+                x=_rho + _rho[::-1],
+                y=_upper + _lower[::-1],
+                fill="toself",
+                fillcolor="rgba(50,171,96,0.15)",
+                line=dict(color="rgba(0,0,0,0)"),
+                hoverinfo="skip",
+                showlegend=False,
+            ),
+            go.Scatter(
+                x=_rho,
+                y=_gain,
+                mode="lines+markers",
+                line=dict(color="rgb(50,171,96)"),
+                name="Mean gain (ensemble − solo component)",
+            ),
+        ]
+    )
+    _fig.update_layout(
+        xaxis_title="ρ",
+        yaxis_title="Gain",
+        xaxis=dict(type="category"),
+        template="simple_white",
+        legend=dict(orientation="h", y=1.1),
+    )
+    _fig
+    return
+
+
+@app.cell
+def _(mo, runs):
+    from scipy.stats import spearmanr
+
+    _rho_vals = runs["rho_numeric"].to_list()
+    _gain_vals = runs["gain"].to_list()
+    _stat, _pval = spearmanr(_rho_vals, _gain_vals)
+
+    mo.callout(
+        mo.md(
+            f"**Spearman ρ (rho_numeric vs gain) = {_stat:.3f}** &nbsp;|&nbsp; "
+            f"p = {_pval:.2e} &nbsp;|&nbsp; n = {len(_gain_vals)} combos"
+        ),
+        kind="info",
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        """
+    ### Confounding check — is gain driven by weak components?
+
+    If higher gain merely reflects weaker solo components (easier to beat), the scatter
+    below would show a negative slope regardless of ρ. Colour by ρ to see whether the
+    gain-vs-solo relationship shifts across regularisation levels.
+    """
+    )
+    return
+
+
+@app.cell
+def _(go, runs):
+    import plotly.colors as pc
+
+    _rho_vals = runs["rho"].unique().sort().to_list()
+    _palette = pc.qualitative.Plotly
+
+    _fig = go.Figure()
+    for _i, _r in enumerate(_rho_vals):
+        _subset = runs.filter(runs["rho"] == _r)
+        _fig.add_trace(
+            go.Scatter(
+                x=_subset["comp_mean_acc"].to_list(),
+                y=_subset["gain"].to_list(),
+                mode="markers",
+                marker=dict(color=_palette[_i % len(_palette)], opacity=0.5, size=6),
+                name=f"ρ = {_r}",
+            )
+        )
+
+    _fig.update_layout(
+        xaxis_title="Solo component acc (this combo)",
+        yaxis_title="Gain (ensemble − solo component)",
+        template="simple_white",
+        legend=dict(title="ρ", orientation="v"),
+    )
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        """
+    ---
+    ### Reference tables
+    """
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        """
+    **Aggregated by ρ** — solo component acc is derived by averaging `comp_mean_acc` across
+    all C(N, k) combos; by combinatorial symmetry this equals the mean acc of all N models
+    in the pool.
     """
     )
     return
@@ -166,11 +275,13 @@ def _(agg, mo, pl):
     table_df = agg.select(
         [
             pl.col("rho").alias("ρ"),
-            pl.col("n").alias("# ensembles"),
+            pl.col("n").alias("# combos"),
             pl.col("mean_acc").round(4).alias("mean ensemble acc"),
             pl.col("std_acc").round(4).alias("std ensemble acc"),
-            pl.col("mean_comp_acc").round(4).alias("mean of component means"),
-            pl.col("mean_gain").round(4).alias("mean gain (ens − comp mean)"),
+            pl.col("mean_comp_acc")
+            .round(4)
+            .alias("solo component acc (mean of all N models)"),
+            pl.col("mean_gain").round(4).alias("mean gain (ensemble − solo component)"),
         ]
     )
     mo.ui.table(table_df.to_pandas(), selection=None)
@@ -181,7 +292,8 @@ def _(agg, mo, pl):
 def _(mo):
     mo.md(
         """
-    ### Per ensemble — gain vs own components and vs the fixed group mean
+    **Per combo** — `solo component acc (this combo)` is `comp_mean_acc` as logged by the
+    pipeline: mean accuracy of the k solo models in this specific combo.
     """
     )
     return
@@ -201,13 +313,15 @@ def _(agg, mo, pl, runs):
         .select(
             [
                 pl.col("rho"),
-                pl.col("ensemble_name").alias("ensemble"),
+                pl.col("ensemble_name").alias("combo"),
                 pl.col("accuracy").round(4).alias("ensemble acc"),
-                pl.col("comp_mean_acc").round(4).alias("mean acc of own components"),
-                pl.col("gain").round(4).alias("gain vs own components"),
+                pl.col("comp_mean_acc")
+                .round(4)
+                .alias("solo component acc (this combo)"),
+                pl.col("gain").round(4).alias("gain vs own solos"),
                 (pl.col("accuracy") - pl.col("group_comp_acc"))
                 .round(4)
-                .alias("gain vs group component mean"),
+                .alias("gain vs group solo mean"),
             ]
         )
     )
@@ -219,8 +333,9 @@ def _(agg, mo, pl, runs):
 def _(mo, per_run):
     _df = mo.sql(
         f"""
-        SELECT rho, avg("gain vs own components"), avg("gain vs group component mean") FROM per_run
+        SELECT rho, avg("gain vs own solos"), avg("gain vs group solo mean") FROM per_run
         GROUP BY rho
+        ORDER BY rho
         """
     )
     return

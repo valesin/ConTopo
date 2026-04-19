@@ -30,7 +30,7 @@ from omegaconf import DictConfig
 
 from src.ensemble.combine import combine_logits, METHODS
 from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
-from src.ensemble.selector import discover_ensembles_from_cfg
+from src.ensemble.selector import discover_ensembles_with_runs_from_cfg
 from src.data.loaders import get_split_labels
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
@@ -46,7 +46,6 @@ from src.mlflow_utils import (
 from src.repositories.functional_run_repository import (
     configure_run_repository,
     find_finished_identity_run,
-    get_run,
 )
 from src.mlflow_schema_logger import (
     log_params as schema_log_params,
@@ -254,7 +253,7 @@ def main(cfg: DictConfig) -> None:
 
     # Resolve component run IDs dynamically
     try:
-        discovered_ensembles = discover_ensembles_from_cfg(
+        discovered_ensembles, run_index = discover_ensembles_with_runs_from_cfg(
             cfg, cfg.mlflow.experiment_name
         )
     except ValueError as e:
@@ -303,7 +302,7 @@ def main(cfg: DictConfig) -> None:
         # Determine Rho (unanimous or mixed)
         rhos = set()
         for rid in run_ids:
-            r = get_run(rid)
+            r = run_index[rid]
             r_rho, _, _ = get_run_context(r)
             if r_rho != "?":
                 rhos.add(r_rho)

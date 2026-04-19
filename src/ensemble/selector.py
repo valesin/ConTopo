@@ -10,6 +10,7 @@ import itertools
 import json
 from typing import TypedDict
 
+from mlflow.entities import Run
 from omegaconf import DictConfig
 from src.repositories.functional_run_repository import search_runs
 
@@ -23,6 +24,25 @@ def discover_ensembles_from_cfg(
 
     Returns:
        Dictionary of { 'ensemble_name': ['run_id_1', 'run_id_2', ...], ... }
+    """
+    sample_size = cfg.groups.get("sample_size", None)
+    groups, _ = _discover(
+        experiment_name=experiment_name,
+        group_by=list(cfg.groups.group_by),
+        min_components=int(cfg.groups.min_components),
+        base_filter=dict(cfg.groups.filter) if cfg.groups.filter else {},
+        sample_size=int(sample_size) if sample_size is not None else None,
+    )
+    return groups
+
+
+def discover_ensembles_with_runs_from_cfg(
+    cfg: DictConfig,
+    experiment_name: str,
+) -> tuple[dict[str, list[str]], dict[str, Run]]:
+    """
+    Like discover_ensembles_from_cfg but also returns a run_index {run_id: Run}
+    built from the same search_runs call, avoiding redundant per-run fetches.
     """
     sample_size = cfg.groups.get("sample_size", None)
     return _discover(
@@ -46,7 +66,7 @@ def _discover(
     min_components: int,
     base_filter: dict[str, object],
     sample_size: int | None = None,
-) -> dict[str, list[str]]:
+) -> tuple[dict[str, list[str]], dict[str, Run]]:
     # 1. Base MLflow fetch
     filter_string = "attributes.status = 'FINISHED' and tags.kind = 'model'"
     if base_filter:
@@ -57,6 +77,8 @@ def _discover(
 
     if not runs:
         raise ValueError(f"No FINISHED models found matching: {filter_string}")
+
+    run_index: dict[str, Run] = {r.info.run_id: r for r in runs}
 
     # 2. Form groups based on distinct keys
     groups: dict[str, list[str]] = {}
@@ -82,7 +104,7 @@ def _discover(
 
     # 4. If sample_size is set, expand each group into k-combinations
     if sample_size is None:
-        return final_ensembles
+        return final_ensembles, run_index
 
     if sample_size < 2:
         raise ValueError(f"sample_size must be >= 2, got {sample_size}")
@@ -97,7 +119,7 @@ def _discover(
             combo_name = f"{g_name}_k{sample_size}_{short_hash}"
             expanded[combo_name] = combo_sorted
 
-    return expanded
+    return expanded, run_index
 
 
 # ─────────────────────── groups signature ───────────────────────
