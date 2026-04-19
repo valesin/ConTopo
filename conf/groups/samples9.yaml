@@ -4,7 +4,8 @@
 
 group_by: [topology, rho]   # params that define a group signature
 min_components: 2            # skip groups with fewer runs than this
-filter: {"param.early_stopping_method: "val_acc",
-         "params.epochs": "200",
-	 "param.loading_backend": "torch"}               # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
-sample_size: 9            # if set, enumerate all k-combinations of this size per group
+filter:                      # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
+  param.early_stopping_method: val_acc
+  param.epochs: "200"
+  param.loading_backend: torch
+sample_size: 9               # if set, enumerate all k-combinations of this size per group
