@@ -31,12 +31,7 @@ def _():
     import polars as pl
     import plotly.graph_objects as go
 
-    return (
-        get_ensemble_results_for_groups,
-        go,
-        pl,
-        setup_environment,
-    )
+    return get_ensemble_results_for_groups, go, pl, setup_environment
 
 
 @app.cell
@@ -69,7 +64,7 @@ def _(mo):
 def _(mo, setup_environment):
     cfg, experiment = setup_environment()
     mo.md(f"**Experiment:** `{experiment.name}`")
-    return cfg, experiment
+    return (experiment,)
 
 
 @app.cell

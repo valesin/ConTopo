@@ -41,8 +41,8 @@ def _(df, varying_fields):
 
 
 @app.cell
-def _(df):
-    bare_df = df.select(
+def _(df, pl):
+    bare_df = df.filter(pl.col("params.epochs").cast(pl.Int32) == 200).select(
         [
             "params.rho",
             "params.early_stopping_method",
