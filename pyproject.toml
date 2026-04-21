@@ -23,7 +23,7 @@ dependencies = [
 analysis = [
     "marimo[recommended]",
     # "matplotlib",
-    "plotly",
+    "altair",
     # "ipython==8.28.0",
     # "jupyter==1.0.0",
     "polars==1.12.0",
@@ -38,17 +38,10 @@ dev = [
 sky = [
     "skypilot-nightly[runpod]",
 ]
-ffcv = [
-    # FFCV high-throughput data loading backend for large-image datasets (e.g. ImageNet100).
-    # Install with: uv sync --group ffcv
-    # See docs/ffcv_param_assumptions.md for migration notes.
-    "ffcv",
-    # Antialiased downsampling (blurpool) — used when training.use_blurpool=true.
-    "antialiased-cnns",
-    # GPU-side normalization in FFCV pipelines (NormalizeImage on CUDA requires cupy).
-    # Match the CUDA version: cupy-cuda12x for CUDA 12.x.
-    "cupy-cuda12x",
-]
+
+[tool.uv]
+# sky requires manual setup; exclude from default sync.
+default-groups = ["dev"]
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu126" }]

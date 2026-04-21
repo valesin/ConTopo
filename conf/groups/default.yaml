@@ -6,3 +6,4 @@ group_by: [topology, rho]   # params that define a group signature
 min_components: 2            # skip groups with fewer runs than this
 filter: {}                   # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
 sample_size: null            # if set, enumerate all k-combinations of this size per group
+field_ranges: {}             # numeric range filters: {tags.trial: [0, 9], params.rho: [0.0, 0.5]}

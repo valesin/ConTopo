@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
-from typing import TypedDict
 
 from mlflow.entities import Run
 from omegaconf import DictConfig
@@ -26,12 +25,17 @@ def discover_ensembles_from_cfg(
        Dictionary of { 'ensemble_name': ['run_id_1', 'run_id_2', ...], ... }
     """
     sample_size = cfg.groups.get("sample_size", None)
+    field_ranges_raw = cfg.groups.get("field_ranges", None)
+    field_ranges = (
+        {k: list(v) for k, v in field_ranges_raw.items()} if field_ranges_raw else None
+    )
     groups, _ = _discover(
         experiment_name=experiment_name,
         group_by=list(cfg.groups.group_by),
         min_components=int(cfg.groups.min_components),
         base_filter=dict(cfg.groups.filter) if cfg.groups.filter else {},
         sample_size=int(sample_size) if sample_size is not None else None,
+        field_ranges=field_ranges,
     )
     return groups
 
@@ -45,12 +49,17 @@ def discover_ensembles_with_runs_from_cfg(
     built from the same search_runs call, avoiding redundant per-run fetches.
     """
     sample_size = cfg.groups.get("sample_size", None)
+    field_ranges_raw = cfg.groups.get("field_ranges", None)
+    field_ranges = (
+        {k: list(v) for k, v in field_ranges_raw.items()} if field_ranges_raw else None
+    )
     return _discover(
         experiment_name=experiment_name,
         group_by=list(cfg.groups.group_by),
         min_components=int(cfg.groups.min_components),
         base_filter=dict(cfg.groups.filter) if cfg.groups.filter else {},
         sample_size=int(sample_size) if sample_size is not None else None,
+        field_ranges=field_ranges,
     )
 
 
@@ -60,12 +69,33 @@ def _combo_hash(sorted_ids: list[str]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:6]
 
 
+def _passes_ranges(run: Run, field_ranges: dict[str, list[float]]) -> bool:
+    for path, (lo, hi) in field_ranges.items():
+        entity, _, field = path.partition(".")
+        if entity == "tags":
+            raw = run.data.tags.get(field)
+        elif entity == "params":
+            raw = run.data.params.get(field)
+        else:
+            continue
+        if raw is None:
+            return False
+        try:
+            val = float(raw)
+        except (ValueError, TypeError):
+            return False
+        if not (lo <= val <= hi):
+            return False
+    return True
+
+
 def _discover(
     experiment_name: str,
     group_by: list[str],
     min_components: int,
     base_filter: dict[str, object],
     sample_size: int | None = None,
+    field_ranges: dict[str, list[float]] | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, Run]]:
     # 1. Base MLflow fetch
     filter_string = "attributes.status = 'FINISHED' and tags.kind = 'model'"
@@ -77,6 +107,13 @@ def _discover(
 
     if not runs:
         raise ValueError(f"No FINISHED models found matching: {filter_string}")
+
+    # 1b. Numeric range filtering (post-fetch, covers tags and params)
+    if field_ranges:
+        runs = [r for r in runs if _passes_ranges(r, field_ranges)]
+
+    if not runs:
+        raise ValueError(f"No runs remain after applying field_ranges={field_ranges}")
 
     run_index: dict[str, Run] = {r.info.run_id: r for r in runs}
 
@@ -120,49 +157,3 @@ def _discover(
             expanded[combo_name] = combo_sorted
 
     return expanded, run_index
-
-
-# ─────────────────────── groups signature ───────────────────────
-
-
-def encode_groups_signature(groups_cfg: DictConfig) -> str:
-    """
-    Human-readable, deterministic signature of a groups discovery config.
-
-    Format: ``group_by=rho,topology|k=3|filter=topology:torus``
-
-    - ``group_by`` keys are sorted alphabetically.
-    - ``k`` is sample_size as an integer, or ``"null"`` if unset.
-    - ``filter`` is sorted ``key:value`` pairs; empty string if none.
-    """
-    group_by = sorted(groups_cfg.group_by)
-    k = groups_cfg.sample_size if groups_cfg.sample_size is not None else "null"
-    filter_dict = dict(groups_cfg.filter) if groups_cfg.filter else {}
-    filter_str = ",".join(f"{fk}:{fv}" for fk, fv in sorted(filter_dict.items()))
-    return f"group_by={','.join(group_by)}|k={k}|filter={filter_str}"
-
-
-class DecodedGroupsSignature(TypedDict):
-    group_by: list[str]
-    sample_size: int | None
-    filter: dict[str, str]
-
-
-def decode_groups_signature(sig: str) -> DecodedGroupsSignature:
-    """
-    Parse a groups signature string back to a plain dict.
-
-    Returns ``{"group_by": [...], "sample_size": int | None, "filter": {...}}``.
-    """
-    parts = dict(p.split("=", 1) for p in sig.split("|"))
-    raw_gb = parts.get("group_by", "")
-    group_by = raw_gb.split(",") if raw_gb else []
-    k_raw = parts.get("k", "null")
-    sample_size = None if k_raw == "null" else int(k_raw)
-    filter_raw = parts.get("filter", "")
-    filter_dict: dict[str, str] = {}
-    if filter_raw:
-        for pair in filter_raw.split(","):
-            fk, fv = pair.split(":", 1)
-            filter_dict[fk] = fv
-    return {"group_by": group_by, "sample_size": sample_size, "filter": filter_dict}

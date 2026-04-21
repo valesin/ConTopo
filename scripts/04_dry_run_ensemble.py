@@ -77,6 +77,10 @@ def main(cfg: DictConfig) -> None:
     if sample_size is not None:
         sample_size = int(sample_size)
     base_filter = dict(cfg.groups.filter) if cfg.groups.filter else {}
+    field_ranges_raw = cfg.groups.get("field_ranges", None)
+    field_ranges = (
+        {k: list(v) for k, v in field_ranges_raw.items()} if field_ranges_raw else None
+    )
 
     print(f"\n{'='*60}")
     print("Ensemble Discovery — Dry Run")
@@ -89,6 +93,8 @@ def main(cfg: DictConfig) -> None:
     )
     if base_filter:
         print(f"  filter     : {base_filter}")
+    if field_ranges:
+        print(f"  field_ranges: {field_ranges}")
 
     # Discover groups before applying sample_size expansion so we can show
     # the pool separately from the combinations it would generate.
@@ -98,6 +104,7 @@ def main(cfg: DictConfig) -> None:
         min_components=min_components,
         base_filter=base_filter,
         sample_size=None,  # always fetch the full pool first
+        field_ranges=field_ranges,
     )
 
     if not groups_before_expansion:

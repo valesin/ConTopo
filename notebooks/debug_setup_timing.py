@@ -66,23 +66,15 @@ from src.repositories.functional_run_repository import configure_run_repository
 configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
 ts("configure_run_repository", t0)
 
-# ── 5. Signature (first call, imports cold) ───────────────────────────────────
-from src.ensemble.selector import encode_groups_signature
-
-sig = encode_groups_signature(cfg.groups)
-ts(f"encode_groups_signature → {sig}", t0)
-
-# ── 6. Simulate dropdown re-run cost (compose_groups only) ────────────────────
+# ── 5. Simulate dropdown re-run cost (compose_groups only) ────────────────────
 t1 = time.time()
 with initialize_config_dir(version_base=None, config_dir=config_dir):
     cfg2 = compose(
         config_name="config", overrides=["groups=default"], return_hydra_config=True
     )
     HydraConfig.instance().set_config(cfg2)
-sig2 = encode_groups_signature(cfg2.groups)
 print(
     f"\n  [{time.time() - t1:.3f}s] compose_groups re-run cost (dropdown change simulation)"
 )
-print(f"  signature → {sig2}")
 
 print(f"\nTotal (cold): {time.time() - t0:.3f}s")

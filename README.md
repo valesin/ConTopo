@@ -15,14 +15,15 @@ Pipeline stages:
 
 ```bash
 uv python pin 3.13
-uv sync
+uv sync                           # base + dev
+uv sync --group analysis          # add notebooks/marimo
 ```
 
-Optional analysis extras:
-
-```bash
-uv sync --group analysis
-```
+> **ffcv is not a uv dependency group.** ffcv's `setup.py` calls `pkg-config opencv4`
+> during metadata collection (not just installation), so uv cannot resolve it without
+> OpenCV present — which breaks `uv lock` on any machine without micromamba set up.
+> ffcv is installed manually after sourcing the OpenCV env; see
+> [Training backends — ffcv](#ffcv).
 
 ### 2) Secrets and tracking configuration
 
@@ -209,14 +210,40 @@ dependencies. All existing CIFAR-10 sweep configs use this path.
 ### `ffcv`
 
 High-throughput binary data loading for large-image datasets (e.g. ImageNet100).
-Requires the optional `ffcv` dependency group:
+
+> **If you only use CIFAR-10 or don't need FFCV**, skip this section entirely. The
+> `torch` backend is fully functional and `ffcv` never needs to be installed.
+> All ffcv imports are deferred — a missing `ffcv` package has no effect when
+> `training.loading_backend=torch`.
+
+#### Prerequisites — OpenCV native libraries
+
+ffcv's C++ extension links against OpenCV. OpenCV cannot be pip-installed; it must be
+provided via micromamba. This is a one-time setup per machine:
 
 ```bash
-uv sync --group ffcv
+micromamba create -n opencv-only -c conda-forge opencv pkg-config
 ```
 
-This installs `ffcv`, `antialiased-cnns` (blurpool), and `cupy-cuda12x` (GPU-side
-normalisation). Adjust the cupy package name if your CUDA version differs from 12.x.
+See [`docs/install_opencv_ffcv.md`](docs/install_opencv_ffcv.md) for the full guide
+(HPC, non-default prefixes, troubleshooting).
+
+#### Installing ffcv
+
+ffcv is not tracked as a uv dependency group (its `setup.py` requires OpenCV even
+during metadata collection, which breaks `uv lock` on machines without micromamba).
+Install it directly into the venv after sourcing the activation script:
+
+```bash
+source scripts/activate-ffcv-env.sh   # exports PKG_CONFIG_PATH + LD_LIBRARY_PATH
+uv pip install ffcv antialiased-cnns cupy-cuda12x
+```
+
+Re-source `activate-ffcv-env.sh` in every shell session before running ffcv training
+(`LD_LIBRARY_PATH` must be set at runtime for ffcv's OpenCV shared libs to load).
+
+`antialiased-cnns` provides blurpool; `cupy-cuda12x` enables GPU-side normalisation.
+Adjust the cupy package name if your CUDA version differs from 12.x.
 
 `.beton` data files are **generated automatically on first run** and reused
 thereafter. The full FFCV training recipe includes:
@@ -272,7 +299,7 @@ python main.py dataset=imagenet100 model=resnet34_imagenet100 \
 # torch DataLoader (default; works everywhere)
 python scripts/01_train_models.py training.loading_backend=torch ...
 
-# FFCV (fast binary loading — requires `uv sync --group ffcv`)
+# FFCV (fast binary loading — requires manual ffcv install, see Training backends)
 python main.py +sweeps=training_rho_imagenet100_ffcv
 ```
 

@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.2"
 app = marimo.App(width="medium")
 
 
@@ -163,8 +163,9 @@ def _(agg, alt, pl, runs):
         pl.col("rho"), pl.col("rho_numeric"), pl.col("accuracy")
     ).to_pandas()
 
+    _floor = round(float(_pts_df["accuracy"].min()) - 0.005, 3)
     _sort = alt.EncodingSortField(field="rho_numeric")
-    _yscale = alt.Scale(zero=False)
+    _yscale = alt.Scale(zero=False, domainMin=_floor)
 
     _bars = (
         alt.Chart(_bar_df)
@@ -172,17 +173,16 @@ def _(agg, alt, pl, runs):
         .encode(
             x=alt.X("rho:O", sort=_sort, title="ρ"),
             y=alt.Y("mean_acc:Q", title="Accuracy", scale=_yscale),
+            y2=alt.Y2(datum=_floor),
             tooltip=["rho", alt.Tooltip("mean_acc:Q", format=".4f")],
         )
     )
 
     _points = (
         alt.Chart(_pts_df)
-        .transform_calculate(jitter="random() * 0.5 - 0.25")
         .mark_circle(size=55, color="#1a1a2e", opacity=0.75)
         .encode(
             x=alt.X("rho:O", sort=_sort),
-            xOffset=alt.XOffset("jitter:Q"),
             y=alt.Y("accuracy:Q", scale=_yscale),
             tooltip=["rho", alt.Tooltip("accuracy:Q", format=".4f")],
         )

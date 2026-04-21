@@ -153,24 +153,23 @@ uv pip install -v --no-cache-dir ffcv
 
 ## 6) Make it repeatable (recommended)
 
-Create a script you can `source` before building/running anything that needs OpenCV:
+The project ships `scripts/activate-ffcv-env.sh` for exactly this purpose. Source it
+before building or running anything that needs OpenCV:
 
 ```bash
-mkdir -p scripts
-cat > scripts/opencv-only-env.sh <<'EOF'
-export MAMBA_ENV_PREFIX="$HOME/micromamba/envs/opencv-only"
-export PKG_CONFIG_PATH="$MAMBA_ENV_PREFIX/lib/pkgconfig:$MAMBA_ENV_PREFIX/share/pkgconfig:$PKG_CONFIG_PATH"
-export LD_LIBRARY_PATH="$MAMBA_ENV_PREFIX/lib:$LD_LIBRARY_PATH"
-export PATH="$MAMBA_ENV_PREFIX/bin:$PATH"
-EOF
-```
-
-Then:
-
-```bash
-source scripts/opencv-only-env.sh
+source scripts/activate-ffcv-env.sh
 pkg-config --modversion opencv4
 ```
+
+If your micromamba is installed in a non-default location, override the prefix:
+
+```bash
+MAMBA_ENV_PREFIX=/custom/path source scripts/activate-ffcv-env.sh
+```
+
+Re-source in every new shell session. The script sets `PKG_CONFIG_PATH`,
+`LD_LIBRARY_PATH`, and `PATH` — it does not activate the micromamba environment,
+so uv's Python interpreter is never shadowed.
 
 ---
 
