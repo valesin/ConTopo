@@ -11,4 +11,4 @@ filter:                      # optional MLflow filters using full entity paths, 
   param.topology: grid
 sample_size: 9               # if set, enumerate all k-combinations of this size per group
 field_ranges:                # numeric range filters: {tags.trial: [0, 9], params.rho: [0.0, 0.5]}
-  tags.trial: [0, 11]        # restrict to the first 10 trials; ignore any newly added models
+  tags.trial: [0, 10]        # restrict to the first 10 trials; ignore any newly added models
