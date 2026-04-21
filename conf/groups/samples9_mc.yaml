@@ -9,8 +9,8 @@ filter:                      # optional MLflow filters using full entity paths, 
   param.epochs: "200"
   param.loading_backend: torch
   param.topology: grid
-sample_size: 10
+sample_size: 9
 field_ranges: {}
 sampling_strategy: monte_carlo
-mc_n_samples: 25
+mc_n_samples: 10
 mc_seed: 100
