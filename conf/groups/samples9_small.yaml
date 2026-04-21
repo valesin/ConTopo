@@ -8,6 +8,9 @@ filter:                      # optional MLflow filters using full entity paths, 
   param.early_stopping_method: val_acc
   param.epochs: "1"
   param.loading_backend: torch
-sample_size: 9               # if set, enumerate all k-combinations of this size per group
+sample_size: 9               # if set, subsample k models per group (used by both strategies)
 field_ranges:                # numeric range filters: {tags.trial: [0, 9], params.rho: [0.0, 0.5]}
   tags.trial: [0, 9]        # restrict to the first 10 trials; ignore any newly added models
+sampling_strategy: combinatorial
+mc_n_samples: null
+mc_seed: null

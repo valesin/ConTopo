@@ -7,3 +7,6 @@ min_components: 3
 filter: {"params.epochs": "1", "param.loading_backend": "torch"}
 sample_size: 3
 field_ranges: {}
+sampling_strategy: combinatorial
+mc_n_samples: null
+mc_seed: null

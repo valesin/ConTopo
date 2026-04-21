@@ -14,6 +14,7 @@ non-overlapping role:
 | [`contributing.md`](contributing.md) | Safe change procedures + migration protocols |
 | [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) | Worked example: FFCV training recipe migration |
 | [`dry_run_models.md`](dry_run_models.md) | Idempotency dry run — diagnose hash misses before retraining |
+| [`artifact_storage.md`](artifact_storage.md) | Per-kind artifact inventory, content descriptions, and S3 size estimates |
 | [`analysis_guide.md`](analysis_guide.md) | Notebook + MLflow analysis reference |
 | [`typing.md`](typing.md) | Type coverage status, basedpyright policy, and strictness roadmap |
 

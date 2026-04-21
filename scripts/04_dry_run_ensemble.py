@@ -81,20 +81,29 @@ def main(cfg: DictConfig) -> None:
     field_ranges = (
         {k: list(v) for k, v in field_ranges_raw.items()} if field_ranges_raw else None
     )
+    sampling_strategy = str(cfg.groups.sampling_strategy)
+    mc_n_samples_raw = cfg.groups.mc_n_samples
+    mc_n_samples = int(mc_n_samples_raw) if mc_n_samples_raw is not None else None
+    mc_seed_raw = cfg.groups.mc_seed
+    mc_seed = int(mc_seed_raw) if mc_seed_raw is not None else None
 
     print(f"\n{'='*60}")
     print("Ensemble Discovery — Dry Run")
     print(f"{'='*60}")
-    print(f"  experiment : {cfg.mlflow.experiment_name}")
-    print(f"  group_by   : {group_by}")
-    print(f"  min_comps  : {min_components}")
+    print(f"  experiment        : {cfg.mlflow.experiment_name}")
+    print(f"  group_by          : {group_by}")
+    print(f"  min_comps         : {min_components}")
     print(
-        f"  sample_size: {sample_size if sample_size is not None else 'null  (full groups)'}"
+        f"  sample_size       : {sample_size if sample_size is not None else 'null  (full groups)'}"
     )
+    print(f"  sampling_strategy : {sampling_strategy}")
+    if sampling_strategy == "monte_carlo":
+        print(f"  mc_n_samples      : {mc_n_samples}")
+        print(f"  mc_seed           : {mc_seed}")
     if base_filter:
-        print(f"  filter     : {base_filter}")
+        print(f"  filter            : {base_filter}")
     if field_ranges:
-        print(f"  field_ranges: {field_ranges}")
+        print(f"  field_ranges      : {field_ranges}")
 
     # Discover groups before applying sample_size expansion so we can show
     # the pool separately from the combinations it would generate.
@@ -105,6 +114,9 @@ def main(cfg: DictConfig) -> None:
         base_filter=base_filter,
         sample_size=None,  # always fetch the full pool first
         field_ranges=field_ranges,
+        sampling_strategy=sampling_strategy,
+        mc_n_samples=mc_n_samples,
+        mc_seed=mc_seed,
     )
 
     if not groups_before_expansion:
@@ -121,7 +133,12 @@ def main(cfg: DictConfig) -> None:
 
     for group_name, run_ids in sorted(groups_before_expansion.items()):
         n = len(run_ids)
-        combos = _combinations_count(n, sample_size) if sample_size is not None else 1
+        if sample_size is None:
+            combos = 1
+        elif sampling_strategy == "monte_carlo":
+            combos = min(mc_n_samples, _combinations_count(n, sample_size))
+        else:
+            combos = _combinations_count(n, sample_size)
         total_ensembles += combos
 
         varying = _varying_fields(run_ids, meta)
@@ -130,7 +147,13 @@ def main(cfg: DictConfig) -> None:
         print(f"  group : {group_name}")
         print(f"  pool  : {n} components", end="")
         if sample_size is not None:
-            print(f"  →  C({n},{sample_size}) = {combos} combinations")
+            if sampling_strategy == "monte_carlo":
+                all_combos = _combinations_count(n, sample_size)
+                print(
+                    f"  →  {combos} MC draws  (C({n},{sample_size})={all_combos} total possible)"
+                )
+            else:
+                print(f"  →  C({n},{sample_size}) = {combos} combinations")
         else:
             print(f"  →  1 ensemble (full pool)")
 

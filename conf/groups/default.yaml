@@ -5,5 +5,8 @@
 group_by: [topology, rho]   # params that define a group signature
 min_components: 2            # skip groups with fewer runs than this
 filter: {}                   # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
-sample_size: null            # if set, enumerate all k-combinations of this size per group
+sample_size: null            # if set, subsample k models per group (used by both strategies)
 field_ranges: {}             # numeric range filters: {tags.trial: [0, 9], params.rho: [0.0, 0.5]}
+sampling_strategy: combinatorial  # combinatorial | monte_carlo
+mc_n_samples: null           # required when sampling_strategy=monte_carlo: number of random draws per group
+mc_seed: null                # required when sampling_strategy=monte_carlo: RNG seed for reproducibility

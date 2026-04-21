@@ -1,0 +1,13 @@
+# ── Monte Carlo ensemble sampling example ──
+# Randomly draws mc_n_samples combinations of sample_size models per group
+# instead of exhaustively enumerating all k-combinations.
+# The same mc_seed always produces the same set of ensembles.
+
+group_by: [topology, rho]
+min_components: 3
+filter: {}
+sample_size: 9
+field_ranges: {}
+sampling_strategy: monte_carlo
+mc_n_samples: 50  # draw 50 random 9-model ensembles per group
+mc_seed: 42

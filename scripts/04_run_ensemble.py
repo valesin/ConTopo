@@ -29,7 +29,10 @@ from omegaconf import DictConfig
 
 from src.ensemble.combine import combine_logits, METHODS
 from src.ensemble.accuracy import ensemble_accuracy, component_accuracies
-from src.ensemble.selector import discover_ensembles_with_runs_from_cfg
+from src.ensemble.selector import (
+    discover_ensembles_with_runs_from_cfg,
+    get_sampling_metadata,
+)
 from src.data.loaders import get_split_labels
 from src.config.hash import identity_hash
 from src.mlflow_utils import (
@@ -169,6 +172,7 @@ def _run_votes(
                     "num_components": len(run_ids),
                     "split": split_name,
                     "rho": rho_val,
+                    **get_sampling_metadata(cfg),
                 },
             )
             schema_log_tags(

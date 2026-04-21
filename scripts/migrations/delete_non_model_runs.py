@@ -22,6 +22,24 @@ server but artifacts remain on S3 until `mlflow gc` is run separately.
 The script reads MLFLOW_TRACKING_URI and MLFLOW_EXPERIMENT_NAME from the
 environment when --tracking-uri / --experiment are not provided explicitly.
 Source .env.secrets before running to point at the production server.
+
+── AFTER DELETION: freeing S3 storage with mlflow gc ───────────────────────
+Soft-deleted runs are hidden from the UI but their artifacts remain on S3
+until the MLflow garbage collector removes them.
+
+    uv run mlflow gc \\
+        --backend-store-uri "$MLFLOW_TRACKING_URI" \\
+        --artifacts-destination "$MLFLOW_ARTIFACT_LOCATION"
+
+Caveats:
+  1. Hosted tracking servers (e.g. DagsHub) may not expose the raw backend
+     store for gc. If the command fails, delete artifacts directly via the
+     S3/R2 API for each soft-deleted run ID:
+         aws s3 rm s3://<bucket>/mlruns/<experiment_id>/<run_id>/ --recursive
+     Run IDs of deleted runs can be listed with:
+         uv run mlflow runs list --experiment-name <name> --view deleted
+  2. Pass --older-than 7d to only gc runs deleted more than 7 days ago,
+     as a safety buffer against accidental deletions.
 """
 
 from __future__ import annotations

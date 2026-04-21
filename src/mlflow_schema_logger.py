@@ -237,7 +237,7 @@ TELEMETRY_SCHEMA = {
     "ensemble": {
         "params": {
             "required": ["method", "method_type", "num_components", "split", "rho"],
-            "optional": [],
+            "optional": ["sampling_strategy", "mc_seed"],
         },
         "tags": {
             "required": [
