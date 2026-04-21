@@ -170,7 +170,6 @@ def main(cfg: DictConfig) -> None:
                     tensors_path,
                     embeddings=results["embeddings"],
                     logits=results["logits"],
-                    probs=results["probs"],  # The full Nx10 probability matrix
                 )
                 timed_log_artifact(tensors_path, artifact_path="inference")
 

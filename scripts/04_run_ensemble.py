@@ -18,7 +18,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 
@@ -61,10 +60,8 @@ def _load_inference_artifacts(cfg, run_ids, split="test"):
     Dynamically fetch MLflow artifacts for each component.
     Returns:
        - logits_list: List of logits tensors across the ensemble
-       - composition_map: Dictionary tracking exact inference run ID per model
     """
     logits_list = []
-    composition_map = {}
 
     for i, model_run_id in enumerate(run_ids):
         # 1. Ask MLflow to find the exact inference run for this target model
@@ -98,13 +95,7 @@ def _load_inference_artifacts(cfg, run_ids, split="test"):
             f"  Loaded inference artifacts for component {i:03d} (model={model_run_id[:8]}… inf={inf_run_id[:8]}…)"
         )
 
-        # Map tracker
-        composition_map[f"component_{i:03d}"] = {
-            "trained_model_run_id": model_run_id,
-            "inference_run_id": inf_run_id,
-        }
-
-    return logits_list, composition_map
+    return logits_list
 
 
 def _run_votes(
@@ -113,7 +104,6 @@ def _run_votes(
     methods,
     logits_list,
     labels,
-    composition_map,
     run_ids,
     cs_hash,
     split_name,
@@ -190,13 +180,6 @@ def _run_votes(
             comp = component_accuracies(logits_list, labels)
             timed_log_metric("comp_mean_acc", comp["mean_acc"])
             timed_log_metric("comp_max_acc", comp["max_acc"])
-
-            # ── Link the Component Composition Artifact ──
-            with tempfile.TemporaryDirectory() as tmpdir:
-                composition_path = os.path.join(tmpdir, "composition_map.json")
-                with open(composition_path, "w") as f:
-                    json.dump(composition_map, f, indent=4)
-                timed_log_artifact(composition_path, artifact_path="ensemble")
 
             # ── Ensemble Inference Tracking Parity (Parquet/NPZ) ──
             eval_df = pd.DataFrame(
@@ -296,8 +279,8 @@ def main(cfg: DictConfig) -> None:
         else:
             uncached_methods = []
 
-        # Load logits matrices + composition tracking metadata
-        logits_list, composition_map = _load_inference_artifacts(cfg, run_ids, split)
+        # Load logits matrices for each component
+        logits_list = _load_inference_artifacts(cfg, run_ids, split)
 
         # Determine Rho (unanimous or mixed)
         rhos = set()
@@ -316,7 +299,6 @@ def main(cfg: DictConfig) -> None:
                 uncached_methods,
                 logits_list,
                 labels,
-                composition_map,
                 run_ids,
                 cs_hash,
                 split,

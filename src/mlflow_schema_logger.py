@@ -258,7 +258,6 @@ TELEMETRY_SCHEMA = {
         },
         "artifacts": {
             "required": [
-                "ensemble/composition_map.json",
                 "ensemble/{split}_{ensemble_name}_{method}_inference.parquet",
             ],
             "optional": ["ensemble/{split}_{ensemble_name}_{method}_tensors.npz"],
@@ -354,7 +353,6 @@ TELEMETRY_SCHEMA = {
         "artifacts": {
             "required": [
                 "inputs/adapter_inputs_{behaviour_input_hash}.npz",
-                "inputs/adapter_split_trace_{behaviour_input_hash}.parquet",
                 "data/adapter_holdout_{behaviour_input_hash}.parquet",
                 "data/adapter_holdout_{behaviour_input_hash}.npz",
                 "model",

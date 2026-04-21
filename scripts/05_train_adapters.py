@@ -381,10 +381,6 @@ def main(cfg: DictConfig) -> None:
                     inputs_path = os.path.join(
                         tmpdir, f"adapter_inputs_{step_identity_hash}.npz"
                     )
-                    split_trace_path = os.path.join(
-                        tmpdir, f"adapter_split_trace_{step_identity_hash}.parquet"
-                    )
-
                     # Save exact regression-head inputs used in this run
                     np.savez_compressed(
                         inputs_path,
@@ -407,27 +403,6 @@ def main(cfg: DictConfig) -> None:
                         profile_mask=np.asarray([profile_mask]),
                     )
 
-                    split_trace = pd.DataFrame(
-                        {
-                            "original_index": np.concatenate(
-                                [train_idx, val_idx, holdout_idx]
-                            ),
-                            "split": (
-                                ["train"] * len(train_idx)
-                                + ["val"] * len(val_idx)
-                                + ["holdout"] * len(holdout_idx)
-                            ),
-                            "position_in_split": np.concatenate(
-                                [
-                                    np.arange(len(train_idx)),
-                                    np.arange(len(val_idx)),
-                                    np.arange(len(holdout_idx)),
-                                ]
-                            ),
-                        }
-                    )
-                    split_trace.to_parquet(split_trace_path, index=False)
-
                     df_hold = pd.DataFrame(
                         {
                             "original_index": safe_to_numpy_float64(
@@ -447,7 +422,6 @@ def main(cfg: DictConfig) -> None:
                     np.savez_compressed(tensors_path, probs=hold_probs.numpy())
 
                     timed_log_artifact(inputs_path, artifact_path="inputs")
-                    timed_log_artifact(split_trace_path, artifact_path="inputs")
                     timed_log_artifact(tabular_path, artifact_path="data")
                     timed_log_artifact(tensors_path, artifact_path="data")
 
