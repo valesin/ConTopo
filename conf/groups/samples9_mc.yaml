@@ -3,15 +3,13 @@
 # Used by steps 04, 04b, 04c, and 05 via discover_ensembles_from_cfg().
 
 group_by: [topology, rho]   # params that define a group signature
-min_components: 2            # skip groups with fewer runs than this
 filter:                      # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
   param.early_stopping_method: val_acc
   param.epochs: "200"
   param.loading_backend: torch
   param.topology: grid
-sample_size: 9               # if set, subsample k models per group (used by both strategies)
-field_ranges:                # numeric range filters: {tags.trial: [0, 9], params.rho: [0.0, 0.5]}
-  tags.trial: [0, 10]        # restrict to the first 10 trials; ignore any newly added models
-sampling_strategy: combinatorial
-mc_n_samples: 
-mc_seed: null
+sample_size: 10
+field_ranges: {}
+sampling_strategy: monte_carlo
+mc_n_samples: 25
+mc_seed: 100

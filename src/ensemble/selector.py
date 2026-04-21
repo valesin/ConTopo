@@ -194,10 +194,16 @@ def _discover(
             )
         if mc_n_samples < 1:
             raise ValueError(f"mc_n_samples must be >= 1, got {mc_n_samples}")
-        rng = random.Random(mc_seed)
         for g_name, r_ids in final_ensembles.items():
             if len(r_ids) < sample_size:
                 continue
+            # Per-group seed derived from global seed + group name so that
+            # changing mc_n_samples only adds draws within each group independently,
+            # without shifting the RNG state for other groups.
+            group_seed = int(
+                hashlib.sha256(f"{mc_seed}:{g_name}".encode()).hexdigest()[:8], 16
+            )
+            rng = random.Random(group_seed)
             for combo_sorted in _random_combinations(
                 rng, r_ids, sample_size, mc_n_samples
             ):
