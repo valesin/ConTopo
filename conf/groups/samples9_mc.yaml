@@ -3,6 +3,7 @@
 # Used by steps 04, 04b, 04c, and 05 via discover_ensembles_from_cfg().
 
 group_by: [topology, rho]   # params that define a group signature
+min_components: 0
 filter:                      # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
   param.early_stopping_method: val_acc
   param.epochs: "200"
