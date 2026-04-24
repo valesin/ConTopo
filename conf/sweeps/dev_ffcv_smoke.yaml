@@ -1,0 +1,24 @@
+# @package _global_
+# Smoke test — CIFAR-10, FFCV backend, simple_cnn, 2 epochs, 2 trials.
+#
+# Verifies the FFCV data pipeline end-to-end: beton file creation,
+# loader construction, and a short training loop.
+#
+# Usage:
+#   python main.py +sweeps=dev_ffcv_smoke
+
+training:
+  loading_backend: ffcv
+  beton:
+    max_resolution: 32    # CIFAR-10 native resolution
+    jpeg_quality: 90
+    compress_probability: 0.50
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 2)
+      loss.rho: 0.0, 1.0
+      training.epochs: 2
+      model: simple_cnn

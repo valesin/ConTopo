@@ -1,0 +1,20 @@
+# Profiling config for Flowers102.
+#
+# The test split has 6 149 images across 102 classes (average ~60/class, minimum ~20).
+# per_class=10 is safe for all classes and keeps total anchor count (1 020) in line
+# with the CIFAR-10 and ImageNet100 defaults.
+
+anchors:
+  per_class: 10
+  strategy: per_class_first_n
+  order_by: example_id
+  source_split: test
+
+profiles:
+  skip: false
+  metrics: [cosine]
+
+diagnostics:
+  morans_i: true
+  weight_norms: true
+  unit_distance_correlation: true

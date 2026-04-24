@@ -1,0 +1,51 @@
+# @package _global_
+# ImageNet100 training sweep — FFCV backend, full high-throughput recipe, 5 trials.
+#
+# Lighter version of imagenet100_ffcv_t10 for faster iteration.
+# 6 rho values × 2 topologies × 5 trials = 60 runs.
+#
+# Usage:
+#   python main.py +sweeps=imagenet100_ffcv_t5
+
+defaults:
+  - override /dataset: imagenet100
+  - override /model: resnet34_imagenet100
+  - override /profiling: imagenet100
+
+mlflow:
+  experiment_name: contopo_imagenet100_ffcv
+
+runtime:
+  beton:
+    dir: outputs/betons
+
+training:
+  loading_backend: ffcv
+  beton:
+    max_resolution: 500
+    jpeg_quality: 90
+    compress_probability: 0.50
+  epochs: 16
+  batch_size: 1024
+  learning_rate: 0.5
+  optimiser: sgd
+  optimizer_selective_wd: true
+  momentum: 0.9
+  weight_decay: 0.00005
+  scheduler: cyclic
+  lr_peak_epoch: 2
+  label_smoothing: 0.1
+  use_blurpool: true
+  lr_tta: true
+  progressive_res_min: 160
+  progressive_res_max: 192
+  progressive_res_start_ramp: 0.75
+  progressive_res_end_ramp: 1.0
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 5)
+      loss.rho: 0.0, 0.008, 0.04, 0.2, 1.0, 5.0
+      loss.topology: torus, grid

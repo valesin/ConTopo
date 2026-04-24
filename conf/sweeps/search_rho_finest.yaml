@@ -1,0 +1,16 @@
+# @package _global_
+# Rho hyperparameter search — finest grid (0.015–0.02, step 0.001).
+#
+# Third-pass search for precise minimum-rho estimation.
+# Run after search_rho_fine converges on a narrow region.
+#
+# Usage:
+#   python scripts/01_train_models.py +sweeps=search_rho_finest
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: 0
+      loss.rho: range(0.015, 0.02, 0.001)
+      training.epochs: 200

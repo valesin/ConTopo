@@ -1,0 +1,28 @@
+# @package _global_
+# CIFAR-10 training sweep — val_loss early stopping, both topologies, 10 trials.
+#
+# Identical to cifar10_t10 except the early-stopping criterion is validation loss
+# rather than the default. Use to compare stopping-criterion sensitivity.
+# 6 rho values × 2 topologies × 10 trials = 120 runs.
+#
+# Usage:
+#   python main.py +sweeps=cifar10_valloss_t10
+
+defaults:
+  - override /dataset: cifar10
+  - override /model: resnet18
+  - override /profiling: default
+
+mlflow:
+  experiment_name: contopo_cifar10
+
+training:
+  early_stopping_method: val_loss
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 10)
+      loss.rho: 0.0, 0.008, 0.04, 0.2, 1.0, 5.0
+      loss.topology: torus, grid

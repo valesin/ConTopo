@@ -1,0 +1,29 @@
+# @package _global_
+# ImageNet100 training sweep — torch backend, fine-tuning regime, 5 trials.
+#
+# Lighter version of imagenet100_t10 for faster iteration.
+# 6 rho values × 2 topologies × 5 trials = 60 runs.
+#
+# Usage:
+#   python main.py +sweeps=imagenet100_t5
+
+defaults:
+  - override /dataset: imagenet100
+  - override /model: resnet34_imagenet100
+  - override /profiling: imagenet100
+
+mlflow:
+  experiment_name: contopo_imagenet100
+
+training:
+  epochs: 30
+  batch_size: 64
+  learning_rate: 0.0001
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 5)
+      loss.rho: 0.0, 0.008, 0.04, 0.2, 1.0, 5.0
+      loss.topology: torus, grid

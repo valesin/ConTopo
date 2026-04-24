@@ -16,7 +16,7 @@ import os
 from typing import Any, Callable
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Subset
 from torchvision import datasets
 from omegaconf import DictConfig
 
@@ -59,15 +59,50 @@ def _imagenet100_factory(
     return datasets.ImageFolder(root=path, transform=transform)
 
 
+def _flowers102_factory(
+    root: str,
+    train: bool,
+    transform: Callable[[Any], Any] | None,
+    download: bool = True,
+) -> Any:
+    """Flowers102 loader adapting the split-string API to the factory's train-bool contract.
+
+    Flowers102 has only 10 images/class in each official split.  To give
+    ``_split_train_val_indices`` a usable pool, ``train=True`` concatenates the
+    official 'train' and 'val' splits (20 images/class).  ``train=False`` returns
+    the official 'test' split (~60 images/class on average).
+
+    ``.targets`` is attached explicitly because Flowers102 exposes ``._labels``
+    rather than the ``.targets`` attribute the rest of the pipeline expects.
+    """
+    if not train:
+        ds = datasets.Flowers102(
+            root=root, split="test", transform=transform, download=download
+        )
+        ds.targets = list(ds._labels)
+        return ds
+    ds_tr = datasets.Flowers102(
+        root=root, split="train", transform=transform, download=download
+    )
+    ds_vl = datasets.Flowers102(
+        root=root, split="val", transform=transform, download=download
+    )
+    combined = ConcatDataset([ds_tr, ds_vl])
+    combined.targets = list(ds_tr._labels) + list(ds_vl._labels)
+    return combined
+
+
 # Registry: dataset name → factory(root, train, transform, download) → Dataset
 _DATASET_FACTORIES: dict[str, Callable] = {
     "cifar10": _cifar10_factory,
     "imagenet100": _imagenet100_factory,
+    "flowers102": _flowers102_factory,
 }
 
 DATASET_NUM_CLASSES: dict[str, int] = {
     "cifar10": 10,
     "imagenet100": 100,
+    "flowers102": 102,
 }
 
 

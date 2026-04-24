@@ -1,0 +1,16 @@
+# @package _global_
+# Rho hyperparameter search — coarse grid (0.008–0.04, step 0.001).
+#
+# First-pass search to locate the minimum effective rho.
+# Run search_rho_fine next to zoom in on the region of interest.
+#
+# Usage:
+#   python scripts/01_train_models.py +sweeps=search_rho_coarse
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: 0
+      loss.rho: range(0.008, 0.04, 0.001)
+      training.epochs: 30

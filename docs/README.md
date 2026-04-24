@@ -12,6 +12,7 @@ non-overlapping role:
 | [`idempotency.md`](idempotency.md) | Identity hashes, `IDEMPOTENCY_REGISTRY`, migration semantics |
 | [`telemetry_schema.md`](telemetry_schema.md) | MLflow logging contract, run kinds, required vs optional |
 | [`contributing.md`](contributing.md) | Safe change procedures + migration protocols |
+| [`adding_datasets.md`](adding_datasets.md) | Dataset reference: available datasets, setup, training choices, how to add new ones |
 | [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) | Worked example: FFCV training recipe migration |
 | [`dry_run_models.md`](dry_run_models.md) | Idempotency dry run — diagnose hash misses before retraining |
 | [`artifact_storage.md`](artifact_storage.md) | Per-kind artifact inventory, content descriptions, and S3 size estimates |

@@ -93,12 +93,27 @@ def _imagenet_v1():
     return train, eval_
 
 
+# ------------- Flowers102 presets ------------- #
+
+
+def _flowers102_v1():
+    """No augmentation, no normalisation — raw pixel values in [0, 1].
+
+    Both train and eval use the same identity pipeline (ToTensor only).
+    This is intentional: the preset deliberately avoids any preprocessing
+    so that the raw dataset is fed to the model unchanged.
+    """
+    t = transforms.ToTensor()
+    return t, t
+
+
 # ------------- Registry ------------- #
 
 _PRESETS: dict[str, Callable[[], Tuple]] = {
     "cifar10_default_v1": _cifar10_default_v1,
     "cifar10_resizedcrop_v1": _cifar10_resizedcrop_v1,
     "imagenet_v1": _imagenet_v1,
+    "flowers102_v1": _flowers102_v1,
 }
 
 

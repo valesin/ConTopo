@@ -116,6 +116,8 @@ the same semantic.
 
 ## Notes and best practices
 
+- **Float params are always logged as their Python `str()` representation.** Hydra coerces CLI strings to the declared type before they reach the code, so `loss.rho=0` and `loss.rho=0.0` both arrive as the Python float `0.0` and are logged as `"0.0"`. When filtering MLflow runs (e.g., in `groups/*.yaml` filter dicts or `get_runs()` calls), always use the canonical float string: `"0.0"`, `"0.008"`, etc. — never `"0"`.
+
 - Prefer modifying `TELEMETRY_SCHEMA` first, then the code that emits the telemetry. That order prevents unexpected validation failures during CI or local runs.
 - When adding artifact templates, prefer stable directory prefixes (e.g., `inference/`, `ensemble/`, `profiles/`) so the validator's directory listing check is robust.
 - If a new telemetry item changes step identity semantics, update `src/config/hash.py`'s `IDEMPOTENCY_REGISTRY` and add tests to cover idempotency.

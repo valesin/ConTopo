@@ -1,0 +1,34 @@
+# @package _global_
+# Flowers102 training sweep — torch backend, fine-tuning regime, 5 trials.
+#
+# Fine-tunes a pretrained ResNet34 backbone on Oxford 102 Flowers.
+# Training pool: official train+val splits combined (20 images/class); 10/class
+# are carved for validation at runtime, leaving 10/class for training.
+# Test set: official test split (~60 images/class on average).
+# 6 rho values × 2 topologies × 5 trials = 60 runs.
+#
+# Usage:
+#   python main.py +sweeps=flowers102_t5
+#
+# The dataset is downloaded automatically on first run (download=True in the factory).
+
+defaults:
+  - override /dataset: flowers102
+  - override /model: resnet34_imagenet100
+  - override /profiling: flowers102
+
+mlflow:
+  experiment_name: contopo_flowers102
+
+training:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 0.0001
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 5)
+      loss.rho: 0.0, 0.008, 0.04, 0.2, 1.0, 5.0
+      loss.topology: torus, grid

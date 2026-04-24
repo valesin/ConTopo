@@ -1,0 +1,11 @@
+name: flowers102
+image_size: 224
+in_channels: 3
+# Not applied by flowers102_v1 (no-op preset); kept for schema completeness.
+mean: [0.0, 0.0, 0.0]
+std:  [1.0, 1.0, 1.0]
+split:
+  strategy: first_n_per_class
+  val_per_class: 10   # drawn from the 20-image/class combined train+val pool
+transforms:
+  preset: flowers102_v1

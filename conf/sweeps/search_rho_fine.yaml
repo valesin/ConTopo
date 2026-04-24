@@ -1,0 +1,16 @@
+# @package _global_
+# Rho hyperparameter search — fine grid (0.012–0.024, step 0.001).
+#
+# Second-pass search after search_rho_coarse identifies the interesting region.
+# Run search_rho_finest to narrow further if needed.
+#
+# Usage:
+#   python scripts/01_train_models.py +sweeps=search_rho_fine
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: 0
+      loss.rho: range(0.012, 0.024, 0.001)
+      training.epochs: 60
