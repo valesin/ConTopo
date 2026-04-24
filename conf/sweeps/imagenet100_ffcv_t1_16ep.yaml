@@ -47,4 +47,4 @@ hydra:
       # Restricted to a single trial and single topology
       trial: 0
       loss.topology: grid          # Or 'torus', whichever you prefer for this run
-      loss.rho: 0.04               # Choose your specific rho value here
+      loss.rho: 0,0.008,0.04,0.2,1.0
