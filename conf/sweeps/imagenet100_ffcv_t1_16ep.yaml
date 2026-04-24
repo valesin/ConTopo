@@ -1,0 +1,50 @@
+# @package _global_
+# ImageNet100 training — FFCV backend, single model, single topology.
+
+defaults:
+  - override /dataset: imagenet100
+  - override /model: resnet18_imagenet100  # Updated to ResNet18 as per your target config
+  - override /profiling: imagenet100
+
+mlflow:
+  experiment_name: contopo_imagenet100_ffcv_single
+
+runtime:
+  beton:
+    dir: outputs/betons
+
+training:
+  loading_backend: ffcv
+  beton:
+    max_resolution: 500
+    jpeg_quality: 90
+    compress_probability: 0.50
+    
+  # Mapped from your provided target config
+  epochs: 16
+  batch_size: 1024
+  learning_rate: 0.5
+  optimiser: sgd
+  momentum: 0.9
+  weight_decay: 0.00005
+  optimizer_selective_wd: true     # Maps to your target's 'bn_wd: 0'
+  scheduler: cyclic
+  lr_peak_epoch: 2
+  label_smoothing: 0.1
+  use_blurpool: true
+  lr_tta: true
+  
+  # Progressive resolution parameters
+  progressive_res_min: 160
+  progressive_res_max: 192
+  progressive_res_start_ramp: 11   # Note: Ensure your data loader handles absolute epochs rather than ratios
+  progressive_res_end_ramp: 13
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      # Restricted to a single trial and single topology
+      trial: 0
+      loss.topology: grid          # Or 'torus', whichever you prefer for this run
+      loss.rho: 0.04               # Choose your specific rho value here
