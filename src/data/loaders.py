@@ -286,11 +286,14 @@ def _get_ffcv_loaders(cfg: DictConfig):
     max_stored = int(cfg.training.beton.max_resolution)
     effective_stored = min(max_stored, image_size)
     eval_ratio = min(256 / 224, effective_stored / image_size)
-    eval_img, eval_lbl = build_ffcv_eval_pipeline(
+    val_img, val_lbl = build_ffcv_eval_pipeline(
         image_size, device_idx, mean, std, ratio=eval_ratio
     )
-    val_loader = build_ffcv_loader(val_beton, eval_img, eval_lbl, bs, nw)
-    test_loader = build_ffcv_loader(test_beton, eval_img, eval_lbl, bs, nw)
+    test_img, test_lbl = build_ffcv_eval_pipeline(
+        image_size, device_idx, mean, std, ratio=eval_ratio
+    )
+    val_loader = build_ffcv_loader(val_beton, val_img, val_lbl, bs, nw)
+    test_loader = build_ffcv_loader(test_beton, test_img, test_lbl, bs, nw)
 
     # Train loader(s)
     prog_min = cfg.training.progressive_res_min
