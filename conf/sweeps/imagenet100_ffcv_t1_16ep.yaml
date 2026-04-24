@@ -3,7 +3,7 @@
 
 defaults:
   - override /dataset: imagenet100
-  - override /model: resnet18_imagenet100  # Updated to ResNet18 as per your target config
+  - override /model: resnet34_scratch  # Updated to ResNet18 as per your target config
   - override /profiling: imagenet100
 
 mlflow:
