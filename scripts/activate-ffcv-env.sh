@@ -15,8 +15,15 @@ MAMBA_ENV_PREFIX="${MAMBA_ENV_PREFIX:-$HOME/micromamba/envs/opencv-only}"
 export PKG_CONFIG_PATH="$MAMBA_ENV_PREFIX/lib/pkgconfig:$MAMBA_ENV_PREFIX/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 export LD_LIBRARY_PATH="$MAMBA_ENV_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 export PATH="$MAMBA_ENV_PREFIX/bin:$PATH"
-# Force micromamba's libjpeg to be loaded first. Without this, another Python
-# extension (e.g. Pillow) may load the system libjpeg.so.8 before ffcv imports,
-# and the dynamic linker will reuse that cached copy when libtiff.so.6 needs it,
-# causing "undefined symbol: jpeg12_write_raw_data" at ffcv import time.
-export LD_PRELOAD="$MAMBA_ENV_PREFIX/lib/libjpeg.so.8${LD_PRELOAD:+:$LD_PRELOAD}"
+# Preload micromamba's image codec libs before any other Python extension can
+# cache the system versions. Without this, extensions like Pillow load the system
+# libjpeg/libpng early; when ffcv then imports libopencv_imgcodecs, the dynamic
+# linker reuses the cached system libs (which are older and missing symbols like
+# jpeg12_write_raw_data or png_set_cICP), ignoring micromamba's newer copies.
+_ffcv_preload=""
+for _lib in libjpeg.so.8 libpng16.so.16 libtiff.so.6 libwebp.so.7; do
+    [ -f "$MAMBA_ENV_PREFIX/lib/$_lib" ] && \
+        _ffcv_preload="$MAMBA_ENV_PREFIX/lib/$_lib${_ffcv_preload:+:$_ffcv_preload}"
+done
+export LD_PRELOAD="${_ffcv_preload}${LD_PRELOAD:+:$LD_PRELOAD}"
+unset _lib _ffcv_preload
