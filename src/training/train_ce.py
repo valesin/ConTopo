@@ -118,7 +118,23 @@ def train_one_epoch(
         # float32 loss. We compute topo_loss outside autocast when AMP is on.
         if topography_type == "ws":
             base = cast(Any, unwrap(model))
-            linear_layer = base.encoder.fc
+
+            # Safely locate the linear embedding layer
+            if hasattr(
+                base, "neck"
+            ):  # <-- Finds it in FinetuneResNet34 / ScratchResNet34
+                linear_layer = base.neck
+            elif hasattr(base, "encoder") and hasattr(base.encoder, "fc"):
+                linear_layer = (
+                    base.encoder.fc
+                )  # <-- Fallback for your other custom models
+            elif hasattr(base, "fc"):
+                linear_layer = base.fc  # <-- Fallback for standard ResNets
+            else:
+                raise AttributeError(
+                    f"Could not find linear layer (neck, fc, or encoder.fc) in {type(base).__name__}"
+                )
+
             topo_loss = topo_loss_fn(linear_layer=linear_layer)
             measure_params = list(linear_layer.parameters())
         elif topography_type == "global":
