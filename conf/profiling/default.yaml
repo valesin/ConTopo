@@ -19,5 +19,5 @@ profiles:
 
 diagnostics:
   morans_i: true
-  weight_norms: true
-  unit_distance_correlation: true
+  weight_norms: false
+  unit_distance_correlation: false

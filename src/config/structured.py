@@ -54,6 +54,9 @@ class LossConfig:
     task_loss: str = "cross_entropy"
     neighbourhood: NeighbourhoodConfig = field(default_factory=NeighbourhoodConfig)
 
+    def __post_init__(self):
+        self.rho = round(self.rho, 3)
+
 
 # ─────────── dataset ───────────
 
