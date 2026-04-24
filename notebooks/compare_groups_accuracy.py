@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.2"
 app = marimo.App(width="medium")
 
 
@@ -29,9 +29,9 @@ def _():
     from src.config.notebook import setup_environment
     from mlflow_helpers import get_ensemble_results_for_groups
     import polars as pl
-    import plotly.graph_objects as go
 
-    return get_ensemble_results_for_groups, go, pl, setup_environment
+    # import plotly.graphmakes t_objects as go
+    return get_ensemble_results_for_groups, pl, setup_environment
 
 
 @app.cell
@@ -64,12 +64,11 @@ def _(mo):
 def _(mo, setup_environment):
     cfg, experiment = setup_environment()
     mo.md(f"**Experiment:** `{experiment.name}`")
-    return (experiment,)
+    return
 
 
 @app.cell
 def _(
-    experiment,
     get_ensemble_results_for_groups,
     groups_a,
     groups_b,
@@ -79,7 +78,7 @@ def _(
     vote_method,
 ):
     def _load(groups_name):
-        runs_pd = get_ensemble_results_for_groups(groups_name, experiment, split.value)
+        runs_pd = get_ensemble_results_for_groups(groups_name, split.value)
         runs_pd = runs_pd[runs_pd["vote_method"] == vote_method.value]
         return pl.from_pandas(runs_pd).with_columns(
             (pl.col("accuracy") - pl.col("comp_mean_acc")).alias("gain"),

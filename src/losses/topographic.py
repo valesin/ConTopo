@@ -54,24 +54,30 @@ def torus_diffs(W: torch.Tensor) -> list[torch.Tensor]:
     h, w = get_grid_shape(out_feats)
     G = W.reshape(h, w, in_feats)
     diffs: list[torch.Tensor] = []
+
     if w > 1:
-        diffs.append(G[:, :-1, :] - G[:, 1:, :])
-        diffs.append(G[:, -1, :] - G[:, 0, :])
+        # Horizontal: interior + wrap (last col → first col)
+        diffs.append(G[:, :-1, :] - G[:, 1:, :])  # (h, w-1, in_feats)
+        diffs.append(G[:, -1, :] - G[:, 0, :])  # (h, in_feats)
+
     if h > 1:
-        diffs.append(G[:-1, :, :] - G[1:, :, :])
-        diffs.append(G[-1, :, :] - G[0, :, :])
+        # Vertical: interior + wrap (last row → first row)
+        diffs.append(G[:-1, :, :] - G[1:, :, :])  # (h-1, w, in_feats)
+        diffs.append(G[-1, :, :] - G[0, :, :])  # (w, in_feats)
+
     if h > 1 and w > 1:
-        diffs.append(G[:-1, :-1, :] - G[1:, 1:, :])
-        diffs.append(G[:-1, 1:, :] - G[1:, :-1, :])
-        # NOTE: Torus diagonal wrapping — these connect corners that wrap
-        # around both axes simultaneously. The current indexing pairs
-        # (row -1, col j) ↔ (row 0, col j+1), i.e. the column offset
-        # shifts by one during wrapping. An alternative interpretation
-        # would keep the same column offset: G[-1, :-1, :] - G[0, :-1, :].
-        # The current form is consistent with the non-wrapping diagonals
-        # above (which also shift both row and col by ±1).
-        diffs.append(G[-1, :-1, :] - G[0, 1:, :])
-        diffs.append(G[-1, 1:, :] - G[0, :-1, :])
+        # Diagonal bottom right: interior + right edge wrap + bottom edge wrap + corner wrap
+        diffs.append(G[:-1, :-1, :] - G[1:, 1:, :])  # (h-1, w-1, in_feats)
+        diffs.append(G[:-1, -1, :] - G[1:, 0, :])  # right edge → (h-1, in_feats)
+        diffs.append(G[-1, :-1, :] - G[0, 1:, :])  # bottom edge → (w-1, in_feats)
+        diffs.append(G[-1, -1, :] - G[0, 0, :])  # corner → (in_feats,)
+
+        # Diagonal bottom left: interior + left edge wrap + bottom edge wrap + corner wrap
+        diffs.append(G[:-1, 1:, :] - G[1:, :-1, :])  # (h-1, w-1, in_feats)
+        diffs.append(G[:-1, 0, :] - G[1:, -1, :])  # left edge → (h-1, in_feats)
+        diffs.append(G[-1, 1:, :] - G[0, :-1, :])  # bottom edge → (w-1, in_feats)
+        diffs.append(G[-1, 0, :] - G[0, -1, :])  # corner → (in_feats,)
+
     return diffs
 
 

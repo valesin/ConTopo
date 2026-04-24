@@ -38,16 +38,16 @@ def _():
 def _(mo, setup_environment):
     cfg, experiment = setup_environment()
     mo.md(f"**Experiment:** `{experiment.name}`")
-    return (experiment,)
+    return
 
 
 @app.cell
-def _(experiment, get_ensemble_results_for_groups, mo, pl):
+def _(get_ensemble_results_for_groups, mo, pl):
     _GROUPS = "samples9"
     _SPLIT = "test"
     _METHOD = "soft"
 
-    runs_pd = get_ensemble_results_for_groups(_GROUPS, experiment, _SPLIT)
+    runs_pd = get_ensemble_results_for_groups(_GROUPS, _SPLIT)
     runs_pd = runs_pd[runs_pd["vote_method"] == _METHOD]
 
     if runs_pd.empty:

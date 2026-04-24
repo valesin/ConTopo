@@ -5,10 +5,10 @@
 group_by: [topology, rho]   # params that define a group signature
 min_components: 0
 filter:                      # optional MLflow filters using full entity paths, e.g. {params.rho: "0.0", tags.trial: "3"}
-  param.early_stopping_method: val_acc
-  param.epochs: "200"
-  param.loading_backend: torch
-  param.topology: grid
+  params.early_stopping_method: val_acc
+  params.epochs: "200"
+  params.loading_backend: torch
+  params.topology: grid
 sample_size: 9
 field_ranges: {}
 sampling_strategy: monte_carlo

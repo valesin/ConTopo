@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.2"
 app = marimo.App(width="medium")
 
 
@@ -11,24 +11,24 @@ def _():
 
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
-    from mlflow_helpers import get_base_model_list, varying_fields
+    from mlflow_helpers import get_runs, varying_fields
     import polars as pl
     import pandas as pd
     import matplotlib.pyplot as plt
 
-    return get_base_model_list, pl, plt, setup_environment, varying_fields
+    return get_runs, pl, plt, setup_environment, varying_fields
 
 
 @app.cell
 def _(setup_environment):
     cfg, experiment = setup_environment()
     (cfg, experiment)
-    return (experiment,)
+    return
 
 
 @app.cell
-def _(experiment, get_base_model_list):
-    df = get_base_model_list(experiment)
+def _(get_runs):
+    df = get_runs("model")
     print(len(df))
     df.columns
     return (df,)
@@ -42,12 +42,16 @@ def _(df, varying_fields):
 
 @app.cell
 def _(df, pl):
-    bare_df = df.filter(pl.col("params.epochs").cast(pl.Int32) == 200).select(
-        [
-            "params.rho",
-            "params.early_stopping_method",
-            "metrics.test_accuracy",
-        ]
+    bare_df = (
+        pl.from_pandas(df)
+        .filter(pl.col("params.epochs").cast(pl.Int32) == 200)
+        .select(
+            [
+                "params.rho",
+                "params.early_stopping_method",
+                "metrics.test_accuracy",
+            ]
+        )
     )
     return (bare_df,)
 

@@ -68,11 +68,15 @@ def setup_environment(
     # 4. Bring up MLflow using existing utility
     # (requires absolute import after sys.path is updated)
     from src.mlflow_utils import apply_mlflow_env_overrides, setup_mlflow
-    from src.repositories.functional_run_repository import configure_run_repository
+    from src.repositories.functional_run_repository import (
+        configure_artifact_cache_dir,
+        configure_run_repository,
+    )
 
     apply_mlflow_env_overrides(cfg)
     setup_mlflow(cfg)
     configure_run_repository(cfg.mlflow.tracking_uri, cfg.mlflow.experiment_name)
+    configure_artifact_cache_dir(cfg.mlflow.artifact_cache_dir)
 
     experiment = mlflow.get_experiment_by_name(cfg.mlflow.experiment_name)
     if experiment is None:

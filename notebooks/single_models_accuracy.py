@@ -11,20 +11,20 @@ def _():
 
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
-    from mlflow_helpers import get_base_model_list, varying_fields
+    from mlflow_helpers import get_runs, varying_fields
 
-    return get_base_model_list, mo, setup_environment, varying_fields
+    return get_runs, mo, setup_environment, varying_fields
 
 
 @app.cell
 def _(setup_environment):
     cfg, experiment = setup_environment()
-    return (experiment,)
+    return
 
 
 @app.cell
-def _(experiment, get_base_model_list):
-    df = get_base_model_list(experiment)
+def _(get_runs):
+    df = get_runs("model")
     print(f"Found {len(df)} trained models")
     print(df.columns)
     return (df,)

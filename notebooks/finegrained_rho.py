@@ -11,15 +11,15 @@ def _():
 
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
-    from mlflow_helpers import get_base_model_list, varying_fields, get_metric_history
+    from mlflow_helpers import get_runs, varying_fields, get_metric_history
     import polars as pl
     import pandas as pd
     import altair as alt
 
     return (
         alt,
-        get_base_model_list,
         get_metric_history,
+        get_runs,
         mo,
         pd,
         pl,
@@ -45,12 +45,12 @@ def _(mo):
 @app.cell
 def _(setup_environment):
     cfg, experiment = setup_environment()
-    return (experiment,)
+    return
 
 
 @app.cell
-def _(experiment, get_base_model_list):
-    df = get_base_model_list(experiment)
+def _(get_runs):
+    df = get_runs("model")
     return (df,)
 
 
@@ -86,7 +86,8 @@ def _(mo):
 @app.cell
 def _(alt, get_metric_history, pd, pl):
     def make_topo_loss_chart(df, epochs, metric="train_topo_loss"):
-        filtered = df.filter(pl.col("params.epochs") == str(epochs))
+        df_pl = pl.from_pandas(df) if not isinstance(df, pl.DataFrame) else df
+        filtered = df_pl.filter(pl.col("params.epochs") == str(epochs))
         sorted_runs = (
             filtered.select(["run_id", "params.rho"])
             .with_columns(pl.col("params.rho").cast(pl.Float64).alias("rho_num"))

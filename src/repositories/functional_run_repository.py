@@ -15,6 +15,7 @@ from src.config.hash import (
     identity_hash as _identity_hash,
     model_identity_fields as _model_identity_fields,
 )
+from src.mlflow_schema_logger import field_mlflow_prefix as _field_mlflow_prefix
 
 _STATE_LOCK = Lock()
 
@@ -24,6 +25,7 @@ class _RepositoryState(TypedDict):
     tracking_uri: Optional[str]
     experiment_name: Optional[str]
     experiment_id: Optional[str]
+    artifact_cache_dir: Optional[str]
 
 
 _STATE: _RepositoryState = {
@@ -31,6 +33,7 @@ _STATE: _RepositoryState = {
     "tracking_uri": None,
     "experiment_name": None,
     "experiment_id": None,
+    "artifact_cache_dir": None,
 }
 
 
@@ -83,6 +86,20 @@ def ensure_run_repository(
 def get_experiment_id() -> str:
     _assert_configured()
     return str(_STATE["experiment_id"])
+
+
+def get_experiment_name() -> str:
+    _assert_configured()
+    return str(_STATE["experiment_name"])
+
+
+def configure_artifact_cache_dir(cache_dir: str) -> None:
+    with _STATE_LOCK:
+        _STATE["artifact_cache_dir"] = cache_dir
+
+
+def get_artifact_cache_dir() -> Optional[str]:
+    return _STATE["artifact_cache_dir"]
 
 
 def search_runs(
@@ -140,6 +157,34 @@ def get_run(run_id: str) -> Run:
     """Thin wrapper around mlflow.get_run for symmetry in functional API."""
     _assert_configured()
     return mlflow.get_run(run_id)
+
+
+def search_runs_by(
+    kind: str,
+    status: str = "FINISHED",
+    output: Literal["pandas", "list"] = "pandas",
+    **fields: Any,
+) -> Any:
+    """Search runs of a given kind with optional field filters.
+
+    Field names are resolved against TELEMETRY_SCHEMA to determine whether
+    they are params or tags. When a field exists in both, params takes
+    precedence. Unknown fields raise ValueError.
+
+    Example::
+
+        search_runs_by("inference", split="test", trained_model_run_id="abc")
+        search_runs_by("ensemble", rho="0.1", output="list")
+    """
+    clauses = [
+        f"tags.kind = '{kind}'",
+        f"attributes.status = '{status}'",
+    ]
+    for field, value in fields.items():
+        prefix = _field_mlflow_prefix(kind, field)
+        clauses.append(f"{prefix}.{field} = '{value}'")
+    filter_string = " and ".join(clauses)
+    return search_runs(filter_string, output_format=output)
 
 
 def _assert_configured() -> None:

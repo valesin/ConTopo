@@ -5,7 +5,7 @@
 
 group_by: [topology, rho]
 min_components: 2
-filter: {"params.epochs": "1", "param.loading_backend": "torch"}
+filter: {"params.epochs": "1", "params.loading_backend": "torch"}
 sample_size: null
 field_ranges: {}
 sampling_strategy: combinatorial

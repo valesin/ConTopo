@@ -165,6 +165,7 @@ class RuntimeConfig:
     pin_memory: bool = True
     persistent_workers: bool = False
     print_freq: int = 10
+    verbose_upload_log: bool = False
     data_root: str = "./dataset"
     outputs_root: str = "outputs"
     paths: PathsConfig = field(default_factory=PathsConfig)
@@ -182,7 +183,11 @@ class GroupsConfig:
     group_by: List[str] = field(default_factory=lambda: ["topology", "rho"])
     min_components: int = 2
     filter: Any = field(default_factory=dict)
-    sample_size: Optional[int] = None  # if set, enumerate all k-combinations per group
+    sample_size: Optional[int] = None
+    field_ranges: Any = field(default_factory=dict)
+    sampling_strategy: str = "combinatorial"  # combinatorial | monte_carlo
+    mc_n_samples: Optional[int] = None
+    mc_seed: Optional[int] = None
 
 
 # ─────────── profiling ───────────
@@ -271,6 +276,8 @@ class ExecutionConfig:
 @dataclass
 class MLflowConfig:
     tracking_uri: str = "sqlite:///outputs/mlflow.db"
+    artifact_location: str = "outputs/mlruns"
+    artifact_cache_dir: str = "outputs/mlflow_artifact_cache"
     experiment_name: str = "contopo"
     enable_system_metrics: bool = True
 
@@ -325,6 +332,7 @@ class AdapterConfig:
     meta_type: str = "meta_lr"
     feature_type: str = "logits"
     similarity_metric: str = "cosine"
+    profile_mask: str = "true_class"
     hidden_dim: int = 128
     init_seed: int = 42
     meta_split: MetaSplitConfig = field(default_factory=MetaSplitConfig)

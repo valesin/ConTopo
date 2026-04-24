@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime
 import tempfile
 from collections.abc import Iterator
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 import mlflow
 
@@ -361,6 +361,28 @@ TELEMETRY_SCHEMA = {
         },
     },
 }
+
+
+def field_mlflow_prefix(kind: str, field: str) -> Literal["tags", "params"]:
+    """Return 'tags' or 'params' for a field name in the given run kind schema.
+
+    When a field appears in both params and tags (e.g. rho in ensemble),
+    params takes precedence since it holds the canonical logged value.
+    """
+    schema = TELEMETRY_SCHEMA.get(kind)
+    if schema is None:
+        raise ValueError(f"Unknown run kind: '{kind}'")
+    param_fields = set(schema["params"]["required"]) | set(
+        schema["params"].get("optional", [])
+    )
+    tag_fields = set(schema["tags"]["required"]) | set(
+        schema["tags"].get("optional", [])
+    )
+    if field in param_fields:
+        return "params"
+    if field in tag_fields:
+        return "tags"
+    raise ValueError(f"Field '{field}' not found in schema for kind '{kind}'")
 
 
 def _ensure_known_kind(kind: str) -> None:
