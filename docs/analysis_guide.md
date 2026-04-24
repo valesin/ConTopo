@@ -224,25 +224,25 @@ Most analysis notebooks in `notebooks/*.py` follow this pattern:
 
 1. **CONFIG** constants (top cell).
 2. **SETUP**: `cfg, experiment = setup_environment()`.
-3. **LOAD**: query via `mlflow_helpers`.
-4. **INSPECT**: print shapes / unique values.
-5. **FILTER/JOIN**: constrain by split, method, run tags, hashes.
-6. **AGGREGATE**: groupby statistics.
-7. **PLOT**: Plotly figures and optional `save_plot(...)`.
+3. **LOAD**: query via `mlflow_helpers` (`get_runs(kind, ...)`).
+4. **INSPECT**: call `varying_fields(df)` to see which `params.*`/`tags.*` columns have more than one unique value. These are the axes you must either fix or plot against.
+5. **FIX**: add `AND "params.field" = 'value'` clauses in a `mo.sql(...)` cell for every varying field you want to hold constant. Leave only the fields you intend to analyse free.
+6. **VERIFY**: count rows per remaining free dimension (e.g. `GROUP BY rho ORDER BY rho`) to confirm coverage and spot missing runs before plotting.
+7. **AGGREGATE**: groupby statistics if needed.
+8. **PLOT**: Altair/Plotly figures and optional `save_plot(...)`.
+
+The **INSPECT → FIX** loop (steps 4–5) is the core of every analysis: `varying_fields` surfaces all implicit variation in the result set; each field it reports is a confound unless explicitly fixed or used as a plot axis.
 
 Representative scripts:
 
+- `notebooks/single_models_accuracy.py` — per-model accuracy across ρ values
 - `notebooks/ensemble_samples_accuracy.py` — ensemble accuracy vs ρ for sampled combinations (interactive: groups config, vote method, split)
 - `notebooks/compare_groups_accuracy.py` — side-by-side accuracy comparison of two groups configs (interactive: groups A, groups B, vote method, split)
-- `notebooks/acc_vs_rho.py` — per-model accuracy joined with inference runs, plotted against ρ
-- `notebooks/ensemble_accuracy_vs_rho.py` — mean component vs ensemble accuracy across ρ values
 - `notebooks/accuracy_val_loss_vs_val_acc.py` — model accuracy grouped by early stopping method (marimo, matplotlib)
-- `notebooks/analysis_metalearner.py`
-- `notebooks/metalearners.py` — metalearner results with filtering by vote method, feature type, similarity metric
-- `notebooks/analysis_diversity.py`
-- `notebooks/analysis_profiles_comparison.py`
-- `notebooks/ensemble_consistency.py`
-- `notebooks/simprof.py`
+- `notebooks/finegrained_rho.py` — fine-grained ρ sweep analysis
+- `notebooks/rho_vs_moran.py` — topographic regularity (Moran's I) vs ρ
+- `notebooks/consistency_vs_rho.py` — RSA consistency metrics across ρ values
+- `notebooks/activation_maps.py` — per-unit activation map visualisations
 
 ---
 

@@ -21,6 +21,7 @@ regularization experiments on CIFAR-10 / ImageNet100.
 | [`telemetry_schema.md`](docs/telemetry_schema.md) | MLflow logging contract per run kind |
 | [`contributing.md`](docs/contributing.md) | Safe change procedures, migration checklists, verification |
 | [`ffcv_param_assumptions.md`](docs/ffcv_param_assumptions.md) | Worked example: a hash-included + conditional migration |
+| [`topoloss_param_assumptions.md`](docs/topoloss_param_assumptions.md) | Worked example: TopoLoss loss-parameter migration |
 | [`analysis_guide.md`](docs/analysis_guide.md) | Notebook + MLflow analysis reference |
 
 ## Conventions to respect

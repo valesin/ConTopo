@@ -43,7 +43,7 @@ def _(mo, setup_environment):
 
 @app.cell
 def _(get_ensemble_results_for_groups, mo, pl):
-    _GROUPS = "samples9"
+    _GROUPS = "samples9_mc"
     _SPLIT = "test"
     _METHOD = "soft"
 

@@ -1,9 +1,13 @@
 # Cross-entropy + topographic regulariser
 name: cross_entropy
 rho: 0.0                        # topographic loss weight ratio (sweep surface)
-topography_type: ws              # 'ws' or 'global'
+topography_type: ws              # 'ws', 'global', or 'topoloss'
 topology: grid                  # 'grid' or 'torus'
 task_loss: cross_entropy
 neighbourhood:
   type: moore                    # moore | von_neumann
   radius: 1
+# topoloss (external package) — only set when topography_type=topoloss
+topoloss_factor_h: null
+topoloss_factor_w: null
+topoloss_scale: null

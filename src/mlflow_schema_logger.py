@@ -135,6 +135,10 @@ TELEMETRY_SCHEMA = {
                 "beton_max_resolution",
                 "beton_jpeg_quality",
                 "beton_compress_probability",
+                # topoloss (external package) — optional; None when topography_type != topoloss
+                "topoloss_factor_h",
+                "topoloss_factor_w",
+                "topoloss_scale",
             ],
         },
         "tags": {
@@ -266,7 +270,7 @@ TELEMETRY_SCHEMA = {
     "diversity": {
         "params": {
             "required": ["num_components", "split", "diversity_metric"],
-            "optional": [],
+            "optional": ["rho"],
         },
         "tags": {
             "required": [
@@ -293,7 +297,7 @@ TELEMETRY_SCHEMA = {
     "consistency": {
         "params": {
             "required": ["num_components", "split", "anchors_per_class"],
-            "optional": [],
+            "optional": ["rho"],
         },
         "tags": {
             "required": [

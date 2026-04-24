@@ -1,0 +1,21 @@
+# @package _global_
+# Smoke test — CIFAR-10, simple_cnn, TopoLoss enabled, 2 trials.
+#
+# Minimal sweep to verify TopoLoss wiring end-to-end without
+# committing to full training. Completes in seconds.
+#
+# Usage:
+#   python main.py +sweeps=dev_smoke_topoloss
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 2)
+      loss: topoloss
+      loss.rho: 0.0, 1.0
+      loss.topoloss_factor_h: 8.0
+      loss.topoloss_factor_w: 8.0
+      loss.topoloss_scale: 1.0
+      training.epochs: 1
+      model: simple_cnn

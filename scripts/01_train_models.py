@@ -35,7 +35,11 @@ from src.data.loaders import (
     shutdown_dataloader_workers,
 )
 from src.losses.balancer import GradNormBalancer
-from src.losses.topographic import Global_Topographic_Loss, Local_WS_Loss
+from src.losses.topographic import (
+    Global_Topographic_Loss,
+    Local_WS_Loss,
+    TopoLossWrapper,
+)
 from src.mlflow_utils import (
     apply_mlflow_env_overrides,
     log_resolved_config,
@@ -191,12 +195,42 @@ def _validate_with_tta(model, loader, loss_fn, device, use_amp: bool):
     return total_loss / total_n, total_correct / total_n
 
 
-def _build_topo_loss(cfg: DictConfig, emb_dim: int):
+def _build_topo_loss(
+    cfg: DictConfig, emb_dim: int, model: torch.nn.Module | None = None
+):
+    from typing import cast, Any
+
     topo_type = cfg.loss.topography_type
     if topo_type == "ws":
         return Local_WS_Loss(weight=1.0, topology=cfg.loss.topology)
     elif topo_type == "global":
         return Global_Topographic_Loss(weight=1.0, emb_dim=emb_dim)
+    elif topo_type == "topoloss":
+        if model is None:
+            raise ValueError(
+                "_build_topo_loss: model must be provided when topography_type=topoloss"
+            )
+        from topoloss import TopoLoss, LaplacianPyramid
+
+        base = cast(Any, unwrap(model))
+        if hasattr(base, "neck"):
+            layer = base.neck
+        elif hasattr(base, "encoder") and hasattr(base.encoder, "fc"):
+            layer = base.encoder.fc
+        else:
+            layer = base.fc
+        tl = TopoLoss(
+            losses=[
+                LaplacianPyramid.from_layer(
+                    model=model,
+                    layer=layer,
+                    factor_h=cfg.loss.topoloss_factor_h,
+                    factor_w=cfg.loss.topoloss_factor_w,
+                    scale=cfg.loss.topoloss_scale,
+                )
+            ]
+        )
+        return TopoLossWrapper(tl, model)
     else:
         raise ValueError(f"Unknown topography_type: {topo_type}")
 
@@ -272,7 +306,7 @@ def main(cfg: DictConfig) -> None:
         task_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(
             device
         )
-        topo_loss_fn = _build_topo_loss(cfg, cfg.model.embedding_dim)
+        topo_loss_fn = _build_topo_loss(cfg, cfg.model.embedding_dim, model=model)
         if isinstance(topo_loss_fn, torch.nn.Module):
             topo_loss_fn = topo_loss_fn.to(device)
 
@@ -359,6 +393,10 @@ def main(cfg: DictConfig) -> None:
                     "beton_max_resolution": cfg.training.beton.max_resolution,
                     "beton_jpeg_quality": cfg.training.beton.jpeg_quality,
                     "beton_compress_probability": cfg.training.beton.compress_probability,
+                    # topoloss (external package) — None when topography_type != topoloss
+                    "topoloss_factor_h": cfg.loss.topoloss_factor_h,
+                    "topoloss_factor_w": cfg.loss.topoloss_factor_w,
+                    "topoloss_scale": cfg.loss.topoloss_scale,
                 },
             )
             log_resolved_config(cfg)

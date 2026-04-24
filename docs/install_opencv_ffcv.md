@@ -199,8 +199,32 @@ export LD_LIBRARY_PATH="$MAMBA_ENV_PREFIX/lib:$LD_LIBRARY_PATH"
 Use `micromamba run` (no shell modification needed), or initialize your shell:
 
 ```bash
-eval "$(micromamba shell hook --shell bash)"
+eval “$(micromamba shell hook --shell bash)”
 micromamba activate opencv-only
+```
+
+### `ImportError: libtiff.so.6: undefined symbol: jpeg12_write_raw_data`
+
+Root cause: `libtiff.so.6` from the micromamba env is built with 12-bit JPEG support
+and requires `jpeg12_write_raw_data@@LIBJPEG_8.0`. The symbol exists in micromamba's
+`libjpeg.so.8`, but a different Python extension (e.g. Pillow, torchvision) loads the
+**system** `libjpeg.so.8` earlier in the process. The dynamic linker caches it by
+soname, and when libtiff.so.6 later requests `libjpeg.so.8`, the linker returns the
+cached system copy (which lacks the jpeg12 symbols) — ignoring libtiff's own `$ORIGIN`
+RPATH.
+
+Fix: `scripts/activate-ffcv-env.sh` already handles this via `LD_PRELOAD`. If you
+encounter the error, ensure you sourced the script in the **same shell session** before
+launching the training command:
+
+```bash
+source scripts/activate-ffcv-env.sh
+```
+
+If the script is already sourced, verify `LD_PRELOAD` is set:
+
+```bash
+echo $LD_PRELOAD   # should contain .../libjpeg.so.8
 ```
 
 ---

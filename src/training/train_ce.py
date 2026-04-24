@@ -141,6 +141,21 @@ def train_one_epoch(
             topo_loss = topo_loss_fn(embeddings.float())
             base = cast(Any, unwrap(model))
             measure_params = [p for p in base.encoder.parameters() if p.requires_grad]
+        elif topography_type == "topoloss":
+            topo_loss = topo_loss_fn().float()
+            base = cast(Any, unwrap(model))
+            if hasattr(base, "neck"):
+                measure_layer = base.neck
+            elif hasattr(base, "encoder") and hasattr(base.encoder, "fc"):
+                measure_layer = base.encoder.fc
+            elif hasattr(base, "fc"):
+                measure_layer = base.fc
+            else:
+                raise AttributeError(
+                    "Could not find linear layer (neck, fc, or encoder.fc) in "
+                    f"{type(base).__name__}"
+                )
+            measure_params = list(measure_layer.parameters())
         else:
             topo_loss = torch.tensor(0.0, device=device)
             measure_params = [p for p in model.parameters() if p.requires_grad]

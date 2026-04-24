@@ -106,6 +106,27 @@ def validate_training_config(cfg: ConTopoConfig) -> None:
                 "(orphaned field — only meaningful when loading_backend=ffcv)"
             )
 
+    # topoloss fields are conditional on topography_type == "topoloss"
+    topo_type = cfg.loss.topography_type
+    topoloss_fields = {
+        "topoloss_factor_h": cfg.loss.topoloss_factor_h,
+        "topoloss_factor_w": cfg.loss.topoloss_factor_w,
+        "topoloss_scale": cfg.loss.topoloss_scale,
+    }
+    if topo_type == "topoloss":
+        for fname, fval in topoloss_fields.items():
+            if fval is None:
+                errors.append(
+                    f"topography_type=topoloss requires loss.{fname} to be set"
+                )
+    else:
+        for fname, fval in topoloss_fields.items():
+            if fval is not None:
+                errors.append(
+                    f"loss.{fname}={fval} is set but topography_type={topo_type!r} "
+                    f"(orphaned field — only meaningful when topography_type=topoloss)"
+                )
+
     if errors:
         raise ValueError(
             "Training config validation failed:\n"

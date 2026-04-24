@@ -29,12 +29,15 @@ from src.data.loaders import get_num_classes, get_split_labels
 from src.ensemble.selector import discover_ensembles_from_cfg
 from src.config.paths import get_anchors_dir
 from src.config.hash import identity_hash
+import mlflow
+
 from src.mlflow_utils import (
     apply_mlflow_env_overrides,
     component_set_hash,
     setup_mlflow,
     load_mlflow_artifact,
     log_dataset_lineage,
+    get_run_context,
 )
 from src.repositories.functional_run_repository import (
     configure_run_repository,
@@ -162,6 +165,14 @@ def main(cfg: DictConfig) -> None:
         else:
             mean_rsa = float("nan")
 
+        # Determine rho (unanimous across components, or "mixed")
+        rhos = set()
+        for rid in run_ids:
+            r_rho, _, _ = get_run_context(mlflow.get_run(rid))
+            if r_rho != "?":
+                rhos.add(r_rho)
+        rho_val = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
+
         # Log MLflow run
         tags = {
             "ensemble_name": ens_name,
@@ -177,14 +188,14 @@ def main(cfg: DictConfig) -> None:
             run_name=f"cons_{ens_name}",
             tags=tags,
         ) as cons_run:
-            schema_log_params(
-                "consistency",
-                {
-                    "num_components": n_models,
-                    "split": split,
-                    "anchors_per_class": anchors_cfg.per_class,
-                },
-            )
+            params = {
+                "num_components": n_models,
+                "split": split,
+                "anchors_per_class": anchors_cfg.per_class,
+            }
+            if rho_val is not None:
+                params["rho"] = rho_val
+            schema_log_params("consistency", params)
             timed_log_metric("mean_rsa_correlation", mean_rsa)
 
             # Save and log all artifacts via tmpdir

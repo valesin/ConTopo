@@ -1,0 +1,18 @@
+# Migration: TopoLoss (external package) loss type — new conditional LossConfig fields
+#
+# Three new Optional[float] fields were added to LossConfig:
+#   topoloss_factor_h, topoloss_factor_w, topoloss_scale
+#
+# All are conditional on loss.topography_type == "topoloss".
+# All existing runs used topography_type=ws or global, so these fields were
+# never active. Migration default for all three: "None".
+#
+# See docs/topoloss_param_assumptions.md for the full rationale.
+# See contributing.md §10.2 for the migration protocol.
+
+description: "TopoLoss external package — new conditional LossConfig fields (topoloss_factor_h/w/scale)"
+
+params:
+  topoloss_factor_h: "None"   # N/A — existing runs used topography_type=ws or global
+  topoloss_factor_w: "None"   # N/A
+  topoloss_scale:    "None"   # N/A

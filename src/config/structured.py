@@ -53,6 +53,10 @@ class LossConfig:
     topology: str = "torus"
     task_loss: str = "cross_entropy"
     neighbourhood: NeighbourhoodConfig = field(default_factory=NeighbourhoodConfig)
+    # topoloss (external package) — conditional on topography_type == "topoloss"
+    topoloss_factor_h: Optional[float] = None
+    topoloss_factor_w: Optional[float] = None
+    topoloss_scale: Optional[float] = None
 
     def __post_init__(self):
         self.rho = round(self.rho, 3)

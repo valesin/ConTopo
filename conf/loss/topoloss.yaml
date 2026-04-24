@@ -1,0 +1,12 @@
+# Cross-entropy + topoloss (external package, LaplacianPyramid variant)
+name: cross_entropy
+rho: 0.0                        # topographic loss weight ratio (sweep surface)
+topography_type: topoloss
+topology: grid                  # kept for schema compatibility; not used by topoloss
+task_loss: cross_entropy
+neighbourhood:
+  type: moore
+  radius: 1
+topoloss_factor_h: 8.0          # spatial factor along height axis (factor_h in topoloss)
+topoloss_factor_w: 8.0          # spatial factor along width axis (factor_w in topoloss)
+topoloss_scale: 1.0             # loss strength (scale / τ in the paper)

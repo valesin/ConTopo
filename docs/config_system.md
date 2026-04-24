@@ -198,9 +198,9 @@ guide.
 
 **Criteria:** The param changes what the trained model is (training recipe,
 loss, model, dataset) or what a downstream run identifies. It lives in a group
-covered by `IDENTITY_INCLUDED_WILDCARDS` in `src/config/hash.py` —
-`training.*`, `model.*`, `loss.*`, `dataset.*` — or by `IDEMPOTENCY_REGISTRY`
-for that run kind.
+covered by the wildcard tuple `("model.*", "loss.*", "dataset.*", "training.*")`
+inside `model_identity_fields()` in `src/config/hash.py`, or by
+`IDEMPOTENCY_REGISTRY` for that run kind.
 
 **Cost:** Every existing FINISHED run's `identity_hash` becomes stale.
 Training will no longer recognise existing runs and will restart them unless
@@ -210,7 +210,8 @@ you migrate.
 1. Add field to the dataclass in `src/config/structured.py` with the current default.
 2. Add to `conf/<group>/default.yaml` with a brief comment.
 3. Wire up behavior in the script(s) that consume it.
-4. Log the param (via `schema_log_params`) and add it to `"optional"` in
+4. Log the param (via `log_params` from `src/mlflow_schema_logger`; scripts
+   import it under the alias `schema_log_params`) and add it to `"optional"` in
    `TELEMETRY_SCHEMA` in `src/mlflow_schema_logger.py`.
 5. Write `scripts/migrations/specs/<feature>.yaml` with the migration default.
 6. Run `scripts/migrations/backfill_params.py --spec ... --apply`.
@@ -282,7 +283,8 @@ python scripts/02_cache_inference.py execution.split=val
 
 ### How params are logged
 
-`schema_log_params` logs each param using the **field name only** — the Hydra
+`log_params` (from `src/mlflow_schema_logger`; aliased as `schema_log_params`
+in scripts) logs each param using the **field name only** — the Hydra
 config-group prefix is stripped. Examples:
 
 | Hydra path | MLflow param key |

@@ -5,6 +5,7 @@ Ported from ``losses/topographic.py`` — no functional changes.
 """
 
 import math
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -128,3 +129,24 @@ class Local_WS_Loss(nn.Module):
             return torch.zeros((), device=W.device, dtype=W.dtype)
         dists = [torch.linalg.norm(d, dim=-1) for d in diffs]
         return self.weight * torch.cat([x.reshape(-1) for x in dists]).mean()
+
+
+class TopoLossWrapper(nn.Module):
+    """Wraps the external ``topoloss`` package for pipeline compatibility.
+
+    ``LaplacianPyramid.from_layer`` registers a forward hook on ``layer`` at
+    construction time.  After the main forward pass (``model(images)``) fires
+    the hook, ``forward()`` calls ``topo_loss.compute(model)`` which reads the
+    captured activations and returns a scalar loss tensor.
+
+    Import of the ``topoloss`` package is deferred to the builder function so
+    that the package is only required when ``topography_type=topoloss``.
+    """
+
+    def __init__(self, topo_loss: Any, model: nn.Module) -> None:
+        super().__init__()
+        self._topo_loss = topo_loss
+        self._model = model
+
+    def forward(self) -> torch.Tensor:
+        return self._topo_loss.compute(model=self._model).float()

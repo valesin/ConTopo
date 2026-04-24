@@ -14,6 +14,7 @@ missing one — previously computed metrics are never recalculated.
 from __future__ import annotations
 
 import hydra
+import mlflow
 import torch
 from omegaconf import DictConfig
 
@@ -26,6 +27,7 @@ from src.mlflow_utils import (
     load_mlflow_artifact,
     component_set_hash,
     log_dataset_lineage,
+    get_run_context,
 )
 from src.repositories.functional_run_repository import (
     configure_run_repository,
@@ -133,6 +135,14 @@ def main(cfg: DictConfig) -> None:
                 )
                 logits_list.append(torch.from_numpy(data["logits"]))
 
+        # Determine rho (unanimous across components, or "mixed")
+        rhos = set()
+        for rid in run_ids:
+            r_rho, _, _ = get_run_context(mlflow.get_run(rid))
+            if r_rho != "?":
+                rhos.add(r_rho)
+        rho_val = rhos.pop() if len(rhos) == 1 else "mixed" if len(rhos) > 1 else None
+
         # Compute all needed metrics at once (they share the EvalContext)
         ctx = EvalContext(
             preds=preds_list,
@@ -165,14 +175,14 @@ def main(cfg: DictConfig) -> None:
                 run_name=f"{ens_name}_{metric_name}",
                 tags=tags,
             ) as div_run:
-                schema_log_params(
-                    "diversity",
-                    {
-                        "num_components": len(run_ids),
-                        "split": split,
-                        "diversity_metric": metric_name,
-                    },
-                )
+                params = {
+                    "num_components": len(run_ids),
+                    "split": split,
+                    "diversity_metric": metric_name,
+                }
+                if rho_val is not None:
+                    params["rho"] = rho_val
+                schema_log_params("diversity", params)
                 timed_log_metric(metric_name, float(value))
 
                 log_dataset_lineage(

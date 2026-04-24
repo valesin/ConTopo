@@ -40,14 +40,19 @@ def _(df, varying_fields):
 def _(df, mo):
     flt = mo.sql(
         f"""
-        SELECT 
-            "params.rho" AS rho, 
-            "tags.trial" AS trial, 
-            "metrics.test_accuracy" AS acc
-        FROM df
-        WHERE "params.epochs" = '200' 
-          AND "params.early_stopping_method" = 'val_acc'
-          AND "params.topology" = 'grid'
+        SELECT rho, trial, acc
+        FROM (
+            SELECT
+                "params.rho" AS rho,
+                "tags.trial" AS trial,
+                "metrics.test_accuracy" AS acc,
+                COUNT(*) OVER (PARTITION BY "params.rho") AS n
+            FROM df
+            WHERE "params.epochs" = '200'
+              AND "params.early_stopping_method" = 'val_acc'
+              AND "params.topology" = 'grid'
+        )
+        WHERE n >= 10
         """
     )
     return (flt,)
