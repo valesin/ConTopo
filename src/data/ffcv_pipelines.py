@@ -182,6 +182,9 @@ def build_ffcv_loader(
         batch_size=batch_size,
         num_workers=num_workers,
         order=order,
-        pipelines={"image": image_pipeline, "label": label_pipeline},
+        # FFCV may mutate pipeline lists during graph construction.
+        # Pass fresh list objects so callers can safely reuse their pipeline
+        # variables across multiple Loader instances (e.g., val + test).
+        pipelines={"image": list(image_pipeline), "label": list(label_pipeline)},
         **kwargs,
     )
