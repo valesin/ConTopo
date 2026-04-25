@@ -14,6 +14,7 @@ non-overlapping role:
 | [`telemetry_schema.md`](telemetry_schema.md) | MLflow logging contract, run kinds, required vs optional |
 | [`contributing.md`](contributing.md) | Safe change procedures + migration protocols |
 | [`adding_datasets.md`](adding_datasets.md) | Dataset reference: available datasets, setup, training choices, how to add new ones |
+| [`training.md`](training.md) | Training loop design: GradNormBalancer, MULTIRUN OOM fixes, AMP, early stopping |
 | [`ffcv_param_assumptions.md`](ffcv_param_assumptions.md) | Worked example: FFCV training recipe migration |
 | [`topoloss_param_assumptions.md`](topoloss_param_assumptions.md) | Worked example: TopoLoss loss-parameter migration |
 | [`dry_run_models.md`](dry_run_models.md) | Idempotency dry run — diagnose hash misses before retraining |

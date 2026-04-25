@@ -155,7 +155,6 @@ def _run_votes(
             component_run_ids=run_ids,
             behaviour_input_hash=step_identity_hash,
             component_set_hash=cs_hash,
-            rho=rho_val,
             extra=extra,
         )
         tags["component_run_ids_csv"] = component_run_ids_csv
@@ -171,7 +170,7 @@ def _run_votes(
                     "method_type": "vote",
                     "num_components": len(run_ids),
                     "split": split_name,
-                    "rho": rho_val,
+                    "rho": rho_val if rho_val is not None else "unknown",
                     **get_sampling_metadata(cfg),
                 },
             )

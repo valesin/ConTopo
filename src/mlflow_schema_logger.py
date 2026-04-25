@@ -252,7 +252,6 @@ TELEMETRY_SCHEMA = {
                 "behaviour_input_hash",
                 "component_run_ids_csv",
                 "feature_type",
-                "rho",
             ],
             "optional": ["run_name"],
         },
@@ -269,8 +268,8 @@ TELEMETRY_SCHEMA = {
     },
     "diversity": {
         "params": {
-            "required": ["num_components", "split", "diversity_metric"],
-            "optional": ["rho"],
+            "required": ["num_components", "split", "diversity_metric", "rho"],
+            "optional": [],
         },
         "tags": {
             "required": [
@@ -296,8 +295,8 @@ TELEMETRY_SCHEMA = {
     },
     "consistency": {
         "params": {
-            "required": ["num_components", "split", "anchors_per_class"],
-            "optional": ["rho"],
+            "required": ["num_components", "split", "anchors_per_class", "rho"],
+            "optional": [],
         },
         "tags": {
             "required": [
@@ -370,8 +369,8 @@ TELEMETRY_SCHEMA = {
 def field_mlflow_prefix(kind: str, field: str) -> Literal["tags", "params"]:
     """Return 'tags' or 'params' for a field name in the given run kind schema.
 
-    When a field appears in both params and tags (e.g. rho in ensemble),
-    params takes precedence since it holds the canonical logged value.
+    When a field appears in both params and tags, params takes precedence
+    since it holds the canonical logged value.
     """
     schema = TELEMETRY_SCHEMA.get(kind)
     if schema is None:

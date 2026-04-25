@@ -3,7 +3,7 @@
 
 defaults:
   - override /dataset: imagenet100
-  - override /model: resnet34_scratch  # Updated to ResNet18 as per your target config
+  - override /model: resnet34_scratch
   - override /profiling: imagenet100
 
 mlflow:
@@ -37,8 +37,8 @@ training:
   # Progressive resolution parameters
   progressive_res_min: 160
   progressive_res_max: 192
-  progressive_res_start_ramp: 11   # Note: Ensure your data loader handles absolute epochs rather than ratios
-  progressive_res_end_ramp: 13
+  progressive_res_start_ramp: 0.6875   # epoch 11/16 — fractions, not absolute epochs
+  progressive_res_end_ramp: 0.8125     # epoch 13/16
 
 hydra:
   mode: MULTIRUN

@@ -193,8 +193,7 @@ def main(cfg: DictConfig) -> None:
                 "split": split,
                 "anchors_per_class": anchors_cfg.per_class,
             }
-            if rho_val is not None:
-                params["rho"] = rho_val
+            params["rho"] = rho_val if rho_val is not None else "unknown"
             schema_log_params("consistency", params)
             timed_log_metric("mean_rsa_correlation", mean_rsa)
 

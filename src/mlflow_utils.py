@@ -369,7 +369,6 @@ def behaviour_tags(
     component_run_ids: list[str],
     behaviour_input_hash: str,
     component_set_hash: str,
-    rho: str | None = None,
     extra: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Standard tag dict for a *behaviour* (ensemble / meta-learner) run."""
@@ -379,8 +378,6 @@ def behaviour_tags(
         "behaviour_input_hash": behaviour_input_hash,
         "identity_hash": behaviour_input_hash,
     }
-    if rho is not None:
-        tags["rho"] = rho
     if extra:
         tags.update(extra)
     return tags

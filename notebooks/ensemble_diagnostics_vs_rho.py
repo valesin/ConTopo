@@ -22,14 +22,13 @@ def _():
         "interrater_agreement": ("diversity", "metrics.interrater_agreement"),
         "iou_top_n": ("diversity", "metrics.iou_top_n"),
     }
-
     return METRIC_MAP, get_runs, mo, setup_environment, varying_fields
 
 
 @app.cell
 def _(setup_environment):
     cfg, experiment = setup_environment()
-    return cfg, experiment
+    return
 
 
 @app.cell
@@ -49,6 +48,12 @@ def _(METRIC_MAP, diagnostic, get_runs):
     ens_runs = get_runs(_kind)
     print(f"{_kind}: {len(ens_runs)} runs")
     return (ens_runs,)
+
+
+@app.cell
+def _(ens_runs):
+    ens_runs
+    return
 
 
 @app.cell

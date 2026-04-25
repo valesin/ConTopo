@@ -180,8 +180,7 @@ def main(cfg: DictConfig) -> None:
                     "split": split,
                     "diversity_metric": metric_name,
                 }
-                if rho_val is not None:
-                    params["rho"] = rho_val
+                params["rho"] = rho_val if rho_val is not None else "unknown"
                 schema_log_params("diversity", params)
                 timed_log_metric(metric_name, float(value))
 

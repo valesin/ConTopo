@@ -129,7 +129,6 @@ def get_ensemble_results(split: str = "test") -> pd.DataFrame:
     if runs.empty:
         return pd.DataFrame()
 
-    runs = _coalesce_rho(runs)
     cols = {
         "run_id": "run_id",
         "params.rho": "rho",

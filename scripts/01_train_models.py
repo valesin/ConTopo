@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import copy
+import gc
 import warnings
 import hydra
 import mlflow
@@ -237,6 +238,13 @@ def _build_topo_loss(
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    # Release PyTorch CUDA cache from any previous MULTIRUN job in this process.
+    # Without this, the allocator's reserved-but-unallocated blocks accumulate
+    # across the 60 sequential jobs and cause OOM via fragmentation.
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     # ── Config validation ──
     validate_training_config(cfg)
 
