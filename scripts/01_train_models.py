@@ -323,6 +323,10 @@ def main(cfg: DictConfig) -> None:
                         BlurPool(channels=channels, stride=stride),
                     )
 
+            # BlurPool modules are created during replacement and start on CPU.
+            # Move the full model again so newly injected buffers match `device`.
+            model = model.to(device)
+
         # ── Losses ──
         label_smoothing = float(cfg.training.label_smoothing)
         task_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing).to(
