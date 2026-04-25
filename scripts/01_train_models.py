@@ -290,15 +290,37 @@ def main(cfg: DictConfig) -> None:
             for name, module in unwrap(model).named_modules():
                 if isinstance(module, torch.nn.MaxPool2d) and module.stride > 1:
                     parent, attr = name.rsplit(".", 1) if "." in name else ("", name)
-                    parent_mod = (
-                        unwrap(model)
-                        if not parent
-                        else dict(unwrap(model).named_modules())[parent]
+                    named_mods = dict(unwrap(model).named_modules())
+                    parent_mod = unwrap(model) if not parent else named_mods[parent]
+
+                    channels = None
+                    if isinstance(parent_mod, torch.nn.Sequential) and attr.isdigit():
+                        idx = int(attr)
+                        for j in range(idx - 1, -1, -1):
+                            prev = parent_mod[j]
+                            if isinstance(prev, torch.nn.Conv2d):
+                                channels = int(prev.out_channels)
+                                break
+
+                    if channels is None and hasattr(unwrap(model), "conv1"):
+                        conv1 = getattr(unwrap(model), "conv1")
+                        if isinstance(conv1, torch.nn.Conv2d):
+                            channels = int(conv1.out_channels)
+
+                    if channels is None:
+                        raise RuntimeError(
+                            f"Unable to infer channels for BlurPool replacement at module '{name}'."
+                        )
+
+                    stride = (
+                        int(module.stride)
+                        if isinstance(module.stride, int)
+                        else int(module.stride[0])
                     )
                     setattr(
                         parent_mod,
                         attr,
-                        BlurPool(module.kernel_size, stride=module.stride),
+                        BlurPool(channels=channels, stride=stride),
                     )
 
         # ── Losses ──
