@@ -25,6 +25,20 @@ regularization experiments on CIFAR-10 / ImageNet100.
 | [`topoloss_param_assumptions.md`](docs/topoloss_param_assumptions.md) | Worked example: TopoLoss loss-parameter migration |
 | [`analysis_guide.md`](docs/analysis_guide.md) | Notebook + MLflow analysis reference |
 
+## Notebook conventions (enforced style)
+
+- **Two patterns** — Pattern A (raw `get_runs` → `varying_fields` → `mo.sql` filter) and
+  Pattern B (`_for_groups` helpers → controls before load → Python filter). See
+  [`analysis_guide.md`](docs/analysis_guide.md) §6 for the full spec.
+- **matplotlib only** — no Altair or Plotly in new or updated notebooks.
+  Use `plt.subplots(..., constrained_layout=True)`; never `fig.tight_layout()`.
+- **UI controls after inspect** (Pattern A) — dropdowns/multiselects go in a cell *after*
+  `varying_fields` so you know what's available before declaring what to vary.
+- **UI controls before load** (Pattern B) — groups config and split dropdowns must
+  precede the `get_X_results_for_groups(...)` call because they drive the query.
+- **`mo.stop` guards** — every cell that can produce an empty result should call
+  `mo.stop(condition, mo.callout(...))` before doing any further computation.
+
 ## Conventions to respect
 
 - **Repository-first MLflow retrieval** — use

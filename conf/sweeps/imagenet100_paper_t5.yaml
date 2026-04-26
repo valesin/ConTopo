@@ -1,0 +1,47 @@
+# @package _global_
+# ImageNet100 paper replication sweep — ResNet34 fine-tuning, 5 trials.
+#
+# Matches the exact training protocol described in the paper:
+#   - AdamW, lr=1e-4, weight_decay=1e-4, batch_size=128
+#   - ReduceLROnPlateau: factor=0.5, patience=4, min_lr=1e-6  [PENDING: not yet implemented]
+#   - Early stopping on val_loss, patience=10, min_delta=1e-4  [PENDING: min_delta not yet implemented]
+#   - Max 100 epochs, best-checkpoint selection by val_loss
+#   - Dropout 0.3, imagenet_v1 augmentation
+#   - AS (topography_type=global) and WS (topography_type=ws) at lambda in {0.3, 1.0}
+#   - Control: rho=0.0 (topography_type irrelevant; duplicate controls are idempotent)
+#
+# Full grid: 3 rho × 2 topography_type × 5 trials = 30 runs.
+# Effective distinct conditions: 20 regularized + 5 control = 25 (matches paper).
+#
+# Usage:
+#   python main.py +sweeps=imagenet100_paper_t5
+
+defaults:
+  - override /dataset: imagenet100
+  - override /model: resnet34_imagenet100
+  - override /profiling: imagenet100
+
+mlflow:
+  experiment_name: contopo_imagenet100_paper
+
+model:
+  p_dropout: 0.3
+
+training:
+  epochs: 100
+  batch_size: 128
+  learning_rate: 0.0001
+  optimiser: adamw
+  weight_decay: 0.0001
+  # scheduler: plateau       # PENDING: requires ReduceLROnPlateau implementation
+  early_stopping_method: val_loss
+  early_stopping_patience: 10
+  # early_stopping_min_delta: 0.0001  # PENDING: requires min_delta implementation
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      trial: range(0, 5)
+      loss.rho: 0.0, 0.3, 1.0
+      loss.topography_type: ws, global

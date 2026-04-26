@@ -220,29 +220,81 @@ Produced by: `scripts/05_train_adapters.py`
 
 ## 6) Canonical notebook workflow
 
-Most analysis notebooks in `notebooks/*.py` follow this pattern:
+All analysis notebooks follow one of two patterns depending on whether the data
+source is a raw `get_runs()` call or a normalized `get_X_results_for_groups()` call.
 
-1. **CONFIG** constants (top cell).
-2. **SETUP**: `cfg, experiment = setup_environment()`.
-3. **LOAD**: query via `mlflow_helpers` (`get_runs(kind, ...)`).
-4. **INSPECT**: call `varying_fields(df)` to see which `params.*`/`tags.*` columns have more than one unique value. These are the axes you must either fix or plot against.
-5. **FIX**: add `AND "params.field" = 'value'` clauses in a `mo.sql(...)` cell for every varying field you want to hold constant. Leave only the fields you intend to analyse free.
-6. **VERIFY**: count rows per remaining free dimension (e.g. `GROUP BY rho ORDER BY rho`) to confirm coverage and spot missing runs before plotting.
-7. **AGGREGATE**: groupby statistics if needed.
-8. **PLOT**: Altair/Plotly figures and optional `save_plot(...)`.
+---
 
-The **INSPECT → FIX** loop (steps 4–5) is the core of every analysis: `varying_fields` surfaces all implicit variation in the result set; each field it reports is a confound unless explicitly fixed or used as a plot axis.
+### Pattern A — raw `get_runs` (inspect → SQL filter)
 
-Representative scripts:
+Used when the run table has `params.*` / `tags.*` columns that need inspection
+before filtering.
 
-- `notebooks/single_models_accuracy.py` — per-model accuracy across ρ values
-- `notebooks/ensemble_samples_accuracy.py` — ensemble accuracy vs ρ for sampled combinations (interactive: groups config, vote method, split)
-- `notebooks/compare_groups_accuracy.py` — side-by-side accuracy comparison of two groups configs (interactive: groups A, groups B, vote method, split)
-- `notebooks/accuracy_val_loss_vs_val_acc.py` — model accuracy grouped by early stopping method (marimo, matplotlib)
-- `notebooks/finegrained_rho.py` — fine-grained ρ sweep analysis
-- `notebooks/rho_vs_moran.py` — topographic regularity (Moran's I) vs ρ
-- `notebooks/consistency_vs_rho.py` — RSA consistency metrics across ρ values
-- `notebooks/activation_maps.py` — per-unit activation map visualisations
+1. **SETUP**: `cfg, experiment = setup_environment()`.
+2. **LOAD**: `get_runs(kind)` — unfiltered; print count.
+3. **INSPECT**: `varying_fields(df)` — surfaces all axes of variation.
+4. **CONTROLS**: `mo.ui.dropdown` / `mo.ui.multiselect` for the dimensions you
+   want to drive interactively (placed *after* inspect so you know what's
+   available). Fixed dimensions are hardcoded in the SQL below.
+5. **FILTER**: `mo.sql(f"... WHERE ... AND field IN ({joined_values})")` — inject
+   interactive values via f-string; hardcode the rest. Guard with `mo.stop` if
+   controls are empty.
+6. **VERIFY**: `mo.sql("SELECT dim, count(*) AS n FROM flt GROUP BY dim ORDER BY dim")`
+   — informational count cell, no `return`.
+7. **PLOT**: matplotlib figure (see style rules below).
+
+Representative: `model_diagnostics_vs_rho.py`, `activation_maps.py`,
+`single_models_accuracy.py`.
+
+---
+
+### Pattern B — normalized `_for_groups` helpers (controls → load → plot)
+
+Used when the data source is `get_ensemble_results_for_groups`,
+`get_consistency_results_for_groups`, or similar helpers that return
+pre-normalized DataFrames (bare column names, no `params.*`/`tags.*`). The
+groups config and split drive what is loaded, so they must come *before* the
+load cell.
+
+1. **SETUP**: `cfg, experiment = setup_environment()`.
+2. **CONTROLS**: groups config dropdown + split dropdown (and any other load-time
+   dimensions). Additional filters (vote method, diagnostic metric) that can be
+   applied in Python come here too.
+3. **LOAD**: `get_X_results_for_groups(groups_ui.value, split_ui.value)` —
+   guard with `mo.stop` if empty; print count and unique ρ values.
+4. **VERIFY**: count per ρ via `mo.sql("SELECT rho, count(*) ... FROM runs ...")`.
+5. **PLOT**: matplotlib figure.
+
+`varying_fields` does not apply to normalized results (no `params.*` columns).
+
+Representative: `consistency_vs_rho.py`, `ensemble_diagnostics_vs_rho.py`,
+`compare_groups_accuracy.py`, `ensemble_samples_accuracy.py`.
+
+---
+
+### Plot style rules (all notebooks)
+
+- **matplotlib only** — never Altair or Plotly in new notebooks.
+- Use `plt.subplots(..., constrained_layout=True)` — never call `fig.tight_layout()`.
+- Scatter individual points + mean line (+ optional std band) for ρ-vs-metric plots.
+- One figure per output cell; separate cells for separate figures.
+- Colours: `steelblue` / `firebrick` for single-series; `#636EFA` / `#EF553B`
+  for two-series comparisons.
+
+---
+
+### Representative notebooks
+
+| Notebook | Pattern | Data source |
+|---|---|---|
+| `single_models_accuracy.py` | A | `get_runs("model")` |
+| `model_diagnostics_vs_rho.py` | A | `get_runs("diagnostics")` + `get_runs("model")` |
+| `activation_maps.py` | A | `get_runs("model")` + `get_runs("inference")` |
+| `consistency_vs_rho.py` | B | `get_consistency_results_for_groups` |
+| `ensemble_diagnostics_vs_rho.py` | B | `get_consistency_results_for_groups` / `get_runs("diversity")` |
+| `compare_groups_accuracy.py` | B | `get_ensemble_results_for_groups` (×2) |
+| `ensemble_samples_accuracy.py` | B | `get_ensemble_results_for_groups` |
+| `finegrained_rho.py` | A | `get_runs("model")` + `get_metric_history` |
 
 ---
 

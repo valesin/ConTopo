@@ -140,7 +140,8 @@ def train_one_epoch(
         elif topography_type == "global":
             topo_loss = topo_loss_fn(embeddings.float())
             base = cast(Any, unwrap(model))
-            measure_params = [p for p in base.encoder.parameters() if p.requires_grad]
+            _enc = base.backbone if hasattr(base, "backbone") else base.encoder
+            measure_params = [p for p in _enc.parameters() if p.requires_grad]
         elif topography_type == "topoloss":
             topo_loss = topo_loss_fn().float()
             base = cast(Any, unwrap(model))

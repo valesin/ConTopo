@@ -24,7 +24,7 @@ dependencies = [
 [dependency-groups]
 analysis = [
     "marimo[recommended]",
-    # "matplotlib",
+    "matplotlib",
     "altair",
     "polars==1.12.0",
 ]

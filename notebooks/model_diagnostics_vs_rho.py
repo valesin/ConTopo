@@ -6,6 +6,7 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
+
     import marimo as mo
     import sys, os
 
@@ -28,19 +29,8 @@ def _(setup_environment):
 
 
 @app.cell
-def _(METRIC_MAP, mo):
-    diagnostic = mo.ui.dropdown(
-        options=list(METRIC_MAP.keys()),
-        value="morans_i",
-        label="Diagnostic",
-    )
-    diagnostic
-    return (diagnostic,)
-
-
-@app.cell
-def _(diagnostic, get_runs):
-    diag_runs = get_runs("diagnostics", diagnostic_metric=diagnostic.value)
+def _(get_runs):
+    diag_runs = get_runs("diagnostics")
     model_runs = get_runs("model")
     print(f"diagnostics: {len(diag_runs)}, models: {len(model_runs)}")
     return diag_runs, model_runs
@@ -58,6 +48,17 @@ def _(model_runs, varying_fields):
     return
 
 
+@app.cell
+def _(METRIC_MAP, mo):
+    diagnostic = mo.ui.dropdown(
+        options=list(METRIC_MAP.keys()),
+        value="morans_i",
+        label="Diagnostic",
+    )
+    diagnostic
+    return (diagnostic,)
+
+
 @app.cell(hide_code=True)
 def _(METRIC_MAP, diag_runs, diagnostic, mo, model_runs):
     _metric_col = METRIC_MAP[diagnostic.value]
@@ -65,10 +66,12 @@ def _(METRIC_MAP, diag_runs, diagnostic, mo, model_runs):
         f"""
         SELECT
             CAST(m."params.rho" AS DOUBLE) AS rho,
-            CAST(d."{_metric_col}" AS DOUBLE) AS metric
+            CAST(d."{_metric_col}" AS DOUBLE) AS metric,
+            CAST(m."metrics.test_accuracy" AS DOUBLE) AS accuracy
         FROM diag_runs d
         JOIN model_runs m ON d."tags.parent_run_id" = m."run_id"
-        WHERE d."params.split" = 'test'
+        WHERE d."params.diagnostic_metric" = '{diagnostic.value}'
+          AND d."params.split" = 'test'
           AND m."params.topology" = 'grid'
           AND m."params.epochs" = '200'
           AND m."params.early_stopping_method" = 'val_acc'
@@ -91,32 +94,53 @@ def _(flt, mo):
 
 
 @app.cell
-def _(diagnostic, flt):
-    import altair as alt
+def _(diagnostic, flt, np, plt):
+    _rho = flt["rho"].to_numpy()
+    _metric = flt["metric"].to_numpy()
+    _unique_rhos = np.sort(np.unique(_rho))
+    _means = np.array([_metric[_rho == r].mean() for r in _unique_rhos])
 
-    points = (
-        alt.Chart(flt)
-        .mark_point(opacity=0.5, size=15, color="steelblue")
-        .encode(
-            x=alt.X("rho:Q", title="ρ"),
-            y=alt.Y("metric:Q", title=diagnostic.value),
-            tooltip=["rho", "metric"],
-        )
-    )
-
-    mean_line = (
-        alt.Chart(flt)
-        .mark_line(color="firebrick")
-        .encode(
-            x="rho:Q",
-            y="mean(metric):Q",
-        )
-    )
-
-    (points + mean_line).properties(
-        width=600, height=350, title=f"ρ vs {diagnostic.value} (test split)"
-    )
+    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    ax.scatter(_rho, _metric, alpha=0.5, s=15, color="steelblue", zorder=2)
+    ax.plot(_unique_rhos, _means, color="firebrick", zorder=3)
+    ax.set_xlabel("ρ")
+    ax.set_ylabel(diagnostic.value)
+    ax.set_title(f"ρ vs {diagnostic.value} (test split)")
+    fig
     return
+
+
+@app.cell
+def _(diagnostic, flt):
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+    import numpy as np
+
+    _rho = flt["rho"].to_numpy()
+    _metric = flt["metric"].to_numpy()
+    _acc = flt["accuracy"].to_numpy()
+    _unique_rhos = np.sort(np.unique(_rho))
+    _norm = plt.Normalize(_unique_rhos.min(), _unique_rhos.max())
+    _cmap = cm.viridis
+
+    fig2, ax2 = plt.subplots(figsize=(7, 4), constrained_layout=True)
+    for _r in _unique_rhos:
+        _mask = _rho == _r
+        ax2.scatter(
+            _metric[_mask],
+            _acc[_mask],
+            color=_cmap(_norm(_r)),
+            s=20,
+            alpha=0.7,
+            zorder=2,
+        )
+    _sm = cm.ScalarMappable(cmap=_cmap, norm=_norm)
+    fig2.colorbar(_sm, ax=ax2, label="ρ", fraction=0.046, pad=0.02)
+    ax2.set_xlabel(diagnostic.value)
+    ax2.set_ylabel("test accuracy")
+    ax2.set_title(f"{diagnostic.value} vs accuracy — coloured by ρ")
+    fig2
+    return np, plt
 
 
 if __name__ == "__main__":
