@@ -12,14 +12,27 @@ def _():
 
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
-    from mlflow_helpers import get_runs, varying_fields
+    from mlflow_helpers import (
+        get_runs,
+        varying_fields,
+        make_run_multiselects,
+        run_filter_clause,
+    )
 
     METRIC_MAP = {
         "morans_i": "metrics.morans_i",
         "weight_norms": "metrics.weight_norms_mean",
         "unit_distance_correlation": "metrics.unit_dist_cos_correlation",
     }
-    return METRIC_MAP, get_runs, mo, setup_environment, varying_fields
+    return (
+        METRIC_MAP,
+        get_runs,
+        make_run_multiselects,
+        mo,
+        run_filter_clause,
+        setup_environment,
+        varying_fields,
+    )
 
 
 @app.cell
@@ -37,14 +50,74 @@ def _(get_runs):
 
 
 @app.cell
-def _(diag_runs, varying_fields):
-    varying_fields(diag_runs)
+def _(model_runs, varying_fields):
+    varying_fields(model_runs)
     return
 
 
 @app.cell
-def _(model_runs, varying_fields):
-    varying_fields(model_runs)
+def _(mo):
+    FIELDS = {
+        "model_arch": (
+            "params.model_arch",
+            "Model arch",
+            ["LinearResNet18", "FinetuneResNet34"],
+        ),
+        "topology": ("params.topology", "Topology", ["grid", "torus"]),
+        "stopping": (
+            "params.early_stopping_method",
+            "Early stopping",
+            ["val_acc", "val_loss"],
+        ),
+        "epochs": ("params.epochs", "Epochs", ["200", "100"]),
+    }
+    PRESETS = {
+        "A": {
+            "model_arch": ["LinearResNet18"],
+            "topology": ["grid"],
+            "stopping": ["val_acc"],
+            "epochs": ["200"],
+        },
+        "B": {
+            "model_arch": ["FinetuneResNet34"],
+            "topology": ["grid"],
+            "stopping": ["val_loss"],
+            "epochs": ["100"],
+        },
+    }
+    preset = mo.ui.radio(options=list(PRESETS.keys()), value="A", label="Preset")
+    preset
+    return FIELDS, PRESETS, preset
+
+
+@app.cell
+def _(FIELDS, PRESETS, make_run_multiselects, mo, preset):
+    controls = make_run_multiselects(mo, FIELDS, PRESETS[preset.value])
+    mo.vstack(list(controls.values()))
+    return (controls,)
+
+
+@app.cell(hide_code=True)
+def _(FIELDS, controls, mo, model_runs, run_filter_clause):
+    _where = run_filter_clause(mo, FIELDS, controls)
+    model_flt = mo.sql(
+        f"""
+        SELECT
+            *
+        FROM
+            model_runs
+        WHERE
+            {_where}
+        ORDER BY
+            "params.rho"
+        """
+    )
+    return (model_flt,)
+
+
+@app.cell
+def _(model_flt, varying_fields):
+    varying_fields(model_flt)
     return
 
 
@@ -60,7 +133,7 @@ def _(METRIC_MAP, mo):
 
 
 @app.cell(hide_code=True)
-def _(METRIC_MAP, diag_runs, diagnostic, mo, model_runs):
+def _(METRIC_MAP, diag_runs, diagnostic, mo, model_flt):
     _metric_col = METRIC_MAP[diagnostic.value]
     flt = mo.sql(
         f"""
@@ -69,21 +142,18 @@ def _(METRIC_MAP, diag_runs, diagnostic, mo, model_runs):
             CAST(d."{_metric_col}" AS DOUBLE) AS metric,
             CAST(m."metrics.test_accuracy" AS DOUBLE) AS accuracy
         FROM diag_runs d
-        JOIN model_runs m ON d."tags.parent_run_id" = m."run_id"
+        JOIN model_flt m ON d."tags.parent_run_id" = m."run_id"
         WHERE d."params.diagnostic_metric" = '{diagnostic.value}'
           AND d."params.split" = 'test'
-          AND m."params.topology" = 'grid'
-          AND m."params.epochs" = '200'
-          AND m."params.early_stopping_method" = 'val_acc'
         """
     )
     return (flt,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(flt, mo):
-    mo.sql(
-        """
+    _df = mo.sql(
+        f"""
         SELECT rho, count(*) AS n
         FROM flt
         GROUP BY rho

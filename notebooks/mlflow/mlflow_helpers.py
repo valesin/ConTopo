@@ -53,6 +53,51 @@ def get_runs(
     return df
 
 
+# ── Run filter helpers ───────────────────────────────────────────────────────
+
+
+def make_run_multiselects(mo, fields: dict, preset: dict) -> dict:
+    """Return a dict of mo.ui.multiselect widgets initialised from *preset*.
+
+    *fields* maps field keys to ``(sql_col, label, options)`` tuples — defined
+    by the caller per run kind. *preset* maps the same keys to selected-value
+    lists; missing keys fall back to the first option in *fields*.
+    Render with ``mo.vstack(list(controls.values()))`` and pass to
+    ``run_filter_clause`` to build the WHERE clause.
+    """
+    return {
+        key: mo.ui.multiselect(
+            options=opts,
+            value=preset.get(key, opts[:1]),
+            label=label,
+        )
+        for key, (_, label, opts) in fields.items()
+    }
+
+
+def run_filter_clause(mo, fields: dict, controls: dict) -> str:
+    """Validate *controls* and return a SQL WHERE clause string.
+
+    Calls ``mo.stop`` for any empty control, then returns an ``AND``-joined
+    ``IN (...)`` clause ready for injection into an ``mo.sql`` f-string::
+
+        _where = run_filter_clause(mo, FIELDS, controls)
+        mo.sql(f"SELECT * FROM model_runs WHERE {_where} ORDER BY ...")
+    """
+    for key, ctrl in controls.items():
+        _, label, _ = fields[key]
+        mo.stop(
+            not ctrl.value,
+            mo.callout(mo.md(f"Select at least one {label}."), kind="warn"),
+        )
+    parts = []
+    for key, ctrl in controls.items():
+        col, _, _ = fields[key]
+        in_list = ", ".join(f"'{v}'" for v in ctrl.value)
+        parts.append(f'"{col}" IN ({in_list})')
+    return " AND ".join(parts)
+
+
 # ── Inspection utilities ─────────────────────────────────────────────────────
 
 

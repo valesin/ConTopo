@@ -14,18 +14,18 @@ def _():
     from mlflow_helpers import (
         get_runs,
         varying_fields,
+        get_metric_history,
         make_run_multiselects,
         run_filter_clause,
     )
     import polars as pl
-    import numpy as np
     import matplotlib.pyplot as plt
 
     return (
+        get_metric_history,
         get_runs,
         make_run_multiselects,
         mo,
-        np,
         pl,
         plt,
         run_filter_clause,
@@ -78,7 +78,7 @@ def _(mo):
         },
         "B": {
             "model_arch": ["FinetuneResNet34"],
-            "topology": ["torus"],
+            "topology": ["grid"],
             "stopping": ["val_loss"],
             "epochs": ["100"],
         },
@@ -116,13 +116,24 @@ def _(model_flt, varying_fields):
 
 @app.cell
 def _(mo):
+    metric_ui = mo.ui.dropdown(
+        options=["train_topo_loss", "train_loss", "val_loss"],
+        value="train_topo_loss",
+        label="Metric",
+    )
+    metric_ui
+    return (metric_ui,)
+
+
+@app.cell
+def _(mo):
     RHO_GROUPS = {
         "All": None,
-        "Main": ["0.0", "0.008", "0.2", "0.04", "1.0", "5.0"],
+        "Main": ["0", "0.008", "0.02", "0.04", "1", "5"],
         "Fine [0.008–0.04]": (0.008, 0.04),
     }
     rho_group = mo.ui.radio(
-        options=list(RHO_GROUPS.keys()), value="All", label="ρ group"
+        options=list(RHO_GROUPS.keys()), value="Main", label="ρ group"
     )
     rho_group
     return RHO_GROUPS, rho_group
@@ -148,68 +159,59 @@ def _(RHO_GROUPS, mo, model_flt, rho_group):
     return (rho_ui,)
 
 
-@app.cell(hide_code=True)
-def _(mo, model_flt, rho_ui):
-    mo.stop(not rho_ui.value, mo.callout(mo.md("Select at least one ρ."), kind="warn"))
-    _df = mo.sql(
-        f"""
-        SELECT "params.rho" AS rho, count(*) AS n
-        FROM model_flt
-        WHERE "params.rho" IN ({", ".join(f"'{r}'" for r in rho_ui.value)})
-        GROUP BY rho
-        ORDER BY rho
-        """
+@app.cell
+def _(get_metric_history, metric_ui, mo, model_flt, pl, rho_ui):
+    mo.stop(
+        not rho_ui.value,
+        mo.callout(mo.md("Select at least one ρ."), kind="warn"),
     )
-    return
+    _df = model_flt.filter(pl.col("params.rho").is_in(rho_ui.value))
+    histories_by_rho = {}
+    for _row in _df.iter_rows(named=True):
+        _rho = _row["params.rho"]
+        _h = get_metric_history(_row["run_id"], metric_ui.value)
+        if _h.empty:
+            continue
+        histories_by_rho.setdefault(_rho, []).append(
+            {
+                "trial": _row["tags.trial"],
+                "history": _h,
+            }
+        )
+    return (histories_by_rho,)
 
 
 @app.cell
-def _(mo, model_flt, np, pl, plt, rho_ui):
-    mo.stop(not rho_ui.value, mo.callout(mo.md("Select at least one ρ."), kind="warn"))
-    _rho_vals = [
-        r
-        for r in sorted(model_flt["params.rho"].unique().to_list(), key=float)
-        if r in rho_ui.value
+def _(histories_by_rho, metric_ui, mo, plt):
+    mo.stop(
+        not histories_by_rho,
+        mo.callout(
+            mo.md("No metric history found for the selected runs."), kind="warn"
+        ),
+    )
+    _all_steps = [
+        s
+        for runs in histories_by_rho.values()
+        for _r in runs
+        for s in _r["history"]["step"]
     ]
-    _data = [
-        model_flt.filter(pl.col("params.rho") == r)["metrics.test_accuracy"]
-        .cast(pl.Float64)
-        .drop_nulls()
-        .to_list()
-        for r in _rho_vals
-    ]
+    _xlim = (min(_all_steps), max(_all_steps))
 
-    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
-    ax.boxplot(
-        _data,
-        positions=range(len(_rho_vals)),
-        patch_artist=True,
-        widths=0.5,
-        whis=[0, 100],
-        flierprops=dict(visible=False),
-        boxprops=dict(facecolor="steelblue", alpha=0.4),
-        medianprops=dict(color="steelblue", linewidth=2),
-        whiskerprops=dict(color="steelblue"),
-        capprops=dict(color="steelblue"),
-    )
-    for _i, _d in enumerate(_data):
-        ax.scatter([_i] * len(_d), _d, color="black", s=12, alpha=0.5, zorder=3)
-    ax.scatter(
-        range(len(_rho_vals)),
-        [np.mean(_d) for _d in _data],
-        color="firebrick",
-        s=100,
-        marker="D",
-        zorder=4,
-        label="mean",
-    )
-    ax.set_xticks(range(len(_rho_vals)))
-    ax.set_xticklabels(_rho_vals, rotation=45, ha="right", fontsize=8)
-    ax.set_xlabel("ρ")
-    ax.set_ylabel("Test accuracy")
-    ax.set_title("Model accuracy by ρ")
-    ax.legend(fontsize=8)
-    fig
+    _figs = []
+    for _rho in sorted(histories_by_rho.keys(), key=float):
+        _runs = histories_by_rho[_rho]
+        fig, ax = plt.subplots(figsize=(7, 3.5), constrained_layout=True)
+        for _r in _runs:
+            _h = _r["history"]
+            ax.plot(_h["step"], _h["value"], alpha=0.8, label=f"trial {_r['trial']}")
+        ax.set_xlim(_xlim)
+        ax.set_xlabel("Step")
+        ax.set_ylabel(metric_ui.value)
+        ax.set_title(f"ρ = {_rho}")
+        if len(_runs) > 1:
+            ax.legend(fontsize=8)
+        _figs.append(fig)
+    mo.vstack(_figs)
     return
 
 

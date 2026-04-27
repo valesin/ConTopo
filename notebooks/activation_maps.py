@@ -11,7 +11,13 @@ def _():
 
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
-    from mlflow_helpers import get_runs, load_inference_artifacts, varying_fields
+    from mlflow_helpers import (
+        get_runs,
+        load_inference_artifacts,
+        varying_fields,
+        make_run_multiselects,
+        run_filter_clause,
+    )
     from src.losses.topographic import get_grid_shape
     import numpy as np
     import matplotlib.pyplot as plt
@@ -20,9 +26,11 @@ def _():
         get_grid_shape,
         get_runs,
         load_inference_artifacts,
+        make_run_multiselects,
         mo,
         np,
         plt,
+        run_filter_clause,
         setup_environment,
         varying_fields,
     )
@@ -50,35 +58,79 @@ def _(model_runs, varying_fields):
 
 @app.cell
 def _(mo):
-    topology_ui = mo.ui.multiselect(
-        options=["grid", "torus"],
-        value=["grid"],
-        label="Topology",
-    )
-    topology_ui
-    return (topology_ui,)
+    FIELDS = {
+        "model_arch": (
+            "params.model_arch",
+            "Model arch",
+            ["LinearResNet18", "FinetuneResNet34"],
+        ),
+        "topology": ("params.topology", "Topology", ["grid", "torus"]),
+        "stopping": (
+            "params.early_stopping_method",
+            "Early stopping",
+            ["val_acc", "val_loss"],
+        ),
+        "epochs": ("params.epochs", "Epochs", ["200", "100"]),
+    }
+    PRESETS = {
+        "A": {
+            "model_arch": ["LinearResNet18"],
+            "topology": ["grid"],
+            "stopping": ["val_acc"],
+            "epochs": ["200"],
+        },
+        "B": {
+            "model_arch": ["FinetuneResNet34"],
+            "topology": ["grid"],
+            "stopping": ["val_loss"],
+            "epochs": ["100"],
+        },
+    }
+    preset = mo.ui.radio(options=list(PRESETS.keys()), value="A", label="Preset")
+    preset
+    return FIELDS, PRESETS, preset
 
 
 @app.cell
-def _(infer_runs, mo, model_runs, topology_ui):
-    mo.stop(
-        not topology_ui.value,
-        mo.callout(mo.md("Select at least one topology."), kind="warn"),
-    )
-    _topo = ", ".join(f"'{t}'" for t in topology_ui.value)
-    flt = mo.sql(
+def _(FIELDS, PRESETS, make_run_multiselects, mo, preset):
+    controls = make_run_multiselects(mo, FIELDS, PRESETS[preset.value])
+    mo.vstack(list(controls.values()))
+    return (controls,)
+
+
+@app.cell(hide_code=True)
+def _(FIELDS, controls, mo, model_runs, run_filter_clause):
+    _where = run_filter_clause(mo, FIELDS, controls)
+    model_flt = mo.sql(
         f"""
+        SELECT * FROM model_runs
+        WHERE {_where}
+          AND "tags.trial" = '0'
+        ORDER BY CAST("params.rho" AS DOUBLE)
+        """
+    )
+    return (model_flt,)
+
+
+@app.cell
+def _(model_flt, varying_fields):
+    varying_fields(model_flt)
+    return
+
+
+@app.cell(hide_code=True)
+def _(infer_runs, mo, model_flt):
+    mo.stop(
+        len(model_flt) == 0, mo.callout(mo.md("No runs match the filter."), kind="warn")
+    )
+    flt = mo.sql(
+        """
         SELECT
-            i."run_id"                          AS inference_run_id,
-            m."params.rho"                      AS rho,
-            m."tags.trial"     AS trial
+            i."run_id"       AS inference_run_id,
+            m."params.rho"   AS rho,
+            m."tags.trial"   AS trial
         FROM infer_runs i
-        JOIN model_runs m ON i."tags.trained_model_run_id" = m."run_id"
-        WHERE m."params.topology" IN ({_topo})
-          AND m."params.epochs" = '200'
-          AND m."params.early_stopping_method" = 'val_acc'
-          AND m."params.model_arch" = 'LinearResNet18'
-          AND m."tags.trial" = '0'
+        JOIN model_flt m ON i."tags.trained_model_run_id" = m."run_id"
         ORDER BY CAST(m."params.rho" AS DOUBLE), trial
         """
     )
@@ -87,7 +139,6 @@ def _(infer_runs, mo, model_runs, topology_ui):
 
 @app.cell
 def _(flt, mo):
-    mo.stop(len(flt) == 0, mo.callout(mo.md("No runs match the filter."), kind="warn"))
     _rhos = sorted(flt["rho"].unique().to_list(), key=float)
     rho_ui = mo.ui.multiselect(options=_rhos, value=_rhos, label="ρ values")
     rho_ui

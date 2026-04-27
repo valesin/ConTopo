@@ -231,17 +231,31 @@ Used when the run table has `params.*` / `tags.*` columns that need inspection
 before filtering.
 
 1. **SETUP**: `cfg, experiment = setup_environment()`.
-2. **LOAD**: `get_runs(kind)` — unfiltered; print count.
-3. **INSPECT**: `varying_fields(df)` — surfaces all axes of variation.
-4. **CONTROLS**: `mo.ui.dropdown` / `mo.ui.multiselect` for the dimensions you
-   want to drive interactively (placed *after* inspect so you know what's
-   available). Fixed dimensions are hardcoded in the SQL below.
-5. **FILTER**: `mo.sql(f"... WHERE ... AND field IN ({joined_values})")` — inject
-   interactive values via f-string; hardcode the rest. Guard with `mo.stop` if
-   controls are empty.
-6. **VERIFY**: `mo.sql("SELECT dim, count(*) AS n FROM flt GROUP BY dim ORDER BY dim")`
-   — informational count cell, no `return`.
-7. **PLOT**: matplotlib figure (see style rules below).
+2. **LOAD**: `get_runs(kind)` — unfiltered; print count. Call once per run kind
+   needed; each gets its own cell.
+3. **INSPECT**: `varying_fields(df)` — surfaces all axes of variation. One call
+   per loaded DataFrame, so you know what's available before declaring controls.
+4. **PRESETS** *(optional)*: a `mo.ui.radio` or `mo.ui.dropdown` whose value is
+   a key into a `PRESETS` dict. Each preset maps field keys to selected-value
+   lists. Placing this before the controls cell lets it seed the multiselects
+   without preventing manual overrides.
+5. **CONTROLS**: `mo.ui.multiselect` for the dimensions you want to drive
+   interactively (placed *after* inspect). If a preset cell exists, initialise
+   each multiselect from `preset_dict[preset.value][key]` so switching presets
+   resets the defaults. Define a local `FIELDS` dict in the preset cell mapping
+   field keys to `(sql_col, label, options)` tuples, then use
+   `make_run_multiselects(mo, FIELDS, preset)` and `run_filter_clause(mo, FIELDS,
+   controls)` from `mlflow_helpers` to avoid repeating the widget + stop-guard +
+   IN-list pattern per field. Each notebook defines its own `FIELDS`.
+6. **FILTER**: `mo.sql(f"... WHERE {_where} ORDER BY ...")` — inject the clause
+   returned by `run_filter_clause` via f-string; no table alias needed on the
+   `FROM` clause when there is no JOIN. `mo.stop` guards live inside
+   `run_filter_clause`, not in the cell itself.
+7. **VERIFY (post-filter inspect)**: `varying_fields(filtered_df)` — confirms
+   that the filter collapsed the expected axes. No `return`.
+8. **VERIFY (count)**: `mo.sql("SELECT dim, count(*) AS n FROM flt GROUP BY dim
+   ORDER BY dim")` — informational count cell, no `return`.
+9. **PLOT**: matplotlib figure (see style rules below).
 
 Representative: `model_diagnostics_vs_rho.py`, `activation_maps.py`,
 `single_models_accuracy.py`.

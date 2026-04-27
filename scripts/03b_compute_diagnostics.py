@@ -244,9 +244,12 @@ def main(cfg: DictConfig) -> None:
             except Exception as e:
                 print(f"ERROR: failed to load model {model_uri}: {e}")
                 raise
-            # Safely unwrap model to target the `fc` layer directly
+            # Safely unwrap model to target the embedding linear layer.
+            # FinetuneResNet34/ScratchResNet34 use `neck`; LinearResNet18 uses `fc`.
             base_model = unwrap(model).to(device)
-            fc_layer = getattr(base_model, "fc", None)
+            fc_layer = getattr(base_model, "neck", None) or getattr(
+                base_model, "fc", None
+            )
 
             if fc_layer is None or not isinstance(fc_layer, nn.Linear):
                 print(

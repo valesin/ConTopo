@@ -1,5 +1,8 @@
 # ── Runtime parameters (do NOT affect results → excluded from cfg_hash) ──
 device: cuda                                     # auto | cuda | cpu
+# On shared GPUs, memory fragmentation can cause OOM even with headroom. Set:
+#   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# before launching to let the allocator grow segments instead of pre-reserving.
 data_parallel: false                             # hardcoded: single-GPU per job only
 num_workers: 2
 pin_memory: true

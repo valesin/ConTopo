@@ -22,7 +22,7 @@ defaults:
   - override /profiling: imagenet100
 
 mlflow:
-  experiment_name: contopo_imagenet100_paper
+  experiment_name: contopo
 
 model:
   p_dropout: 0.3
