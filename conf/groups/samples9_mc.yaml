@@ -12,5 +12,5 @@ filter:                      # optional MLflow filters using full entity paths, 
 sample_size: 9
 field_ranges: {}
 sampling_strategy: monte_carlo
-mc_n_samples: 10
+mc_n_samples: 15
 mc_seed: 100

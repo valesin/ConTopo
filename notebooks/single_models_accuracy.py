@@ -159,7 +159,7 @@ def _(mo, model_flt, rho_ui):
         ORDER BY rho
         """
     )
-    return (rho_counts,)
+    return
 
 
 @app.cell
