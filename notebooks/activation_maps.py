@@ -138,9 +138,31 @@ def _(infer_runs, mo, model_flt):
 
 
 @app.cell
-def _(flt, mo):
-    _rhos = sorted(flt["rho"].unique().to_list(), key=float)
-    rho_ui = mo.ui.multiselect(options=_rhos, value=_rhos, label="ρ values")
+def _(mo):
+    RHO_GROUPS = {
+        "—": [],
+        "All": None,
+        "Main": ["0.0", "0.008", "0.04", "0.2", "1.0", "5.0"],
+        "Fine [0.008–0.04]": (0.008, 0.04),
+    }
+    rho_group = mo.ui.radio(options=list(RHO_GROUPS.keys()), value="—", label="ρ group")
+    rho_group
+    return RHO_GROUPS, rho_group
+
+
+@app.cell
+def _(RHO_GROUPS, flt, mo, rho_group):
+    mo.stop(len(flt) == 0, mo.callout(mo.md("No runs match the filter."), kind="warn"))
+    _available = sorted(flt["rho"].unique().to_list(), key=float)
+    _group = RHO_GROUPS[rho_group.value]
+    if _group is None:
+        _default = _available
+    elif isinstance(_group, list):
+        _default = [r for r in _available if r in _group]
+    else:
+        _lo, _hi = _group
+        _default = [r for r in _available if _lo <= float(r) <= _hi]
+    rho_ui = mo.ui.multiselect(options=_available, value=_default, label="ρ values")
     rho_ui
     return (rho_ui,)
 

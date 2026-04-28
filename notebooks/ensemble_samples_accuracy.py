@@ -7,31 +7,16 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import marimo as mo
-
-    return (mo,)
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        """
-    # Ensemble accuracy vs ρ — sampled combinations (samples9, soft, test)
-    """
-    )
-    return
-
-
-@app.cell
-def _():
     import sys, os
 
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
     from mlflow_helpers import get_ensemble_results_for_groups
     import polars as pl
-    import altair as alt
+    import numpy as np
+    import matplotlib.pyplot as plt
 
-    return alt, get_ensemble_results_for_groups, pl, setup_environment
+    return get_ensemble_results_for_groups, mo, np, pl, plt, setup_environment
 
 
 @app.cell
@@ -42,21 +27,32 @@ def _(mo, setup_environment):
 
 
 @app.cell
-def _(get_ensemble_results_for_groups, mo, pl):
-    _GROUPS = "samples9_mc"
-    _SPLIT = "test"
-    _METHOD = "soft"
+def _(mo):
+    groups_ui = mo.ui.text(value="samples9_mc", label="Groups")
+    split_ui = mo.ui.dropdown(
+        options=["test", "val", "train"], value="test", label="Split"
+    )
+    method_ui = mo.ui.radio(options=["soft", "hard"], value="soft", label="Vote method")
+    mo.vstack([groups_ui, split_ui, method_ui])
+    return groups_ui, method_ui, split_ui
 
-    runs_pd = get_ensemble_results_for_groups(_GROUPS, _SPLIT)
-    runs_pd = runs_pd[runs_pd["vote_method"] == _METHOD]
 
-    if runs_pd.empty:
-        mo.stop(
-            True,
-            mo.callout(mo.md("No runs found for this configuration."), kind="warn"),
-        )
+@app.cell
+def _(get_ensemble_results_for_groups, groups_ui, method_ui, mo, pl, split_ui):
+    mo.stop(
+        not groups_ui.value.strip(),
+        mo.callout(mo.md("Enter a groups name."), kind="warn"),
+    )
 
-    runs = pl.from_pandas(runs_pd).with_columns(
+    _runs_pd = get_ensemble_results_for_groups(groups_ui.value.strip(), split_ui.value)
+    _runs_pd = _runs_pd[_runs_pd["vote_method"] == method_ui.value]
+
+    mo.stop(
+        _runs_pd.empty,
+        mo.callout(mo.md("No runs found for this configuration."), kind="warn"),
+    )
+
+    runs = pl.from_pandas(_runs_pd).with_columns(
         (pl.col("accuracy") - pl.col("comp_mean_acc")).alias("gain"),
     )
     mo.md(f"**Runs loaded:** {len(runs)}")
@@ -77,174 +73,123 @@ def _(pl, runs):
         )
         .sort("rho_numeric")
     )
-    return (agg,)
+    rho_order = agg["rho"].to_list()
+    return agg, rho_order
 
 
 @app.cell
-def _(mo):
-    mo.md(
-        """
-    ### Ensemble vs solo component accuracy
-    """
+def _(agg, plt, rho_order):
+    _x = list(range(len(rho_order)))
+    _mean_acc = agg["mean_acc"].to_list()
+    _std_acc = [v or 0.0 for v in agg["std_acc"].to_list()]
+    _mean_comp = agg["mean_comp_acc"].to_list()
+    _lo = [m - s for m, s in zip(_mean_acc, _std_acc)]
+    _hi = [m + s for m, s in zip(_mean_acc, _std_acc)]
+
+    fig_vs, ax_vs = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    ax_vs.plot(
+        _x,
+        _mean_acc,
+        marker="o",
+        color="#636EFA",
+        label="ensemble acc (mean over combos)",
     )
+    ax_vs.fill_between(_x, _lo, _hi, alpha=0.15, color="#636EFA")
+    ax_vs.plot(
+        _x,
+        _mean_comp,
+        marker="o",
+        color="#EF553B",
+        linestyle="--",
+        label="mean component acc",
+    )
+    ax_vs.set_xticks(_x)
+    ax_vs.set_xticklabels(rho_order, rotation=45, ha="right")
+    ax_vs.set_xlabel("ρ")
+    ax_vs.set_ylabel("accuracy")
+    ax_vs.set_title("Ensemble vs solo component accuracy")
+    ax_vs.legend()
+    ax_vs.grid(alpha=0.3)
+    fig_vs
     return
 
 
 @app.cell
-def _(agg, alt, pl):
-    _df = (
-        agg.with_columns(pl.col("std_acc").fill_null(0.0))
-        .select(
-            pl.col("rho"),
-            pl.col("rho_numeric"),
-            pl.col("mean_acc"),
-            (pl.col("mean_acc") - pl.col("std_acc")).alias("lower"),
-            (pl.col("mean_acc") + pl.col("std_acc")).alias("upper"),
-            pl.col("mean_comp_acc"),
-        )
-        .to_pandas()
-    )
+def _(agg, plt, rho_order, runs):
+    _pts = runs.sort("rho_numeric").select(["rho", "accuracy"]).to_pandas()
+    _floor = round(float(_pts["accuracy"].min()) - 0.005, 3)
+    _x = list(range(len(rho_order)))
+    _mean_acc = agg["mean_acc"].to_list()
 
-    _sort = alt.EncodingSortField(field="rho_numeric")
-
-    _yscale = alt.Scale(zero=False)
-
-    _band = (
-        alt.Chart(_df)
-        .mark_area(opacity=0.15, color="#636EFA")
-        .encode(
-            x=alt.X("rho:O", sort=_sort, title="ρ"),
-            y=alt.Y("lower:Q", title="Accuracy", scale=_yscale),
-            y2=alt.Y2("upper:Q"),
-        )
+    fig_bar, ax_bar = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    ax_bar.bar(
+        _x, [m - _floor for m in _mean_acc], bottom=_floor, color="#636EFA", alpha=0.55
     )
-    _ensemble = (
-        alt.Chart(_df)
-        .mark_line(point=True, color="#636EFA")
-        .encode(
-            x=alt.X("rho:O", sort=_sort),
-            y=alt.Y("mean_acc:Q", title="Accuracy", scale=_yscale),
-            tooltip=["rho", "mean_acc"],
+    for _i, _rho in enumerate(rho_order):
+        _acc = _pts[_pts["rho"] == _rho]["accuracy"].values
+        ax_bar.scatter(
+            [_i] * len(_acc), _acc, color="#1a1a2e", s=35, alpha=0.75, zorder=3
         )
-        .properties(title="Ensemble acc (soft, mean over combos)")
+    ax_bar.set_xticks(_x)
+    ax_bar.set_xticklabels(rho_order, rotation=45, ha="right")
+    ax_bar.set_xlabel("ρ")
+    ax_bar.set_ylabel("accuracy")
+    ax_bar.set_ylim(_floor - 0.005, None)
+    ax_bar.set_title(
+        "Mean ensemble accuracy per ρ (bars = mean, dots = individual combos)"
     )
-    _solo = (
-        alt.Chart(_df)
-        .mark_line(point=True, color="#EF553B", strokeDash=[4, 2])
-        .encode(
-            x=alt.X("rho:O", sort=_sort),
-            y=alt.Y("mean_comp_acc:Q", title="Accuracy", scale=_yscale),
-            tooltip=["rho", "mean_comp_acc"],
-        )
-        .properties(title="Mean component acc (avg. over all N models in group)")
-    )
-
-    (_band + _ensemble + _solo).resolve_scale(y="shared").properties(width=600)
+    ax_bar.grid(alpha=0.3)
+    fig_bar
     return
 
 
 @app.cell
-def _(mo):
-    mo.md(
-        """
-    ### Mean accuracy per ρ (soft voting)
-    """
-    )
+def _(agg, plt, rho_order):
+    _x = list(range(len(rho_order)))
+    _mean_gain = agg["mean_gain"].to_list()
+    _std_gain = [v or 0.0 for v in agg["std_gain"].to_list()]
+    _lo = [m - s for m, s in zip(_mean_gain, _std_gain)]
+    _hi = [m + s for m, s in zip(_mean_gain, _std_gain)]
+
+    fig_gain, ax_gain = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    ax_gain.plot(_x, _mean_gain, marker="o", color="#32AB60", label="mean gain")
+    ax_gain.fill_between(_x, _lo, _hi, alpha=0.15, color="#32AB60")
+    ax_gain.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+    ax_gain.set_xticks(_x)
+    ax_gain.set_xticklabels(rho_order, rotation=45, ha="right")
+    ax_gain.set_xlabel("ρ")
+    ax_gain.set_ylabel("gain")
+    ax_gain.set_title("Mean gain (ensemble − mean component acc)")
+    ax_gain.legend()
+    ax_gain.grid(alpha=0.3)
+    fig_gain
     return
 
 
 @app.cell
-def _(agg, alt, pl, runs):
-    _bar_df = agg.select(
-        pl.col("rho"), pl.col("rho_numeric"), pl.col("mean_acc")
-    ).to_pandas()
+def _(np, plt, runs):
+    _df = runs.select(["rho", "rho_numeric", "comp_mean_acc", "gain"]).to_pandas()
+    _rhos = sorted(_df["rho"].unique(), key=lambda r: float(r))
+    _colors = plt.cm.tab10(np.linspace(0, 1, min(len(_rhos), 10)))
+    _rho_color = {r: _colors[i % 10] for i, r in enumerate(_rhos)}
 
-    _pts_df = runs.select(
-        pl.col("rho"), pl.col("rho_numeric"), pl.col("accuracy")
-    ).to_pandas()
-
-    _floor = round(float(_pts_df["accuracy"].min()) - 0.005, 3)
-    _sort = alt.EncodingSortField(field="rho_numeric")
-    _yscale = alt.Scale(zero=False, domainMin=_floor)
-
-    _bars = (
-        alt.Chart(_bar_df)
-        .mark_bar(opacity=0.55, color="#636EFA")
-        .encode(
-            x=alt.X("rho:O", sort=_sort, title="ρ"),
-            y=alt.Y("mean_acc:Q", title="Accuracy", scale=_yscale),
-            y2=alt.Y2(datum=_floor),
-            tooltip=["rho", alt.Tooltip("mean_acc:Q", format=".4f")],
+    fig_sc, ax_sc = plt.subplots(figsize=(7, 5), constrained_layout=True)
+    for _rho in _rhos:
+        _sub = _df[_df["rho"] == _rho]
+        ax_sc.scatter(
+            _sub["comp_mean_acc"],
+            _sub["gain"],
+            color=_rho_color[_rho],
+            alpha=0.5,
+            s=36,
+            label=_rho,
         )
-    )
-
-    _points = (
-        alt.Chart(_pts_df)
-        .mark_circle(size=55, color="#1a1a2e", opacity=0.75)
-        .encode(
-            x=alt.X("rho:O", sort=_sort),
-            y=alt.Y("accuracy:Q", scale=_yscale),
-            tooltip=["rho", alt.Tooltip("accuracy:Q", format=".4f")],
-        )
-    )
-
-    (_bars + _points).properties(
-        width=400,
-        height=320,
-        title="Mean ensemble accuracy per ρ — soft voting (bars = mean, dots = individual combos)",
-    )
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        """
-    ### Does gain increase with ρ?
-    """
-    )
-    return
-
-
-@app.cell
-def _(agg, alt, pl):
-    _df = (
-        agg.with_columns(pl.col("std_gain").fill_null(0.0))
-        .select(
-            pl.col("rho"),
-            pl.col("rho_numeric"),
-            pl.col("mean_gain"),
-            (pl.col("mean_gain") - pl.col("std_gain")).alias("lower"),
-            (pl.col("mean_gain") + pl.col("std_gain")).alias("upper"),
-        )
-        .to_pandas()
-    )
-
-    _sort = alt.EncodingSortField(field="rho_numeric")
-
-    _yscale = alt.Scale(zero=False)
-
-    _band = (
-        alt.Chart(_df)
-        .mark_area(opacity=0.15, color="#32AB60")
-        .encode(
-            x=alt.X("rho:O", sort=_sort, title="ρ"),
-            y=alt.Y("lower:Q", title="Gain", scale=_yscale),
-            y2=alt.Y2("upper:Q"),
-        )
-    )
-    _line = (
-        alt.Chart(_df)
-        .mark_line(point=True, color="#32AB60")
-        .encode(
-            x=alt.X("rho:O", sort=_sort, title="ρ"),
-            y=alt.Y("mean_gain:Q", title="Gain", scale=_yscale),
-            tooltip=["rho", "mean_gain"],
-        )
-        .properties(title="Mean gain (ensemble − mean component acc)")
-    )
-
-    (_band + _line).properties(width=600)
+    ax_sc.set_xlabel("mean component acc (this combo)")
+    ax_sc.set_ylabel("gain (ensemble − mean component acc)")
+    ax_sc.set_title("Confounding check — gain vs component strength, coloured by ρ")
+    ax_sc.legend(title="ρ", fontsize=7, ncol=2)
+    ax_sc.grid(alpha=0.3)
+    fig_sc
     return
 
 
@@ -254,76 +199,27 @@ def _(mo, runs):
 
     _rho_vals = runs["rho_numeric"].to_list()
     _gain_vals = runs["gain"].to_list()
+    _acc_vals = runs["comp_mean_acc"].to_list()
     _stat, _pval = spearmanr(_rho_vals, _gain_vals)
+    _stat2, _pval2 = spearmanr(_rho_vals, _acc_vals)
 
-    mo.callout(
-        mo.md(
-            f"**Spearman ρ (rho_numeric vs gain) = {_stat:.3f}** &nbsp;|&nbsp; "
-            f"p = {_pval:.2e} &nbsp;|&nbsp; n = {len(_gain_vals)} combos"
-        ),
-        kind="info",
-    )
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        """
-    ### Confounding check — is gain driven by weak components?
-
-    If higher gain merely reflects weaker component models (easier to beat), the scatter
-    below would show a negative slope regardless of ρ. Colour by ρ to see whether the
-    gain-vs-mean-component relationship shifts across regularisation levels.
-    """
-    )
-    return
-
-
-@app.cell
-def _(alt, pl, runs):
-    _df = runs.select(
-        pl.col("rho"),
-        pl.col("comp_mean_acc"),
-        pl.col("gain"),
-    ).to_pandas()
-
-    alt.Chart(_df).mark_circle(opacity=0.5, size=36).encode(
-        x=alt.X(
-            "comp_mean_acc:Q",
-            title="Mean component acc (this combo)",
-            scale=alt.Scale(zero=False),
-        ),
-        y=alt.Y(
-            "gain:Q",
-            title="Gain (ensemble − mean component acc)",
-            scale=alt.Scale(zero=False),
-        ),
-        color=alt.Color("rho:N", title="ρ"),
-        tooltip=["rho", "comp_mean_acc", "gain"],
-    ).properties(width=600, height=400)
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        """
-    ---
-    ### Reference tables
-    """
-    )
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        """
-    **Aggregated by ρ** — mean component acc is derived by averaging `comp_mean_acc` across
-    all C(N, k) combos; by combinatorial symmetry this equals the mean acc of all N models
-    in the pool.
-    """
+    mo.vstack(
+        [
+            mo.callout(
+                mo.md(
+                    f"**Spearman ρ (rho_numeric vs gain) = {_stat:.3f}** &nbsp;|&nbsp; "
+                    f"p = {_pval:.2e} &nbsp;|&nbsp; n = {len(_gain_vals)} combos"
+                ),
+                kind="info",
+            ),
+            mo.callout(
+                mo.md(
+                    f"**Spearman ρ (ensemble gain vs mean component accuracy) = {_stat2:.3f}** &nbsp;|&nbsp; "
+                    f"p = {_pval2:.2e} &nbsp;|&nbsp; n = {len(_gain_vals)} combos"
+                ),
+                kind="info",
+            ),
+        ]
     )
     return
 
@@ -343,17 +239,6 @@ def _(agg, mo, pl):
         ]
     )
     mo.ui.table(table_df.to_pandas(), selection=None)
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        """
-    **Per combo** — `mean component acc (this combo)` is `comp_mean_acc` as logged by the
-    pipeline: mean accuracy of the k component models in this specific combo.
-    """
-    )
     return
 
 

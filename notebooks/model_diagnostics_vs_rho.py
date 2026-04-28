@@ -122,6 +122,38 @@ def _(model_flt, varying_fields):
 
 
 @app.cell
+def _(mo):
+    RHO_GROUPS = {
+        "—": [],
+        "All": None,
+        "Main": ["0.0", "0.008", "0.04", "0.2", "1.0", "5.0"],
+        "Fine [0.008–0.04]": (0.008, 0.04),
+    }
+    rho_group = mo.ui.radio(options=list(RHO_GROUPS.keys()), value="—", label="ρ group")
+    rho_group
+    return RHO_GROUPS, rho_group
+
+
+@app.cell
+def _(RHO_GROUPS, mo, model_flt, rho_group):
+    mo.stop(
+        len(model_flt) == 0, mo.callout(mo.md("No runs match the filter."), kind="warn")
+    )
+    _available = sorted(model_flt["params.rho"].unique().to_list(), key=float)
+    _group = RHO_GROUPS[rho_group.value]
+    if _group is None:
+        _default = _available
+    elif isinstance(_group, list):
+        _default = [r for r in _available if r in _group]
+    else:
+        _lo, _hi = _group
+        _default = [r for r in _available if _lo <= float(r) <= _hi]
+    rho_ui = mo.ui.multiselect(options=_available, value=_default, label="ρ values")
+    rho_ui
+    return (rho_ui,)
+
+
+@app.cell
 def _(METRIC_MAP, mo):
     diagnostic = mo.ui.dropdown(
         options=list(METRIC_MAP.keys()),
@@ -133,8 +165,10 @@ def _(METRIC_MAP, mo):
 
 
 @app.cell(hide_code=True)
-def _(METRIC_MAP, diag_runs, diagnostic, mo, model_flt):
+def _(METRIC_MAP, diag_runs, diagnostic, mo, model_flt, rho_ui):
+    mo.stop(not rho_ui.value, mo.callout(mo.md("Select at least one ρ."), kind="warn"))
     _metric_col = METRIC_MAP[diagnostic.value]
+    _rho_in = ", ".join(f"'{r}'" for r in rho_ui.value)
     flt = mo.sql(
         f"""
         SELECT
@@ -145,6 +179,7 @@ def _(METRIC_MAP, diag_runs, diagnostic, mo, model_flt):
         JOIN model_flt m ON d."tags.parent_run_id" = m."run_id"
         WHERE d."params.diagnostic_metric" = '{diagnostic.value}'
           AND d."params.split" = 'test'
+          AND m."params.rho" IN ({_rho_in})
         """
     )
     return (flt,)

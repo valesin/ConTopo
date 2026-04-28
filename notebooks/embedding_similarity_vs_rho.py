@@ -13,10 +13,12 @@ def _():
     sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mlflow"))
     from src.config.notebook import setup_environment
     from mlflow_helpers import (
+        get_artifact_cache_dir,
         get_runs,
         load_inference_artifacts,
+        make_run_multiselects,
+        run_filter_clause,
         varying_fields,
-        get_artifact_cache_dir,
     )
     import numpy as np
     import matplotlib.pyplot as plt
@@ -26,9 +28,11 @@ def _():
         get_artifact_cache_dir,
         get_runs,
         load_inference_artifacts,
+        make_run_multiselects,
         mo,
         np,
         plt,
+        run_filter_clause,
         setup_environment,
         varying_fields,
     )
@@ -55,20 +59,80 @@ def _(model_runs, varying_fields):
 
 
 @app.cell
-def _(infer_runs, mo, model_runs):
-    flt = mo.sql(
+def _(mo):
+    FIELDS = {
+        "model_arch": (
+            "params.model_arch",
+            "Model arch",
+            ["LinearResNet18", "FinetuneResNet34"],
+        ),
+        "topology": ("params.topology", "Topology", ["grid", "torus"]),
+        "stopping": (
+            "params.early_stopping_method",
+            "Early stopping",
+            ["val_acc", "val_loss"],
+        ),
+        "epochs": ("params.epochs", "Epochs", ["200", "100"]),
+    }
+    PRESETS = {
+        "A": {
+            "model_arch": ["LinearResNet18"],
+            "topology": ["grid"],
+            "stopping": ["val_acc"],
+            "epochs": ["200"],
+        },
+        "B": {
+            "model_arch": ["FinetuneResNet34"],
+            "topology": ["grid"],
+            "stopping": ["val_loss"],
+            "epochs": ["100"],
+        },
+    }
+    preset = mo.ui.radio(options=list(PRESETS.keys()), value="A", label="Preset")
+    preset
+    return FIELDS, PRESETS, preset
+
+
+@app.cell
+def _(FIELDS, PRESETS, make_run_multiselects, mo, preset):
+    controls = make_run_multiselects(mo, FIELDS, PRESETS[preset.value])
+    mo.vstack(list(controls.values()))
+    return (controls,)
+
+
+@app.cell(hide_code=True)
+def _(FIELDS, controls, mo, model_runs, run_filter_clause):
+    _where = run_filter_clause(mo, FIELDS, controls)
+    model_flt = mo.sql(
         f"""
+        SELECT * FROM model_runs
+        WHERE {_where}
+          AND "tags.trial" = '0'
+        ORDER BY CAST("params.rho" AS DOUBLE)
+        """
+    )
+    return (model_flt,)
+
+
+@app.cell
+def _(model_flt, varying_fields):
+    varying_fields(model_flt)
+    return
+
+
+@app.cell(hide_code=True)
+def _(infer_runs, mo, model_flt):
+    mo.stop(
+        len(model_flt) == 0, mo.callout(mo.md("No runs match the filter."), kind="warn")
+    )
+    flt = mo.sql(
+        """
         SELECT
-            i."run_id"                       AS inference_run_id,
-            m."params.rho"                   AS rho,
-            COALESCE(m."tags.trial", '0')    AS trial
+            i."run_id"                    AS inference_run_id,
+            m."params.rho"                AS rho,
+            COALESCE(m."tags.trial", '0') AS trial
         FROM infer_runs i
-        JOIN model_runs m ON i."tags.trained_model_run_id" = m."run_id"
-        WHERE m."params.topology" = 'grid'
-          AND m."params.epochs" = '200'
-          AND m."params.early_stopping_method" = 'val_acc'
-          AND m."params.model_arch" = 'LinearResNet18'
-          AND m."tags.trial" = '0'
+        JOIN model_flt m ON i."tags.trained_model_run_id" = m."run_id"
         ORDER BY CAST(m."params.rho" AS DOUBLE), trial
         """
     )
@@ -76,10 +140,31 @@ def _(infer_runs, mo, model_runs):
 
 
 @app.cell
-def _(flt, mo):
+def _(mo):
+    RHO_GROUPS = {
+        "—": [],
+        "All": None,
+        "Main": ["0.0", "0.008", "0.04", "0.2", "1.0", "5.0"],
+        "Fine [0.008–0.04]": (0.008, 0.04),
+    }
+    rho_group = mo.ui.radio(options=list(RHO_GROUPS.keys()), value="—", label="ρ group")
+    rho_group
+    return RHO_GROUPS, rho_group
+
+
+@app.cell
+def _(RHO_GROUPS, flt, mo, rho_group):
     mo.stop(len(flt) == 0, mo.callout(mo.md("No runs match the filter."), kind="warn"))
-    _rhos = sorted(flt["rho"].unique().to_list(), key=float)
-    rho_ui = mo.ui.multiselect(options=_rhos, value=_rhos, label="ρ values")
+    _available = sorted(flt["rho"].unique().to_list(), key=float)
+    _group = RHO_GROUPS[rho_group.value]
+    if _group is None:
+        _default = _available
+    elif isinstance(_group, list):
+        _default = [r for r in _available if r in _group]
+    else:
+        _lo, _hi = _group
+        _default = [r for r in _available if _lo <= float(r) <= _hi]
+    rho_ui = mo.ui.multiselect(options=_available, value=_default, label="ρ values")
     refresh_cache_ui = mo.ui.checkbox(value=False, label="Refresh cache")
     mo.vstack([rho_ui, refresh_cache_ui])
     return refresh_cache_ui, rho_ui
@@ -111,10 +196,8 @@ def _(
         _emb = _tensors["embeddings"].astype(float)
         _labels = _df["label"].values.astype(int)
 
-        # L2-normalise
         _emb_n = _emb / np.clip(np.linalg.norm(_emb, axis=1, keepdims=True), 1e-9, None)
 
-        # Within-class: all pairs per class via gram matrix, upper triangle
         _w_sims = []
         for _c in range(10):
             _ec = _emb_n[_labels == _c]
@@ -122,7 +205,6 @@ def _(
             _w_sims.append(_gram[np.triu_indices(len(_ec), k=1)])
         _within = np.concatenate(_w_sims)
 
-        # Across-class: random pairs matched to within-class count
         _rng = np.random.default_rng(42)
         _i1 = _rng.integers(0, len(_labels), len(_within) * 4)
         _i2 = _rng.integers(0, len(_labels), len(_within) * 4)
@@ -195,8 +277,7 @@ def _(across_by_rho, np, plt, rho_labels, within_by_rho):
     ax_v.set_ylabel("cosine similarity")
     ax_v.set_title("Within-class vs across-class cosine similarity distribution")
     ax_v.legend(
-        [_vp_w["bodies"][0], _vp_a["bodies"][0]],
-        ["within-class", "across-class"],
+        [_vp_w["bodies"][0], _vp_a["bodies"][0]], ["within-class", "across-class"]
     )
     fig_violin
     return

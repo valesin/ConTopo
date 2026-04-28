@@ -128,13 +128,12 @@ def _(mo):
 @app.cell
 def _(mo):
     RHO_GROUPS = {
+        "—": [],
         "All": None,
-        "Main": ["0", "0.008", "0.02", "0.04", "1", "5"],
+        "Main": ["0.0", "0.008", "0.04", "0.2", "1.0", "5.0"],
         "Fine [0.008–0.04]": (0.008, 0.04),
     }
-    rho_group = mo.ui.radio(
-        options=list(RHO_GROUPS.keys()), value="Main", label="ρ group"
-    )
+    rho_group = mo.ui.radio(options=list(RHO_GROUPS.keys()), value="—", label="ρ group")
     rho_group
     return RHO_GROUPS, rho_group
 
@@ -160,7 +159,13 @@ def _(RHO_GROUPS, mo, model_flt, rho_group):
 
 
 @app.cell
-def _(get_metric_history, metric_ui, mo, model_flt, pl, rho_ui):
+def _():
+    history_cache = {}
+    return (history_cache,)
+
+
+@app.cell
+def _(get_metric_history, history_cache, metric_ui, mo, model_flt, pl, rho_ui):
     mo.stop(
         not rho_ui.value,
         mo.callout(mo.md("Select at least one ρ."), kind="warn"),
@@ -169,7 +174,10 @@ def _(get_metric_history, metric_ui, mo, model_flt, pl, rho_ui):
     histories_by_rho = {}
     for _row in _df.iter_rows(named=True):
         _rho = _row["params.rho"]
-        _h = get_metric_history(_row["run_id"], metric_ui.value)
+        _key = (_row["run_id"], metric_ui.value)
+        if _key not in history_cache:
+            history_cache[_key] = get_metric_history(_row["run_id"], metric_ui.value)
+        _h = history_cache[_key]
         if _h.empty:
             continue
         histories_by_rho.setdefault(_rho, []).append(
@@ -208,8 +216,6 @@ def _(histories_by_rho, metric_ui, mo, plt):
         ax.set_xlabel("Step")
         ax.set_ylabel(metric_ui.value)
         ax.set_title(f"ρ = {_rho}")
-        if len(_runs) > 1:
-            ax.legend(fontsize=8)
         _figs.append(fig)
     mo.vstack(_figs)
     return

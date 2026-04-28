@@ -78,7 +78,7 @@ def _(mo):
         },
         "B": {
             "model_arch": ["FinetuneResNet34"],
-            "topology": ["torus"],
+            "topology": ["grid"],
             "stopping": ["val_loss"],
             "epochs": ["100"],
         },
@@ -117,13 +117,12 @@ def _(model_flt, varying_fields):
 @app.cell
 def _(mo):
     RHO_GROUPS = {
+        "—": [],
         "All": None,
-        "Main": ["0.0", "0.008", "0.2", "0.04", "1.0", "5.0"],
+        "Main": ["0.0", "0.008", "0.04", "0.2", "1.0", "5.0"],
         "Fine [0.008–0.04]": (0.008, 0.04),
     }
-    rho_group = mo.ui.radio(
-        options=list(RHO_GROUPS.keys()), value="All", label="ρ group"
-    )
+    rho_group = mo.ui.radio(options=list(RHO_GROUPS.keys()), value="—", label="ρ group")
     rho_group
     return RHO_GROUPS, rho_group
 
@@ -151,7 +150,7 @@ def _(RHO_GROUPS, mo, model_flt, rho_group):
 @app.cell(hide_code=True)
 def _(mo, model_flt, rho_ui):
     mo.stop(not rho_ui.value, mo.callout(mo.md("Select at least one ρ."), kind="warn"))
-    _df = mo.sql(
+    rho_counts = mo.sql(
         f"""
         SELECT "params.rho" AS rho, count(*) AS n
         FROM model_flt
@@ -160,7 +159,7 @@ def _(mo, model_flt, rho_ui):
         ORDER BY rho
         """
     )
-    return
+    return (rho_counts,)
 
 
 @app.cell
